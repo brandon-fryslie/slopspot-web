@@ -3,7 +3,9 @@
 import { registerProvider } from './registry'
 import { falFluxMock } from './fal-flux-mock'
 import { replicateSdxlMock } from './replicate-sdxl-mock'
+import { falFlux } from './fal-flux'
 
+registerProvider(falFlux)
 registerProvider(falFluxMock)
 registerProvider(replicateSdxlMock)
 
