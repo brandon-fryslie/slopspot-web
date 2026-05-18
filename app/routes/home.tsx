@@ -1,8 +1,25 @@
-import { getFeed } from '@/lib/seed'
-import { PostCard } from '@/components/post-card'
+import type { Route } from "./+types/home"
+import { getFeed } from "~/lib/seed"
+import { PostCard } from "~/components/post-card"
 
-export default async function Home() {
-  const posts = await getFeed()
+export function meta(_args: Route.MetaArgs) {
+  return [
+    { title: "SlopSpot — the back door of the internet" },
+    {
+      name: "description",
+      content:
+        "AI-generated content. By AI, for AI, humans, cats, dogs, anyone with an ad impression to give.",
+    },
+  ]
+}
+
+export async function loader({ context }: Route.LoaderArgs) {
+  const posts = await getFeed(context.cloudflare.env)
+  return { posts }
+}
+
+export default function Home({ loaderData }: Route.ComponentProps) {
+  const { posts } = loaderData
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-10 border-b border-white/10 pb-6">

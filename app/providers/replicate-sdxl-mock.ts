@@ -1,6 +1,6 @@
-import { z } from 'zod'
-import { ProviderId, type Media } from '@/domain'
-import type { GenerationProvider } from './types'
+import { z } from "zod"
+import { ProviderId, type Media } from "~/lib/domain"
+import type { GenerationProvider } from "./types"
 
 // Replicate SDXL shape: prompt + negative prompt + free w/h + guidance scale + optional
 // seed. Structurally different from fal-flux: continuous dimensions vs categorical
@@ -23,15 +23,15 @@ function hash(s: string): number {
 }
 
 export const replicateSdxlMock: GenerationProvider<Params> = {
-  id: ProviderId('replicate-sdxl-mock'),
-  version: '2026-05-15',
-  displayName: 'Replicate SDXL (mock)',
+  id: ProviderId("replicate-sdxl-mock"),
+  version: "2026-05-17",
+  displayName: "Replicate SDXL (mock)",
   paramsSchema: params,
-  capabilities: { producesMedia: ['image'], supportsSeed: true },
+  capabilities: { producesMedia: ["image"], supportsSeed: true },
   async generate(p): Promise<Media> {
     const seed = p.seed ?? hash(p.prompt)
     return {
-      kind: 'image',
+      kind: "image",
       url: `https://picsum.photos/seed/${seed}/${p.width}/${p.height}`,
       w: p.width,
       h: p.height,

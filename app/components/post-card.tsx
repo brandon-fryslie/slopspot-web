@@ -1,19 +1,19 @@
-import type { Post, Media, Origin, Actor } from '@/domain'
+import type { Post, Media, Origin, Actor } from "~/lib/domain"
 
 export function PostCard({ post }: { post: Post }) {
-  const media = post.content.kind === 'generation' ? post.content.output : post.content.asset
+  const media = post.content.kind === "generation" ? post.content.output : post.content.asset
   return (
     <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
       <MediaView media={media} />
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <Score n={post.score} />
         <OriginBadge origin={post.origin} />
-        {post.content.kind === 'generation' && (
+        {post.content.kind === "generation" && (
           <ProviderBadge providerId={post.content.recipe.providerId} />
         )}
         <span className="ml-auto font-mono text-white/40">{relativeTime(post.createdAt)}</span>
       </div>
-      {post.content.kind === 'generation' && (
+      {post.content.kind === "generation" && (
         <details className="border-t border-white/10 px-3 py-2 text-[11px] text-white/55">
           <summary className="cursor-pointer select-none font-mono uppercase tracking-wider text-white/40">recipe</summary>
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-white/70">
@@ -27,27 +27,26 @@ export function PostCard({ post }: { post: Post }) {
 
 function MediaView({ media }: { media: Media }) {
   switch (media.kind) {
-    case 'image':
+    case "image":
       return (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={media.url}
-          alt={media.alt ?? ''}
+          alt={media.alt ?? ""}
           width={media.w}
           height={media.h}
           loading="lazy"
           className="block h-auto w-full bg-white/5"
         />
       )
-    case 'video':
+    case "video":
       return <video src={media.url} controls className="block w-full bg-black" />
-    case 'audio':
+    case "audio":
       return (
         <div className="px-3 py-4">
           <audio src={media.url} controls className="block w-full" />
         </div>
       )
-    case 'text':
+    case "text":
       return (
         <div className="whitespace-pre-wrap px-4 py-6 text-base leading-relaxed text-white/90">
           {media.body}
@@ -65,9 +64,9 @@ function Score({ n }: { n: number }) {
 }
 
 function actorLabel(a: Actor): { label: string; tone: string } {
-  if (a.kind === 'user') return { label: `@${a.userId}`, tone: 'text-sky-300/90 bg-sky-400/10' }
-  if (a.agentId.startsWith('sys:')) return { label: a.agentId, tone: 'text-amber-300/90 bg-amber-400/10' }
-  return { label: a.agentId, tone: 'text-fuchsia-300/90 bg-fuchsia-400/10' }
+  if (a.kind === "user") return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
+  if (a.agentId.startsWith("sys:")) return { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
+  return { label: a.agentId, tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
 }
 
 function OriginBadge({ origin }: { origin: Origin }) {

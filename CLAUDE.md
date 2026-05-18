@@ -19,58 +19,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SlopSpot is a Reddit/Digg-style aggregator *for AI-generated content*, and simultaneously an experimental AI content generator. It takes itself seriously as a product and as an absurdist art project arguing that AI-authored content is not categorically lesser than human-authored content. The site is intended to be largely produced by AI — agents make creative and technical decisions; the human sets direction.
 
-Currently in **design / pre-launch phase**. Backlog and grooming cadence are tracked in `lit`.
+Currently in **design / pre-launch phase**. Backlog and grooming cadence are tracked in `lit`. A sibling project `paste.slopspot.ai` ("gist for LLM convo snippets") lives in `~/code/slop-spot-paste` and is unrelated to this codebase — it's deployed under a slopspot.ai subdomain for convenience.
+
+## Stack
+
+- **Framework:** React Router 7 (RR7) — the framework formerly known as Remix
+- **Runtime:** Cloudflare Workers via `@cloudflare/vite-plugin` (no `@opennextjs/cloudflare` adapter, no Next.js)
+- **Build:** Vite 7 with `@react-router/dev/vite`
+- **Styling:** Tailwind CSS v4 via `@tailwindcss/vite` (CSS-config; no `tailwind.config.*`)
+- **Validation:** Zod (at trust boundaries only — request bodies, provider params, upstream responses)
+- **AI providers:** `@fal-ai/client` for fal.ai; mocks for fal-flux and Replicate SDXL
+- **Storage:** none yet — D1 + KV + R2 land in the persistence epic (`slopspot-persistence-xiq`)
+- **Tests:** Vitest installed; first tests land in `slopspot-foundation-bux.3`
+- **TypeScript:** strict, composite project (root `tsconfig.json` references `tsconfig.node.json` + `tsconfig.cloudflare.json`)
+- **Package manager:** pnpm (lockfile `pnpm-lock.yaml`, workspace declared in `pnpm-workspace.yaml`). Do not run `npm install` or `yarn`.
 
 ## Commands
 
-Package manager is **pnpm** (lockfile is `pnpm-lock.yaml`, workspace declared in `pnpm-workspace.yaml`). Do not run `npm install` or `yarn`.
+- `pnpm dev` — Vite dev server with HMR (Node-shim runtime, fastest iteration)
+- `pnpm preview` — `pnpm build && vite preview` (Vite preview of the built bundle)
+- `pnpm exec wrangler dev` — actual workerd runtime (use this when behavior diverges from `pnpm dev` to figure out which side is wrong)
+- `pnpm build` — production build (`react-router build`) — emits to `build/client/` and `build/server/`
+- `pnpm deploy` — `pnpm build && wrangler deploy` (requires `wrangler login` and `wrangler secret put SLOPSPOT_FAL_API_KEY` set)
+- `pnpm typecheck` — `wrangler types && react-router typegen && tsc -b` (three steps; all must pass)
+- `pnpm lint` — flat-config ESLint over `app/**` and `workers/**`
+- `pnpm test` / `pnpm test:watch` — Vitest
 
-- `pnpm dev` — Next.js dev server on http://localhost:3000
-- `pnpm build` — production build (`next build`)
-- `pnpm start` — serve the production build
-- `pnpm lint` — ESLint (flat config in `eslint.config.mjs`, extends `eslint-config-next/core-web-vitals` + `/typescript`)
-- `pnpm exec tsc --noEmit` — typecheck without building (no dedicated script yet)
+There is no test runner with tests yet (foundation.3 lands them). `pnpm test` works but currently runs zero specs.
 
-There is no test runner installed yet. If you add one, add the script here.
+## Secrets
+
+**There is no keychain module anymore.** Secrets flow as Workers Env bindings via the loader/action `context.cloudflare.env`. Two surfaces:
+
+- **Local dev:** `.dev.vars` at repo root (gitignored). `wrangler dev` reads it; `wrangler types` projects each key into the global `Env` type.
+- **Prod:** `wrangler secret put SLOPSPOT_FAL_API_KEY` (encrypted, injected at runtime).
+
+`.dev.vars.example` lists which keys the app expects. After editing `.dev.vars`, run `pnpm cf-typegen` (or any install) to regenerate `worker-configuration.d.ts`.
+
+`worker-configuration.d.ts` is gitignored — every install regenerates it.
 
 ## Architecture
 
-The architecture is **deliberately type-driven**. `src/domain.ts` is the source of truth — Posts, Content, Generation, Media, Origin, Actor are discriminated unions designed so illegal states cannot be represented. Most other files are residue derived from those types. Treat the domain types as the spec.
+The architecture is **deliberately type-driven**. `app/lib/domain.ts` is the source of truth — Posts, Content, Generation, Media, Origin, Actor are discriminated unions designed so illegal states cannot be represented. Most other files are residue derived from those types. Treat the domain types as the spec. **A domain refactor is queued in `slopspot-foundation-bux.2`** (async generation states + score as derived) — read that ticket before extending the domain.
 
 Key seams:
 
-- **`src/domain.ts`** — Branded IDs (`PostId`, `UserId`, `AgentId`, `ProviderId`), `Media` (image/video/text/audio), `Content` (`generation` carries a forkable recipe; `upload` carries raw bytes — only `generation` can be re-rolled, enforced structurally), `Origin` with depth-1 `onBehalfOf` delegation. Adding a media type or origin actor is a one-variant change here.
+- **`workers/app.ts`** — Single entry. Wraps `createRequestHandler` and routes every request into RR7's request handler. **The only place Cloudflare bindings (`env`, `ctx`) cross into the application world**; loaders/actions read them as `context.cloudflare.env`.
 
-- **`src/providers/`** — Provider plugin layer. `types.ts` defines the `GenerationProvider<P>` interface (id, version, displayName, Zod `paramsSchema`, `capabilities`, `generate`). `registry.ts` is the **single enforcer** for provider lookup — no other module is allowed to `switch` on `providerId`. `index.ts` is the side-effect import that registers every provider; anything that needs the registry populated must import from `'@/providers'`, not `'./registry'` directly.
+- **`app/root.tsx`** — RR7 root: `<Layout>` is the HTML shell, `<App>` is `<Outlet />`, `<ErrorBoundary>` handles thrown loader/action errors. Anything in `<Layout>` wraps every route.
 
-- **Provider files** (`fal-flux.ts`, `fal-flux-mock.ts`, `replicate-sdxl-mock.ts`) — Each is one file implementing `GenerationProvider`. `fal-flux` (real) and `fal-flux-mock` intentionally share schema *shape* (`prompt` + categorical `aspectRatio` + integer `steps`) so swapping `providerId` is a one-string change in callers/seed data. `replicate-sdxl-mock` has a structurally different schema (free w/h, negative prompt, guidance scale, seed) — that asymmetry is the *point*; it proves the abstraction absorbs variance instead of leaking it. Schemas with different shapes is a feature, not a bug.
+- **`app/routes.ts`** — Explicit route table (not file-based). `index('routes/home.tsx')` for `/`, `route('api/generate', 'routes/api.generate.ts')` for `POST /api/generate`. Add new routes by appending an entry.
 
-- **`src/app/api/generate/route.ts`** — `POST /api/generate` with `{ providerId, params }`. Validates body, looks up provider via registry, runs the provider's `paramsSchema` over `params`, then `generate()`. Returns `{ providerId, providerVersion, media }`. Upstream `fal.ai` `ApiError` is unwrapped so the actual upstream body is surfaced (not just `"Forbidden"`).
+- **`app/routes/home.tsx`** — Homepage. `loader({ context })` calls `getFeed(context.cloudflare.env)`. Component receives `loaderData` typed via `./+types/home`.
 
-- **`src/lib/secrets.ts`** — `getSecret(slug)` shells out to macOS `security find-generic-password`, caches in-process, throws loudly with the `security add-generic-password` command to fix it. Server-only (throws if called from a client bundle). **All secret reads go through here.** The fal.ai key lives under slug `slopspot-fal-api-key`.
+- **`app/routes/api.generate.ts`** — Resource route (no default export). `action({ request, context })` handles `POST`. Validates body, looks up provider via registry, runs provider's `paramsSchema`, calls `generate(params, { env: context.cloudflare.env })`. Returns `{ providerId, providerVersion, media }`.
 
-- **`src/lib/seed.ts`** — `getFeed()` builds the homepage feed by actually running every generation through the provider registry at request time. Mock providers return deterministic `picsum.photos` URLs. This means the seed exercises the *exact same code path* a real submission will use.
+- **`app/lib/domain.ts`** — Branded IDs (`PostId`, `UserId`, `AgentId`, `ProviderId`), `Media` (image/video/text/audio), `Content` (`generation` carries a forkable recipe; `upload` carries raw bytes), `Origin` with depth-1 `onBehalfOf` delegation. Adding a media type or origin actor is a one-variant change here.
 
-- **`src/app/page.tsx`** + **`src/components/post-card.tsx`** — Server component homepage. `PostCard` switches on `content.kind` and `media.kind` exhaustively (no fallback branches — the union is closed).
+- **`app/providers/`** — Provider plugin layer. `types.ts` defines `GenerationProvider<P>` with `generate(params, context: GenerationContext): Promise<Media>` — `context` carries `env` so providers that need secrets read them at call time. `registry.ts` is the **single enforcer** for provider lookup. `index.ts` is the side-effect import that registers every provider; consumers import from `~/providers`.
+
+- **Provider files** (`fal-flux.ts`, `fal-flux-mock.ts`, `replicate-sdxl-mock.ts`) — Each is one file. `fal-flux` reads `env.SLOPSPOT_FAL_API_KEY` from context. `fal-flux` and `fal-flux-mock` intentionally share schema *shape* (categorical `aspectRatio` + step count); `replicate-sdxl-mock` has a structurally different schema (free w/h, negative prompt, guidance, seed). That asymmetry is the point — proves the abstraction absorbs variance.
+
+- **`app/lib/seed.ts`** — `getFeed(env)` builds the homepage feed by actually running every generation through the provider registry at request time, with the env binding plumbed through. Mock providers return deterministic `picsum.photos` URLs and ignore env. This means the seed exercises the *exact same code path* a real submission will use.
+
+- **`app/components/post-card.tsx`** — `PostCard` switches on `content.kind` and `media.kind` exhaustively (no fallback branches — the unions are closed).
 
 ## Conventions specific to this codebase
 
-- **`[LAW:<token>]` comments are load-bearing.** They cite architectural laws from `~/.claude/CLAUDE.md` (`types-are-the-program`, `single-enforcer`, `one-source-of-truth`, `locality-or-seam`, `no-shared-mutable-globals`, `no-defensive-null-guards`). When a law influences a decision, cite it. When a law must be violated, mark it `[LAW:<token>] exception: <reason>` — this is how the registry's `Map` and the secrets module's `window` guard are justified.
+- **Path alias:** `~/*` → `app/*` (RR7 convention). Configured in `tsconfig.cloudflare.json` and resolved by `vite-tsconfig-paths`. The Next-era `@/*` → `src/*` alias is gone.
 
-- **Zod is at trust boundaries only.** Routes parse request bodies; provider `paramsSchema` parses caller params; `fal-flux.ts` parses the fal.ai response shape. Internal types are not defensively re-parsed.
+- **`[LAW:<token>]` comments are load-bearing.** They cite architectural laws from `~/.claude/CLAUDE.md`. When a law influences a decision, cite it. When a law must be violated, mark it `[LAW:<token>] exception: <reason>` — that's how the registry's `Map` is justified.
 
-- **No null guards inside the trust boundary.** If a value should never be null, fix the upstream type, do not add `if (!x) return`. See `no-defensive-null-guards`.
+- **Zod at trust boundaries only.** Routes parse request bodies; provider `paramsSchema` parses caller params; `fal-flux.ts` parses the fal.ai response shape. Internal types are not defensively re-parsed.
 
-- **Path alias:** `@/*` → `src/*` (see `tsconfig.json`). TypeScript is `strict: true`.
+- **No null guards inside the trust boundary.** If a value should never be null, fix the upstream type, do not add `if (!x) return`.
 
-- **Tailwind v4.** Styling is utility classes; **there is no `tailwind.config.*`** — config lives in `src/app/globals.css` via `@import "tailwindcss"` and PostCSS plugin `@tailwindcss/postcss`. Do not generate a v3-style config.
+- **Tailwind v4.** Styling is utility classes; **there is no `tailwind.config.*`** — config lives in `app/app.css` via `@import "tailwindcss"`. Do not generate a v3-style config.
 
-- **Next.js 16.2.6, App Router, React 19.** `AGENTS.md` is explicit: this is not the Next.js you know from training data. Before writing route/layout/server-component code, read `node_modules/next/dist/docs/` for the relevant API. Heed deprecation notices.
+- **Adding a provider** = one file in `app/providers/` implementing `GenerationProvider<P>` + one `registerProvider(...)` call in `app/providers/index.ts`. No changes elsewhere should be required. If they are, the abstraction is leaking — fix the abstraction, not the callsite.
 
-- **Adding a provider** = one file in `src/providers/` implementing `GenerationProvider<P>` + one `registerProvider(...)` call in `src/providers/index.ts`. No changes elsewhere should be required. If they are, the abstraction is leaking — fix the abstraction, not the callsite.
+- **Adding a route** = one new file under `app/routes/` + one line in `app/routes.ts`. Type props come from `./+types/<route-name>` (generated by `react-router typegen`, which runs as part of `pnpm typecheck`).
 
 - **MCP:** `.mcp.json` registers `cherry-chrome-mcp` for in-browser DevTools-style verification during UI work.
 
 ## Verification expectations
 
-Per the workspace laws: goals must be machine-verifiable, and "tests pass" alone is not "done." For UI/feature work, start `pnpm dev` and exercise the feature in a browser (cherry-chrome-mcp is available) before declaring complete. Type-checking and lint verify code correctness, not feature correctness — say so explicitly if you cannot verify behaviorally.
+Per the workspace laws: goals must be machine-verifiable, and "tests pass" alone is not "done." For UI/feature work, start `pnpm dev` and exercise the feature in a browser (cherry-chrome-mcp is available) before declaring complete. When in doubt about Workers-runtime behavior (Node API availability, request semantics), spot-check with `pnpm exec wrangler dev` — that's the runtime prod uses. Type-checking and lint verify code correctness, not feature correctness — say so explicitly if you cannot verify behaviorally.

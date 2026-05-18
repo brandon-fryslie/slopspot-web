@@ -1,5 +1,5 @@
-import type { ProviderId } from '@/domain'
-import type { GenerationProvider } from './types'
+import type { ProviderId } from "~/lib/domain"
+import type { GenerationProvider } from "./types"
 
 // [LAW:no-shared-mutable-globals] exception: this is a registry with a single owner
 // (this module), an explicit API, and one invariant — register-once. Reading is free;
