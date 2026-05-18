@@ -22,7 +22,10 @@
   // records and the managed cert — every redeploy reasserts the binding.
   "routes": [
     { "pattern": "slopspot.ai", "custom_domain": true }
-  ]
+  ],
+  // Keep the *.workers.dev URL accessible as a testing escape hatch.
+  // Adding `routes` above implicitly disables it; this re-enables it.
+  "workers_dev": true
   // Bindings (D1, R2, KV) get added by the persistence tickets — see
   // slopspot-persistence-xiq.1 (D1) and slopspot-persistence-xiq.2 (R2).
 }

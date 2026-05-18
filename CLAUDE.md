@@ -40,7 +40,7 @@ Currently in **design / pre-launch phase**. Backlog and grooming cadence are tra
 - `pnpm preview` — `pnpm build && vite preview` (Vite preview of the built bundle)
 - `pnpm exec wrangler dev` — actual workerd runtime (use this when behavior diverges from `pnpm dev` to figure out which side is wrong)
 - `pnpm build` — production build (`react-router build`) — emits to `build/client/` and `build/server/`
-- `pnpm deploy` — `pnpm build && wrangler deploy` (requires `wrangler login` and `wrangler secret put SLOPSPOT_FAL_API_KEY` set)
+- `pnpm run deploy` — `pnpm build && wrangler deploy` (requires `wrangler login` and `wrangler secret put SLOPSPOT_FAL_API_KEY` set). **Must use `run`**: bare `pnpm deploy` is shadowed by pnpm's built-in monorepo-deploy command (because `pnpm-workspace.yaml` is present) and fails with `ERR_PNPM_NOTHING_TO_DEPLOY`. The build step is load-bearing because RR7's vite plugin emits its own `build/server/wrangler.json` at build time that `wrangler deploy` reads — calling `wrangler deploy` directly without a fresh build will ship the previous build's config.
 - `pnpm typecheck` — `wrangler types && react-router typegen && tsc -b` (three steps; all must pass)
 - `pnpm lint` — flat-config ESLint over `app/**` and `workers/**`
 - `pnpm test` / `pnpm test:watch` — Vitest
