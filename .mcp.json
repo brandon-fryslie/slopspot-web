@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "cherry-chrome-mcp": {
+      "type": "stdio",
+      "command": "pnpm",
+      "args": [
+        "dlx",
+        "github:brandon-fryslie/cherry-chrome-mcp"
+      ],
+      "env": {}
+    }
+  }
+}
