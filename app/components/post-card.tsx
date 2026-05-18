@@ -1,15 +1,17 @@
-import type { Post, Media, Origin, Actor } from "~/lib/domain"
+import type { Post, Media, Origin, Actor, Content, GenerationStatus } from "~/lib/domain"
 
-export function PostCard({ post }: { post: Post }) {
-  const media = post.content.kind === "generation" ? post.content.output : post.content.asset
+export function PostCard({ post, score }: { post: Post; score: number }) {
   return (
     <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
-      <MediaView media={media} />
+      <ContentView content={post.content} />
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
-        <Score n={post.score} />
+        <Score n={score} />
         <OriginBadge origin={post.origin} />
         {post.content.kind === "generation" && (
-          <ProviderBadge providerId={post.content.recipe.providerId} />
+          <>
+            <ProviderBadge providerId={post.content.recipe.providerId} />
+            <StatusBadge status={post.content.status} />
+          </>
         )}
         <span className="ml-auto font-mono text-white/40">{relativeTime(post.createdAt)}</span>
       </div>
@@ -23,6 +25,20 @@ export function PostCard({ post }: { post: Post }) {
       )}
     </article>
   )
+}
+
+// [LAW:types-are-the-program] Closed union → exhaustive switch. Adding a new
+// GenerationStatus variant will fail to compile here until handled. The function's
+// return type is the enforcement mechanism — no `default:` needed, and none wanted.
+function ContentView({ content }: { content: Content }) {
+  if (content.kind === "upload") return <MediaView media={content.asset} />
+  const status = content.status
+  switch (status.kind) {
+    case "pending":   return <StatusPlaceholder tone="queued"  label="queued" />
+    case "running":   return <StatusPlaceholder tone="working" label="generating…" />
+    case "succeeded": return <MediaView media={status.output} />
+    case "failed":    return <StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} />
+  }
 }
 
 function MediaView({ media }: { media: Media }) {
@@ -53,6 +69,18 @@ function MediaView({ media }: { media: Media }) {
         </div>
       )
   }
+}
+
+function StatusPlaceholder({ tone, label }: { tone: "queued" | "working" | "error"; label: string }) {
+  const toneClass =
+    tone === "queued"  ? "bg-white/5 text-white/50" :
+    tone === "working" ? "bg-sky-400/10 text-sky-300/90 animate-pulse" :
+                         "bg-rose-400/10 text-rose-300/90"
+  return (
+    <div className={`flex aspect-video items-center justify-center font-mono text-xs uppercase tracking-[0.2em] ${toneClass}`}>
+      {label}
+    </div>
+  )
 }
 
 function Score({ n }: { n: number }) {
@@ -89,6 +117,17 @@ function ProviderBadge({ providerId }: { providerId: string }) {
     <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-white/60">
       {providerId}
     </span>
+  )
+}
+
+function StatusBadge({ status }: { status: GenerationStatus }) {
+  if (status.kind === "succeeded") return null
+  const tone =
+    status.kind === "pending" ? "bg-white/5 text-white/50" :
+    status.kind === "running" ? "bg-sky-400/10 text-sky-300/90" :
+                                "bg-rose-400/10 text-rose-300/90"
+  return (
+    <span className={`rounded px-1.5 py-0.5 font-mono ${tone}`}>{status.kind}</span>
   )
 }
 

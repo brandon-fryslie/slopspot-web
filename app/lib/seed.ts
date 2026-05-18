@@ -1,12 +1,14 @@
 import {
   PostId, UserId, AgentId, ProviderId,
-  type Post, type Origin, type Content,
+  type FeedItem, type Origin, type Content,
 } from "~/lib/domain"
 import { getProvider } from "~/providers"
 
 // [LAW:single-enforcer] All Generation content is created through this helper. It
 // validates params via the provider's schema and pins providerVersion at write time —
-// so seed data exercises the exact same path real submissions will use.
+// so seed data exercises the exact same path real submissions will use. The seed
+// awaits providers inline, so every status here is `succeeded`; real submissions
+// will write `pending` first and transition through a worker.
 async function gen(args: {
   providerId: string
   params: unknown
@@ -23,7 +25,7 @@ async function gen(args: {
       params: parsed,
       parentId: args.parentId ? PostId(args.parentId) : undefined,
     },
-    output,
+    status: { kind: "succeeded", output, completedAt: new Date() },
   }
 }
 
@@ -45,7 +47,7 @@ type Spec = {
   content: Content
 }
 
-export async function getFeed(env: Env): Promise<Post[]> {
+export async function getFeed(env: Env): Promise<FeedItem[]> {
   const g = (providerId: string, params: unknown) => gen({ providerId, params }, env)
 
   const specs: Spec[] = [
@@ -94,12 +96,15 @@ export async function getFeed(env: Env): Promise<Post[]> {
   const now = Date.now()
   const hr = 3_600_000
   return specs
-    .map((s): Post => ({
-      id: PostId(s.id),
-      createdAt: new Date(now - s.ageHr * hr),
+    .map((s) => ({
+      post: {
+        id: PostId(s.id),
+        createdAt: new Date(now - s.ageHr * hr),
+        origin: s.origin,
+        content: s.content,
+      },
       score: s.score,
-      origin: s.origin,
-      content: s.content,
     }))
     .sort((a, b) => b.score - a.score)
+    .map((x, i): FeedItem => ({ ...x, rank: i + 1 }))
 }

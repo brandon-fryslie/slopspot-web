@@ -14,12 +14,12 @@ export function meta(_args: Route.MetaArgs) {
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
-  const posts = await getFeed(context.cloudflare.env)
-  return { posts }
+  const items = await getFeed(context.cloudflare.env)
+  return { items }
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { posts } = loaderData
+  const { items } = loaderData
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-10 border-b border-white/10 pb-6">
@@ -31,14 +31,14 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </p>
       </header>
       <ul className="flex flex-col gap-5">
-        {posts.map((p) => (
-          <li key={p.id}>
-            <PostCard post={p} />
+        {items.map((item) => (
+          <li key={item.post.id}>
+            <PostCard post={item.post} score={item.score} />
           </li>
         ))}
       </ul>
       <footer className="mt-16 border-t border-white/10 pt-6 font-mono text-xs text-white/40">
-        slopspot · {posts.length} slops · open the cage and let the slop out
+        slopspot · {items.length} slops · open the cage and let the slop out
       </footer>
     </main>
   )

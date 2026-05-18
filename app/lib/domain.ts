@@ -35,11 +35,21 @@ export type Generation = {
   parentId?: PostId
 }
 
+// [LAW:types-are-the-program] Generation is async. `output` only exists in the
+// `succeeded` variant; in-progress and failed states cannot accidentally be treated
+// as if they had media. PostCard's render is forced to handle every variant by the
+// compiler — no fallback branches.
+export type GenerationStatus =
+  | { kind: 'pending'; queuedAt: Date }
+  | { kind: 'running'; startedAt: Date }
+  | { kind: 'succeeded'; output: Media; completedAt: Date }
+  | { kind: 'failed'; reason: string; failedAt: Date }
+
 // [LAW:types-are-the-program] Forkability is structural, not a nullable field. Only
 // `kind: 'generation'` carries a recipe; uploads are raw bytes. The compiler refuses
 // to fork an upload.
 export type Content =
-  | { kind: 'generation'; recipe: Generation; output: Media }
+  | { kind: 'generation'; recipe: Generation; status: GenerationStatus }
   | { kind: 'upload'; asset: Media }
 
 export type Actor =
@@ -53,10 +63,23 @@ export type Origin = {
   onBehalfOf?: Actor
 }
 
+// [LAW:one-source-of-truth] Post carries no score. Votes are the source of truth;
+// score is a derived sum and lives on FeedItem (computed by the seed today, by a
+// D1 JOIN tomorrow). A `score: number` field on Post would be a second representation
+// that can drift from the votes table — exactly what one-source-of-truth forbids.
 export type Post = {
   id: PostId
   createdAt: Date
-  score: number
   content: Content
   origin: Origin
+}
+
+// [LAW:types-are-the-program] FeedItem is the smooth boundary between the data layer
+// (seed today, D1 tomorrow) and rendering. Score and rank are derived per-query — same
+// shape regardless of source. The feed reader fills the slot; the consumer reads the
+// slot. The seam IS the type.
+export type FeedItem = {
+  post: Post
+  score: number
+  rank: number
 }
