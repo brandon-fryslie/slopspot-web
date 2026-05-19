@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",
+    "drizzle-orm": "^0.45.2",
     "isbot": "^5.1.31",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -25,14 +26,15 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.13.5",
+    "@eslint/js": "^9",
     "@react-router/dev": "^7.10.0",
     "@tailwindcss/vite": "^4.1.13",
     "@types/node": "^22",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@eslint/js": "^9",
     "@typescript-eslint/eslint-plugin": "^8.18.0",
     "@typescript-eslint/parser": "^8.18.0",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-plugin-react": "^7.37.0",
     "eslint-plugin-react-hooks": "^5.0.0",
@@ -44,6 +46,9 @@
     "wrangler": "^4.92.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "workerd"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
   }
 }
