@@ -1,9 +1,9 @@
 import type { Route } from "./+types/api.generate"
-import { z, ZodError } from "zod"
+import { z } from "zod"
 import { ApiError } from "@fal-ai/client"
 import { AgentId, ProviderId, type Origin } from "~/lib/domain"
-import { getProvider } from "~/providers"
-import { createPost } from "~/db/posts"
+import { UnknownProviderError } from "~/providers"
+import { createPost, InvalidParamsError } from "~/db/posts"
 
 // [LAW:single-enforcer] This route is one caller of createPost — it does not
 // persist, ingest, or talk to providers itself. Its only job is the HTTP trust
@@ -35,15 +35,6 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
 
   try {
-    getProvider(ProviderId(parsed.providerId))
-  } catch {
-    return Response.json(
-      { error: "unknown provider", providerId: parsed.providerId },
-      { status: 404 },
-    )
-  }
-
-  try {
     const post = await createPost(
       {
         providerId: ProviderId(parsed.providerId),
@@ -54,7 +45,13 @@ export async function action({ request, context }: Route.ActionArgs) {
     )
     return Response.json(post)
   } catch (e) {
-    if (e instanceof ZodError) {
+    if (e instanceof UnknownProviderError) {
+      return Response.json(
+        { error: "unknown provider", providerId: parsed.providerId },
+        { status: 404 },
+      )
+    }
+    if (e instanceof InvalidParamsError) {
       return Response.json(
         {
           error: "invalid params for provider",
