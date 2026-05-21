@@ -62,6 +62,15 @@ function absent(value: unknown, what: string): void {
   }
 }
 
+// [LAW:types-are-the-program] Exhaustiveness guard for the status discriminator.
+// In the default arm `value` narrows to `never`, so this compiles only while every
+// arm is handled — add a status to the schema enum and the reader stops compiling
+// until updated. At runtime it doubles as the boundary's fail-loud guard for a
+// status no CHECK should have admitted. [LAW:no-silent-fallbacks]
+function assertNever(value: never, what: string): never {
+  throw new Error(`feed: unexpected ${what} at storage boundary: ${String(value)}`)
+}
+
 // JSON columns hold exactly what createPost serialized — our own shapes, not foreign
 // input — so this is a typed deserialize, not a defensive re-parse. A malformed column
 // is the same class of storage violation as `required`/`absent` guard, so it fails loud
@@ -76,7 +85,10 @@ function parseJson<T>(json: string, what: string): T {
 }
 
 // [LAW:types-are-the-program] Closed union → exhaustive switch, mirroring PostCard.
-// Adding a GenerationStatus variant fails to compile here until handled; no default.
+// Unlike PostCard (which consumes an already-constructed domain object), this runs at
+// the storage boundary on a raw column, so the default arm asserts-never: it keeps the
+// compile-time exhaustiveness check AND fails loud at runtime on a status the CHECK
+// should never have admitted.
 function toStatus(g: DbGeneration): GenerationStatus {
   switch (g.status) {
     case 'pending':
@@ -98,6 +110,8 @@ function toStatus(g: DbGeneration): GenerationStatus {
         reason: required(g.failedReason, 'failed.failedReason'),
         failedAt: required(g.failedAt, 'failed.failedAt'),
       }
+    default:
+      return assertNever(g.status, `status for post ${g.postId}`)
   }
 }
 
@@ -118,7 +132,7 @@ function toContent(row: FeedRow): Content {
       providerId: ProviderId(g.providerId),
       providerVersion: g.providerVersion,
       params: parseJson<unknown>(g.paramsJson, `params_json for post ${g.postId}`),
-      parentId: g.parentPostId ? PostId(g.parentPostId) : undefined,
+      parentId: g.parentPostId === null ? undefined : PostId(g.parentPostId),
     },
     status: toStatus(g),
   }
