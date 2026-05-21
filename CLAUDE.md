@@ -72,7 +72,11 @@ Key seams:
 
 - **`app/routes/home.tsx`** — Homepage. `loader({ context })` calls `getFeed(context.cloudflare.env)`. Component receives `loaderData` typed via `./+types/home`.
 
-- **`app/routes/api.generate.ts`** — Resource route (no default export). `action({ request, context })` handles `POST`. Validates body, looks up provider via registry, runs provider's `paramsSchema`, calls `generate(params, { env: context.cloudflare.env })`. Returns `{ providerId, providerVersion, media }`.
+- **`app/routes/api.generate.ts`** — Resource route (no default export). `action({ request, context })` handles `POST`. It is the HTTP trust boundary only: parses the body, attributes a fixed `api` agent origin (until auth lands), and delegates to `createPost` (`~/db/posts`). Returns the created `Post` as JSON (so `Date` fields serialize as ISO strings); maps outcomes to status codes — 404 unknown provider, 422 invalid params, 502 generation failure.
+
+- **`app/db/posts.ts`** — `createPost(input, { env })`: the **single enforcer** for post creation. Every writer (this route, the firehose cron, the bootstrap script, future submission UI) funnels through it. Pre-inserts the post + `generations` row as `running` (batched in one transaction) before calling the provider, so a failure leaves an observable `failed` row rather than nothing; on success ingests the image via `ingestImage` and stores the rehosted `/media/<sha256>` url. Synchronous, so it never persists `pending`.
+
+- **`app/storage/ingest.ts`** — `ingestImage(remoteUrl, env)`: the **single enforcer** for R2 writes. Content-addressed (object key is the sha256 of the bytes → free dedup); throws on non-2xx/non-image/empty/oversized. Returns a relative `/media/<key>` url served back by `app/routes/media.$key.ts`.
 
 - **`app/lib/domain.ts`** — Branded IDs (`PostId`, `UserId`, `AgentId`, `ProviderId`), `Media` (image/video/text/audio), `Content` (`generation` carries a forkable recipe; `upload` carries raw bytes), `Origin` with depth-1 `onBehalfOf` delegation. Adding a media type or origin actor is a one-variant change here.
 
