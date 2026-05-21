@@ -30,6 +30,9 @@ worker-configuration.d.ts
 .env*
 !.env.example
 
+# bootstrap script local state
+scripts/.bootstrap-state.json
+
 # debug
 npm-debug.log*
 yarn-debug.log*
