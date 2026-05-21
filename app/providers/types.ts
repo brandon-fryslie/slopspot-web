@@ -4,6 +4,10 @@ import type { Media, ProviderId } from "~/lib/domain"
 export type GenerationCapabilities = {
   producesMedia: Media["kind"][]
   supportsSeed: boolean
+  // Estimated USD per generate() call. The firehose budget guard sums this
+  // across calls in a window to enforce a daily spend ceiling; the registry is
+  // the single source of truth for what a provider costs. Mocks are 0 (free).
+  costEstimateUsd: number
 }
 
 // [LAW:single-enforcer] The env binding flows in here. Providers that need

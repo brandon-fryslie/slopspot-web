@@ -37,7 +37,7 @@ export const falFlux: GenerationProvider<Params> = {
   version: "2026-05-17",
   displayName: "fal.ai FLUX schnell",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: false },
+  capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0.003 },
   async generate(p, { env }): Promise<Media> {
     fal.config({ credentials: env.SLOPSPOT_FAL_API_KEY })
     const result = await fal.run("fal-ai/flux/schnell", {

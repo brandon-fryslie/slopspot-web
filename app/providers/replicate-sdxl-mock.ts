@@ -27,7 +27,7 @@ export const replicateSdxlMock: GenerationProvider<Params> = {
   version: "2026-05-17",
   displayName: "Replicate SDXL (mock)",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: true },
+  capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   async generate(p): Promise<Media> {
     const seed = p.seed ?? hash(p.prompt)
     return {
