@@ -25,7 +25,20 @@
   ],
   // Keep the *.workers.dev URL accessible as a testing escape hatch.
   // Adding `routes` above implicitly disables it; this re-enables it.
-  "workers_dev": true
-  // Bindings (D1, R2, KV) get added by the persistence tickets — see
-  // slopspot-persistence-xiq.1 (D1) and slopspot-persistence-xiq.2 (R2).
+  "workers_dev": true,
+  // [LAW:one-source-of-truth] DB binding name `DB` is the canonical handle;
+  // app/db/client.ts reads it as `env.DB` and wraps it with drizzle(). No
+  // other module touches the raw binding.
+  // The `database_id` placeholder is replaced before prod deploy via
+  // `wrangler d1 create slopspot-db` (tracked in slopspot-persistence-xiq.1.1).
+  // Local `wrangler d1 migrations apply --local` keys state off `database_name`
+  // and ignores `database_id`, so local dev works against this config as-is.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "slopspot-db",
+      "database_id": "local-only-placeholder",
+      "migrations_dir": "drizzle"
+    }
+  ]
 }
