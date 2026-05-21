@@ -1,9 +1,17 @@
 // [LAW:types-are-the-program] D1 schema for slopspot. Each table is the
-// physical residue of a type in app/lib/domain.ts. Where the domain encodes a
-// discriminated union (Content.kind, GenerationStatus.kind), the schema either
-// uses a discriminator column with sibling tables (posts.content_kind →
-// generations | uploads) or encodes the union in CHECK constraints
-// (generations.status). Either way, illegal states cannot be stored.
+// physical residue of a type in app/lib/domain.ts. Discriminated unions map two
+// ways: a discriminator column with sibling tables (posts.content_kind →
+// generations | uploads), or CHECK constraints encoding the union arms
+// (generations.status, posts.content_kind, votes.value).
+//
+// What the DB enforces: per-row shape. No row can hold an out-of-range
+// discriminator or a status/field combination outside one GenerationStatus arm.
+// What the DB does NOT enforce: cross-table cardinality — that a 'generation'
+// post has exactly one matching generations row (and no uploads row), or vice
+// versa. That invariant is transactional (the parent row is written before its
+// sibling), so it lives in the single createPost writer (persistence.4), not in
+// constraints. [LAW:single-enforcer] places it at that one boundary rather than
+// scattering triggers across every sibling insert/delete.
 //
 // [LAW:one-source-of-truth] No score column on posts — score is SUM(votes.value)
 // per post, computed at read time. Adding a denormalized score would create a
