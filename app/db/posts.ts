@@ -49,7 +49,15 @@ function describeError(err: unknown): string {
   const own = Object.keys(props)
   if (own.length === 0) return err.message
   const detail = Object.fromEntries(own.map((k) => [k, props[k]]))
-  return `${err.message} ${JSON.stringify(detail)}`
+  // describeError runs while building the failed-status update, so it must be
+  // total: JSON.stringify is partial (throws on circular refs / BigInt), and a
+  // throw here would abort the very write that makes the failure observable.
+  // Degrade to the message + a visible marker rather than silently losing it.
+  try {
+    return `${err.message} ${JSON.stringify(detail)}`
+  } catch {
+    return `${err.message} [unserializable detail]`
+  }
 }
 
 export async function createPost(
