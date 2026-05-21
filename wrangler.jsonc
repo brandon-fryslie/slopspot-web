@@ -37,7 +37,7 @@
     {
       "binding": "DB",
       "database_name": "slopspot-db",
-      "database_id": "local-only-placeholder",
+      "database_id": "9b531782-6645-4886-a50e-e1f0ca7cb7b1",
       "migrations_dir": "drizzle"
     }
   ],
