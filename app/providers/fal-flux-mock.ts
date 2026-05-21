@@ -22,7 +22,7 @@ export const falFluxMock: GenerationProvider<Params> = {
   version: "2026-05-17",
   displayName: "fal.ai FLUX (mock)",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: false },
+  capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0 },
   async generate(p): Promise<Media> {
     const { w, h } = dims[p.aspectRatio]
     const seed = encodeURIComponent(p.prompt).slice(0, 64)
