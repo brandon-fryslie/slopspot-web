@@ -7,6 +7,16 @@ import type { GenerationProvider } from "./types"
 // [LAW:single-enforcer] Every "look up a provider by id" goes through here. No other
 // module is allowed to switch on providerId.
 
+// [LAW:single-enforcer] "Unknown provider" is the registry's failure to own as a
+// type, not a generic Error every caller has to string-match. Callers that map
+// failures (e.g. the /api/generate HTTP boundary) discriminate on this class.
+export class UnknownProviderError extends Error {
+  constructor(readonly providerId: ProviderId) {
+    super(`Unknown provider: ${providerId}`)
+    this.name = "UnknownProviderError"
+  }
+}
+
 const providers = new Map<ProviderId, GenerationProvider<unknown>>()
 
 export function registerProvider<P>(provider: GenerationProvider<P>): void {
@@ -18,7 +28,7 @@ export function registerProvider<P>(provider: GenerationProvider<P>): void {
 
 export function getProvider(id: ProviderId): GenerationProvider<unknown> {
   const p = providers.get(id)
-  if (!p) throw new Error(`Unknown provider: ${id}`)
+  if (!p) throw new UnknownProviderError(id)
   return p
 }
 

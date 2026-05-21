@@ -9,5 +9,5 @@ registerProvider(falFlux)
 registerProvider(falFluxMock)
 registerProvider(replicateSdxlMock)
 
-export { getProvider, listProviders } from './registry'
+export { getProvider, listProviders, UnknownProviderError } from './registry'
 export type { GenerationProvider, GenerationCapabilities } from './types'
