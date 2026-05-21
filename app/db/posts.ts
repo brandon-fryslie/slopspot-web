@@ -5,6 +5,7 @@
 // drift per-callsite.
 
 import { eq } from 'drizzle-orm'
+import type { ZodError, ZodIssue } from 'zod'
 import { db } from '~/db/client'
 import { generations, posts } from '~/db/schema'
 import { getProvider } from '~/providers'
@@ -19,6 +20,38 @@ export type CreatePostInput = {
   parentId?: PostId
 }
 
+// [LAW:types-are-the-program] The caller's params failing the provider schema is
+// a distinct, named failure — not a bare ZodError. ZodError is also thrown deep
+// inside a provider when it parses an *upstream* response (contract drift); if the
+// boundary discriminated on ZodError it would misread that as a caller error. This
+// type makes "the caller sent bad params" unambiguous, so everything else (provider
+// failures included) is, by construction, not it.
+export class InvalidParamsError extends Error {
+  readonly issues: ZodIssue[]
+  constructor(
+    readonly providerId: ProviderId,
+    error: ZodError,
+  ) {
+    super(`Invalid params for provider: ${providerId}`)
+    this.name = 'InvalidParamsError'
+    this.issues = error.issues
+  }
+}
+
+// Best-effort diagnostic for the failed_reason column. `err.message` alone is
+// low-signal for SDK errors that stash the actionable detail in extra fields
+// (status text vs. an upstream body). Append a structural summary of own
+// enumerable props — provider-agnostic, so the writer stays decoupled from any
+// provider SDK's error type.
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err)
+  const props = err as unknown as Record<string, unknown>
+  const own = Object.keys(props)
+  if (own.length === 0) return err.message
+  const detail = Object.fromEntries(own.map((k) => [k, props[k]]))
+  return `${err.message} ${JSON.stringify(detail)}`
+}
+
 export async function createPost(
   input: CreatePostInput,
   ctx: { env: Env },
@@ -31,7 +64,11 @@ export async function createPost(
   // bad params are caller errors, not failed generations), so neither leaves a
   // dangling row.
   const provider = getProvider(input.providerId)
-  const params = provider.paramsSchema.parse(input.params)
+  const validated = provider.paramsSchema.safeParse(input.params)
+  if (!validated.success) {
+    throw new InvalidParamsError(provider.id, validated.error)
+  }
+  const params = validated.data
 
   const id = makePostId(crypto.randomUUID())
   const startedAt = new Date()
@@ -89,7 +126,7 @@ export async function createPost(
         status: 'failed',
         startedAt: null,
         failedAt: new Date(),
-        failedReason: err instanceof Error ? err.message : String(err),
+        failedReason: describeError(err),
       })
       .where(eq(generations.postId, id))
     throw err
