@@ -53,6 +53,15 @@ function required<T>(value: T | null, what: string): T {
   return value
 }
 
+// The dual of `required`: the sibling table NOT named by contentKind must be empty.
+// Together they assert exactly-one-sibling — a row that maps to two Content arms is
+// ambiguous and must fail loud, not silently pick one. [LAW:no-silent-fallbacks]
+function absent(value: unknown, what: string): void {
+  if (value !== null) {
+    throw new Error(`feed: unexpected ${what} present in storage`)
+  }
+}
+
 // JSON columns hold exactly what createPost serialized — our own shapes, not foreign
 // input — so this is a typed deserialize, not a defensive re-parse.
 function parseJson<T>(json: string): T {
@@ -84,9 +93,11 @@ function toStatus(g: DbGeneration): GenerationStatus {
 
 function toContent(row: FeedRow): Content {
   if (row.post.contentKind === 'upload') {
+    absent(row.generation, `generations row for upload post ${row.post.id}`)
     const u = required(row.upload, `uploads row for post ${row.post.id}`)
     return { kind: 'upload', asset: parseJson<Media>(u.assetJson) }
   }
+  absent(row.upload, `uploads row for generation post ${row.post.id}`)
   const g = required(row.generation, `generations row for post ${row.post.id}`)
   return {
     kind: 'generation',
