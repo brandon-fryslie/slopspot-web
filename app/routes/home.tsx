@@ -1,5 +1,5 @@
 import type { Route } from "./+types/home"
-import { getFeed } from "~/lib/seed"
+import { getFeed } from "~/db/feed"
 import { PostCard } from "~/components/post-card"
 
 export function meta(_args: Route.MetaArgs) {
@@ -30,13 +30,19 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           the back door of the internet
         </p>
       </header>
-      <ul className="flex flex-col gap-5">
-        {items.map((item) => (
-          <li key={item.post.id}>
-            <PostCard post={item.post} score={item.score} />
-          </li>
-        ))}
-      </ul>
+      {items.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-white/15 px-4 py-16 text-center font-mono text-sm text-white/40">
+          no slops yet — the firehose hasn&apos;t fired
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-5">
+          {items.map((item) => (
+            <li key={item.post.id}>
+              <PostCard post={item.post} score={item.score} />
+            </li>
+          ))}
+        </ul>
+      )}
       <footer className="mt-16 border-t border-white/10 pt-6 font-mono text-xs text-white/40">
         slopspot · {items.length} slops · open the cage and let the slop out
       </footer>
