@@ -19,6 +19,15 @@ export const DAILY_BUDGET_USD = 1.0
 
 const WINDOW_MS = 24 * 60 * 60 * 1000
 
+// [LAW:types-are-the-program] Money is an integer count of a minimal unit, not a
+// real number — 0.003 USD has no exact binary float, so float sums drift and a
+// strict cap comparison could flip at the boundary. Dollar floats are the
+// ergonomic input (providers declare costEstimateUsd: 0.003); they are quantized
+// to integer micro-USD once, here at the boundary, so all spend arithmetic and
+// the cap comparison are exact. spentUsd is converted back only for display.
+const USD_TO_MICROS = 1_000_000
+const toMicros = (usd: number): number => Math.round(usd * USD_TO_MICROS)
+
 export type BudgetStatus = {
   withinBudget: boolean
   spentUsd: number
@@ -36,11 +45,15 @@ export function evaluateBudget(
   callsByProvider: Map<ProviderId, number>,
   ceilingUsd: number = DAILY_BUDGET_USD,
 ): BudgetStatus {
-  let spentUsd = 0
+  let spentMicros = 0
   for (const [providerId, calls] of callsByProvider) {
-    spentUsd += getProvider(providerId).capabilities.costEstimateUsd * calls
+    spentMicros += toMicros(getProvider(providerId).capabilities.costEstimateUsd) * calls
   }
-  return { withinBudget: spentUsd < ceilingUsd, spentUsd, ceilingUsd }
+  return {
+    withinBudget: spentMicros < toMicros(ceilingUsd),
+    spentUsd: spentMicros / USD_TO_MICROS,
+    ceilingUsd,
+  }
 }
 
 // [LAW:types-are-the-program] generations' own timestamps are cleared on status
