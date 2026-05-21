@@ -63,9 +63,16 @@ function absent(value: unknown, what: string): void {
 }
 
 // JSON columns hold exactly what createPost serialized — our own shapes, not foreign
-// input — so this is a typed deserialize, not a defensive re-parse.
-function parseJson<T>(json: string): T {
-  return JSON.parse(json)
+// input — so this is a typed deserialize, not a defensive re-parse. A malformed column
+// is the same class of storage violation as `required`/`absent` guard, so it fails loud
+// the same way: localize responsibility to the column/post rather than surfacing a
+// context-free SyntaxError. [LAW:no-silent-fallbacks]
+function parseJson<T>(json: string, what: string): T {
+  try {
+    return JSON.parse(json)
+  } catch (err) {
+    throw new Error(`feed: malformed JSON in ${what}`, { cause: err })
+  }
 }
 
 // [LAW:types-are-the-program] Closed union → exhaustive switch, mirroring PostCard.
@@ -79,7 +86,10 @@ function toStatus(g: DbGeneration): GenerationStatus {
     case 'succeeded':
       return {
         kind: 'succeeded',
-        output: parseJson<Media>(required(g.outputJson, 'succeeded.outputJson')),
+        output: parseJson<Media>(
+          required(g.outputJson, 'succeeded.outputJson'),
+          `output_json for post ${g.postId}`,
+        ),
         completedAt: required(g.completedAt, 'succeeded.completedAt'),
       }
     case 'failed':
@@ -95,7 +105,10 @@ function toContent(row: FeedRow): Content {
   if (row.post.contentKind === 'upload') {
     absent(row.generation, `generations row for upload post ${row.post.id}`)
     const u = required(row.upload, `uploads row for post ${row.post.id}`)
-    return { kind: 'upload', asset: parseJson<Media>(u.assetJson) }
+    return {
+      kind: 'upload',
+      asset: parseJson<Media>(u.assetJson, `asset_json for post ${row.post.id}`),
+    }
   }
   absent(row.upload, `uploads row for generation post ${row.post.id}`)
   const g = required(row.generation, `generations row for post ${row.post.id}`)
@@ -104,7 +117,7 @@ function toContent(row: FeedRow): Content {
     recipe: {
       providerId: ProviderId(g.providerId),
       providerVersion: g.providerVersion,
-      params: parseJson<unknown>(g.paramsJson),
+      params: parseJson<unknown>(g.paramsJson, `params_json for post ${g.postId}`),
       parentId: g.parentPostId ? PostId(g.parentPostId) : undefined,
     },
     status: toStatus(g),
@@ -115,7 +128,7 @@ function toPost(row: FeedRow): Post {
   return {
     id: PostId(row.post.id),
     createdAt: row.post.createdAt,
-    origin: parseJson<Origin>(row.post.originJson),
+    origin: parseJson<Origin>(row.post.originJson, `origin_json for post ${row.post.id}`),
     content: toContent(row),
   }
 }
