@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d3faba25-6897-49e2-8625-15c50edd9cf0",
+  "id": "7b74f744-1e9b-431c-b0b0-acc5989a5e78",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "generations": {
@@ -203,7 +203,12 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "posts_content_kind_shape": {
+          "name": "posts_content_kind_shape",
+          "value": "\"posts\".\"content_kind\" IN ('generation', 'upload')"
+        }
+      }
     },
     "uploads": {
       "name": "uploads",

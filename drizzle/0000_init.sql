@@ -53,7 +53,8 @@ CREATE TABLE `posts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`created_at` integer NOT NULL,
 	`content_kind` text NOT NULL,
-	`origin_json` text NOT NULL
+	`origin_json` text NOT NULL,
+	CONSTRAINT "posts_content_kind_shape" CHECK("posts"."content_kind" IN ('generation', 'upload'))
 );
 --> statement-breakpoint
 CREATE INDEX `posts_created_at_idx` ON `posts` (`created_at`);--> statement-breakpoint

@@ -1,8 +1,10 @@
 // [LAW:one-source-of-truth] drizzle-kit configuration. The schema in
 // app/db/schema.ts is the source; migrations in drizzle/ are the residue.
-// We use the `sqlite` dialect (D1 is SQLite at the wire level) and the
-// `d1-http` driver tag so drizzle-kit emits SQL that wrangler's d1
-// migrations runner accepts.
+// Dialect is `sqlite` (D1 is SQLite at the wire level). No `driver` is set:
+// drizzle-kit is only ever used here for `generate`, which diffs the schema
+// and emits SQL without a DB connection. Migrations are applied by
+// `wrangler d1 migrations apply`, not drizzle-kit — so the d1-http driver
+// and its credentials are not needed.
 
 import { defineConfig } from 'drizzle-kit'
 

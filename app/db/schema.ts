@@ -40,7 +40,18 @@ export const posts = sqliteTable(
     }).notNull(),
     originJson: text('origin_json').notNull(),
   },
-  (t) => [index('posts_created_at_idx').on(t.createdAt)],
+  (t) => [
+    index('posts_created_at_idx').on(t.createdAt),
+    // [LAW:types-are-the-program] Drizzle's `enum` on a text column is
+    // type-level only — it emits no SQL CHECK. Without this, the DB would
+    // accept any string for content_kind, so a raw-SQL writer could store a
+    // value the sibling-table join can't dispatch on. The CHECK makes the
+    // discriminator real at the storage boundary, matching generations.status.
+    check(
+      'posts_content_kind_shape',
+      sql`${t.contentKind} IN ('generation', 'upload')`,
+    ),
+  ],
 )
 
 // Generations: the recipe + async status for content_kind='generation' posts.
