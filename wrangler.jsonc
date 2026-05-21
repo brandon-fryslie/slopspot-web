@@ -40,5 +40,17 @@
       "database_id": "local-only-placeholder",
       "migrations_dir": "drizzle"
     }
+  ],
+  // [LAW:one-source-of-truth] R2 bucket binding name `MEDIA` is the canonical
+  // handle; app/storage/ingest.ts is the single writer and app/routes/media.$key.ts
+  // is the single reader. No other module touches the raw bucket binding.
+  // Remote-bucket provisioning is the deferred work tracked in the follow-up
+  // child ticket (see persistence-xiq.2 children); locally, miniflare provides
+  // an in-memory bucket keyed off `bucket_name` so `wrangler dev` works as-is.
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "slopspot-media"
+    }
   ]
 }
