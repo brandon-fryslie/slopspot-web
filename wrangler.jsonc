@@ -29,10 +29,8 @@
   // [LAW:one-source-of-truth] DB binding name `DB` is the canonical handle;
   // app/db/client.ts reads it as `env.DB` and wraps it with drizzle(). No
   // other module touches the raw binding.
-  // The `database_id` placeholder is replaced before prod deploy via
-  // `wrangler d1 create slopspot-db` (tracked in slopspot-persistence-xiq.1.1).
-  // Local `wrangler d1 migrations apply --local` keys state off `database_name`
-  // and ignores `database_id`, so local dev works against this config as-is.
+  // Local miniflare keys off `database_name` and ignores `database_id`,
+  // so local dev works against this config as-is.
   "d1_databases": [
     {
       "binding": "DB",
