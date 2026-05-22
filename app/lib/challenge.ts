@@ -3,7 +3,7 @@
 // import from here — the logic lives in neither route.
 //
 // [LAW:types-are-the-program] ChallengeToken is a branded opaque string that
-// can only be produced by signChallenge(). The verifier re-derives the HMAC
+// can only be produced by issueChallenge(). The verifier re-derives the HMAC
 // from the embedded payload, so forgery requires the secret. No DB needed —
 // the signature IS the proof of issuance.
 
@@ -112,7 +112,7 @@ async function hmacSign(payload: string, secret: string): Promise<string> {
 
 async function hmacVerify(payload: string, signature: string, secret: string): Promise<boolean> {
   const expected = await hmacSign(payload, secret)
-  // Constant-time comparison via HMAC of both — avoids timing attacks on the comparison itself
+  // Constant-time XOR comparison — avoids short-circuit timing attacks on signature equality
   if (expected.length !== signature.length) return false
   let diff = 0
   for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i)
@@ -132,6 +132,7 @@ export type IssuedChallenge = {
 }
 
 export async function issueChallenge(secret: string, now = Date.now()): Promise<IssuedChallenge> {
+  if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
   const template = pickTemplate()
   const payload: ChallengePayload = {
     templateId: template.id,
@@ -161,6 +162,7 @@ export async function verifyChallenge(
   secret: string,
   now = Date.now(),
 ): Promise<VerifyResult> {
+  if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
   const dot = challengeId.lastIndexOf('.')
   if (dot === -1) return { ok: false, reason: 'malformed' }
 
@@ -173,7 +175,10 @@ export async function verifyChallenge(
 
   let payload: ChallengePayload
   try {
-    payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'))) as ChallengePayload
+    // Restore standard base64 padding before atob — the encoded form strips '='
+    const std = payloadB64.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = std + '==='.slice((std.length + 3) % 4)
+    payload = JSON.parse(atob(padded)) as ChallengePayload
   } catch {
     return { ok: false, reason: 'malformed' }
   }
