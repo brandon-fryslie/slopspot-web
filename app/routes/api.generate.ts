@@ -8,7 +8,7 @@ import { verifyChallenge } from "~/lib/challenge"
 import { checkBudget } from "~/firehose/budget"
 
 // [LAW:single-enforcer] This route is the HTTP trust boundary for generation.
-// Verification order: challenge auth → budget → createPost. Each layer is
+// Verification order: challenge gate → budget → createPost. Each layer is
 // enforced once here and nowhere else. createPost itself is unaware of auth.
 
 const bodySchema = z.object({
@@ -60,7 +60,12 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   // [LAW:single-enforcer] Budget guard runs after auth so unauthenticated callers
   // don't get to probe the spend state.
-  const budget = await checkBudget(context.cloudflare.env)
+  let budget
+  try {
+    budget = await checkBudget(context.cloudflare.env)
+  } catch {
+    return Response.json({ error: "budget check unavailable" }, { status: 503 })
+  }
   if (!budget.withinBudget) {
     return Response.json(
       {

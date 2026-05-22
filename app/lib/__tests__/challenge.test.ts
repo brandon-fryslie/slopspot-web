@@ -66,16 +66,21 @@ describe('verifyChallenge', () => {
     expect(result).toEqual({ ok: false, reason: 'expired' })
   })
 
-  it('handles base64url payloads requiring padding (all padding lengths)', async () => {
-    // Issue many tokens until we see all payload lengths mod 4
+  it('handles base64url payloads requiring padding (all three padding lengths)', async () => {
+    // JSON payload length = fixed structure (86 bytes) + len(String(issuedAt)).
+    // now=1 → 87 bytes → 87%3=0 → no padding (mod4=0)
+    // now=10 → 88 bytes → 88%3=1 → strip 2 '=' (mod4=2)
+    // now=100 → 89 bytes → 89%3=2 → strip 1 '=' (mod4=3)
+    const cases = [1, 10, 100]
     const seen = new Set<number>()
-    for (let i = 0; i < 40 && seen.size < 3; i++) {
-      const { challengeId } = await issueChallenge(SECRET)
+    for (const now of cases) {
+      const { challengeId } = await issueChallenge(SECRET, now)
       const payloadB64 = challengeId.slice(0, challengeId.lastIndexOf('.'))
       seen.add(payloadB64.length % 4)
-      const result = await verifyChallenge(challengeId, 'residue ok', SECRET)
-      expect(result.ok).toBe(true)
+      const result = await verifyChallenge(challengeId, 'residue ok', SECRET, now)
+      expect(result.ok, `now=${now} payloadLen%4=${payloadB64.length % 4}`).toBe(true)
     }
+    expect(seen.size).toBe(3)
   })
 
   it('throws when secret is empty', async () => {
