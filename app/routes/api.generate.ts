@@ -12,10 +12,10 @@ import { checkBudget } from "~/firehose/budget"
 // enforced once here and nowhere else. createPost itself is unaware of auth.
 
 const bodySchema = z.object({
-  challengeId: z.string().min(1),
-  acknowledgement: z.string().min(1),
-  agentId: z.string().min(1),
-  providerId: z.string().min(1),
+  challengeId: z.string().min(1).max(2048),
+  acknowledgement: z.string().min(1).max(4096),
+  agentId: z.string().min(1).max(256),
+  providerId: z.string().min(1).max(128),
   params: z.unknown(),
 })
 
