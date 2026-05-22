@@ -4,20 +4,20 @@ import { ApiError } from "@fal-ai/client"
 import { AgentId, ProviderId, type Origin } from "~/lib/domain"
 import { UnknownProviderError } from "~/providers"
 import { createPost, InvalidParamsError } from "~/db/posts"
+import { verifyChallenge } from "~/lib/challenge"
+import { checkBudget } from "~/firehose/budget"
 
-// [LAW:single-enforcer] This route is one caller of createPost — it does not
-// persist, ingest, or talk to providers itself. Its only job is the HTTP trust
-// boundary: parse the request, attribute an origin, and map createPost's outcome
-// to a status code.
+// [LAW:single-enforcer] This route is the HTTP trust boundary for generation.
+// Verification order: challenge auth → budget → createPost. Each layer is
+// enforced once here and nowhere else. createPost itself is unaware of auth.
 
 const bodySchema = z.object({
+  challengeId: z.string().min(1),
+  acknowledgement: z.string().min(1),
+  agentId: z.string().min(1),
   providerId: z.string().min(1),
   params: z.unknown(),
 })
-
-// Direct API calls are attributed to a fixed agent until auth lands; the
-// authenticated actor replaces this then.
-const API_ORIGIN: Origin = { actor: { kind: "agent", agentId: AgentId("api") } }
 
 export async function action({ request, context }: Route.ActionArgs) {
   if (request.method !== "POST") {
@@ -29,9 +29,51 @@ export async function action({ request, context }: Route.ActionArgs) {
     parsed = bodySchema.parse(await request.json())
   } catch (e) {
     return Response.json(
-      { error: "invalid body", detail: String(e) },
+      {
+        error: "invalid body",
+        detail: String(e),
+        hint: "GET /api/challenge first — read it in full, then include challengeId, acknowledgement, and agentId",
+      },
       { status: 400 },
     )
+  }
+
+  // [LAW:single-enforcer] Challenge verification is the auth boundary. Fail fast
+  // before any DB or provider call — cheapest check runs first.
+  const verification = await verifyChallenge(
+    parsed.challengeId,
+    parsed.acknowledgement,
+    context.cloudflare.env.SLOPSPOT_CHALLENGE_SECRET,
+  )
+  if (!verification.ok) {
+    const messages: Record<typeof verification.reason, string> = {
+      malformed: "challengeId is malformed",
+      invalid_signature: "challengeId signature is invalid — obtain a fresh one from GET /api/challenge",
+      expired: "challengeId has expired (30min TTL) — obtain a fresh one from GET /api/challenge",
+      wrong_ack: "acknowledgement does not satisfy the challenge — read GET /api/challenge in full",
+    }
+    return Response.json(
+      { error: "challenge failed", reason: verification.reason, detail: messages[verification.reason] },
+      { status: verification.reason === "wrong_ack" ? 403 : 401 },
+    )
+  }
+
+  // [LAW:single-enforcer] Budget guard runs after auth so unauthenticated callers
+  // don't get to probe the spend state.
+  const budget = await checkBudget(context.cloudflare.env)
+  if (!budget.withinBudget) {
+    return Response.json(
+      {
+        error: "daily budget exhausted",
+        spentUsd: budget.spentUsd,
+        ceilingUsd: budget.ceilingUsd,
+      },
+      { status: 429 },
+    )
+  }
+
+  const origin: Origin = {
+    actor: { kind: "agent", agentId: AgentId(parsed.agentId) },
   }
 
   try {
@@ -39,7 +81,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       {
         providerId: ProviderId(parsed.providerId),
         params: parsed.params,
-        origin: API_ORIGIN,
+        origin,
       },
       { env: context.cloudflare.env },
     )
@@ -61,9 +103,6 @@ export async function action({ request, context }: Route.ActionArgs) {
         { status: 422 },
       )
     }
-    // Surface upstream provider errors with their actual body — generic
-    // `e.message` from SDKs is often just HTTP status text ("Forbidden") and
-    // loses the actionable detail ("balance exhausted", etc.).
     if (e instanceof ApiError) {
       return Response.json(
         {
