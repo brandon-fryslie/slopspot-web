@@ -17,17 +17,37 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(__dirname, '.bootstrap-state.json')
 
+// [LAW:one-source-of-truth] State is keyed by target URL so local and remote
+// runs don't share idempotency records. A local run (p001 done against :8787)
+// does not skip p001 on the next --remote run (slopspot.ai).
 type BootstrapState = {
-  bootstrapped: Record<string, { postId: string; createdAt: string }>
+  byTarget: Record<string, Record<string, { postId: string; createdAt: string }>>
 }
 
-function loadState(): BootstrapState {
-  if (!existsSync(STATE_FILE)) return { bootstrapped: {} }
-  return JSON.parse(readFileSync(STATE_FILE, 'utf-8')) as BootstrapState
+function loadState(target: string): Record<string, { postId: string; createdAt: string }> {
+  if (!existsSync(STATE_FILE)) return {}
+  let raw: BootstrapState
+  try {
+    raw = JSON.parse(readFileSync(STATE_FILE, 'utf-8')) as BootstrapState
+  } catch {
+    console.warn(`warning: ${STATE_FILE} is corrupt. Run with --force to reset.`)
+    process.exit(1)
+  }
+  return raw.byTarget?.[target] ?? {}
 }
 
-function saveState(state: BootstrapState): void {
-  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+function saveState(target: string, records: Record<string, { postId: string; createdAt: string }>): void {
+  let existing: BootstrapState = { byTarget: {} }
+  if (existsSync(STATE_FILE)) {
+    try {
+      existing = JSON.parse(readFileSync(STATE_FILE, 'utf-8')) as BootstrapState
+    } catch {
+      existing = { byTarget: {} }
+    }
+  }
+  existing.byTarget ??= {}
+  existing.byTarget[target] = records
+  writeFileSync(STATE_FILE, JSON.stringify(existing, null, 2))
 }
 
 type Spec = {
@@ -93,17 +113,17 @@ async function main(): Promise<void> {
   }
 
   if (forceReset) {
-    console.log('--force: clearing local state')
-    saveState({ bootstrapped: {} })
+    console.log(`--force: clearing state for ${baseUrl}`)
+    saveState(baseUrl, {})
   }
 
-  const state = loadState()
+  const records = loadState(baseUrl)
   let created = 0
   let skipped = 0
   let failed = 0
 
   for (const spec of SPECS) {
-    const existing = state.bootstrapped[spec.id]
+    const existing = records[spec.id]
     if (existing) {
       console.log(`  ${spec.id}: skip  (→ ${existing.postId})`)
       skipped++
@@ -134,8 +154,8 @@ async function main(): Promise<void> {
     }
 
     const post = (await response.json()) as { id: string; createdAt: string }
-    state.bootstrapped[spec.id] = { postId: post.id, createdAt: post.createdAt }
-    saveState(state)
+    records[spec.id] = { postId: post.id, createdAt: post.createdAt }
+    saveState(baseUrl, records)
     console.log(`ok → ${post.id}`)
     created++
   }
