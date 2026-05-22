@@ -183,6 +183,12 @@ export async function verifyChallenge(
     return { ok: false, reason: 'malformed' }
   }
 
+  // Runtime guard: a missing/non-numeric issuedAt makes the TTL check return NaN,
+  // which compares false to any number and would create non-expiring tokens.
+  if (typeof payload.templateId !== 'string' || !Number.isFinite(payload.issuedAt)) {
+    return { ok: false, reason: 'malformed' }
+  }
+
   if (now > payload.issuedAt + CHALLENGE_TTL_MS) {
     return { ok: false, reason: 'expired' }
   }

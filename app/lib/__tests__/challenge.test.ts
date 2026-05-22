@@ -89,4 +89,21 @@ describe('verifyChallenge', () => {
       'SLOPSPOT_CHALLENGE_SECRET is not configured',
     )
   })
+
+  it('returns malformed for a HMAC-valid payload with missing issuedAt (NaN bypass guard)', async () => {
+    // Craft a signed token whose payload has issuedAt removed — would bypass TTL as NaN > number === false
+    const corruptPayload = { templateId: 'scg-7.4.1', nonce: 'test' } // no issuedAt
+    const corruptJson = JSON.stringify(corruptPayload)
+    const b64 = btoa(corruptJson).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+    // We need a valid sig for the corrupt payload to reach the shape check
+    // Build the sig manually using the same key
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(SECRET),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const sigBytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(b64))
+    const sig = btoa(String.fromCharCode(...new Uint8Array(sigBytes)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+    const fakeToken = `${b64}.${sig}`
+    const result = await verifyChallenge(fakeToken, 'residue ok', SECRET)
+    expect(result).toEqual({ ok: false, reason: 'malformed' })
+  })
 })
