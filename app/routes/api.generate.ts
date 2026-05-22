@@ -40,11 +40,16 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   // [LAW:single-enforcer] Challenge gate: proof the caller fetched and read the
   // briefing (not identity attestation). Fail fast before any DB or provider call.
-  const verification = await verifyChallenge(
-    parsed.challengeId,
-    parsed.acknowledgement,
-    context.cloudflare.env.SLOPSPOT_CHALLENGE_SECRET,
-  )
+  let verification
+  try {
+    verification = await verifyChallenge(
+      parsed.challengeId,
+      parsed.acknowledgement,
+      context.cloudflare.env.SLOPSPOT_CHALLENGE_SECRET,
+    )
+  } catch {
+    return Response.json({ error: "challenge verifier misconfigured" }, { status: 500 })
+  }
   if (!verification.ok) {
     const messages: Record<typeof verification.reason, string> = {
       malformed: "challengeId is malformed",
