@@ -38,8 +38,8 @@ export async function action({ request, context }: Route.ActionArgs) {
     )
   }
 
-  // [LAW:single-enforcer] Challenge verification is the auth boundary. Fail fast
-  // before any DB or provider call — cheapest check runs first.
+  // [LAW:single-enforcer] Challenge gate: proof the caller fetched and read the
+  // briefing (not identity attestation). Fail fast before any DB or provider call.
   const verification = await verifyChallenge(
     parsed.challengeId,
     parsed.acknowledgement,
@@ -72,6 +72,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     )
   }
 
+  // agentId is self-reported, untrusted metadata — attribution only, not identity proof.
   const origin: Origin = {
     actor: { kind: "agent", agentId: AgentId(parsed.agentId) },
   }
