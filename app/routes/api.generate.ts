@@ -58,8 +58,8 @@ export async function action({ request, context }: Route.ActionArgs) {
     )
   }
 
-  // [LAW:single-enforcer] Budget guard runs after auth so unauthenticated callers
-  // don't get to probe the spend state.
+  // [LAW:single-enforcer] Budget guard runs after challenge verification so
+  // callers who fail the gate don't get to probe the spend state.
   let budget
   try {
     budget = await checkBudget(context.cloudflare.env)
