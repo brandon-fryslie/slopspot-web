@@ -75,15 +75,19 @@ Adding a family is a doc edit + an enum entry. Removing one is harder
 
 ## Subject templates
 
-Forty templates, each a string with `{slot}` placeholders. Slots are filled
-from vocabularies (next section) at chooser time. The composed phrase is the
-*subject* — what the image is "of." The style family's prompt seed is then
-appended (or prepended, per provider quirks) to produce the final prompt.
+Forty active templates plus one legacy-only template (`T00`), each a string
+with `{slot}` placeholders. Slots are filled from vocabularies (next
+section) at chooser time. The composed phrase is the *subject* — what the
+image is "of." The style family's prompt seed is then appended (or
+prepended, per provider quirks) to produce the final prompt.
 
 Each template has an `id` (used by the chooser for anti-repetition tracking)
-and a `phrase` (the slot string).
+and a `phrase` (the slot string). `T00` is a single-slot escape hatch for
+backfilling rows that pre-date this schema; see "Implementation seams" for
+when it's populated and the rule that the chooser must never sample it.
 
 ```
+T00  "{free-text}"                                                          // legacy/backfill only — chooser MUST exclude
 T01  "a {animal} working as a {profession}"
 T02  "an {animal} performing an act of {emotion}"
 T03  "the last {profession} of the {era}, retiring"
@@ -97,7 +101,7 @@ T10  "diagram of how a {man-made-object} actually works (charmingly wrong)"
 T11  "instructions for using a {man-made-object} you have never seen"
 T12  "a {profession} on their first day, posing for a portrait"
 T13  "the {era} version of a {man-made-object} that does not yet exist"
-T14  "a {animal} that has been awarded a {abstract-concept}"
+T14  "a {animal} accepting a small award for {abstract-concept}"
 T15  "{setting}, but it is the {era}"
 T16  "a still life of {man-made-object} and {natural-object}, arranged like a memory"
 T17  "a {animal} reading a {man-made-object}"
@@ -179,10 +183,15 @@ emotion
   gently-baffled
 
 abstract-concept
-  patience, regret, almost-rememberance, the-feeling-of-clean-laundry,
+  patience, regret, almost-remembrance, the-feeling-of-clean-laundry,
   small-victories, vocational-pride, the-second-half-of-an-anecdote,
   bureaucratic-grace, hospitality, the-passage-of-time, residual-warmth,
   permission, archival-care
+
+free-text  (used only by template T00, see below)
+  — opaque string carried as-is; no vocabulary, no enumeration. Populated
+  exclusively by the pl6.2 backfill for rows that pre-date the recipe
+  schema. The chooser MUST exclude T00 from sampling for new generations.
 ```
 
 Slot vocabularies live in the same enum file as templates (`pl6.2`). Adding
@@ -289,7 +298,7 @@ the chooser samples-and-rejects until a tuple satisfies all rules.
 | R1   | last 1  | `styleFamily` must differ from the most recent post's `styleFamily`.               |
 | R2   | last 5  | `subjectTemplate` must not appear in the last 5 posts.                              |
 | R3   | last 1  | If ≥2 providers are registered, `providerId` must differ from the most recent post's. |
-| R4   | last 2  | `aspectRatio` must not be the same as the *previous two* posts' aspect ratios.     |
+| R4   | last 2  | If the most recent two posts share the same `aspectRatio`, the candidate must differ from it. (Two-in-a-row is allowed; three-in-a-row is not.) |
 | R5   | last 20 | Soft-downweight (×0.3) any `styleFamily` that has appeared ≥3 times in the last 20. |
 | R6   | last 20 | Soft-downweight (×0.5) any slot-fill value that has appeared in the last 20 posts (per slot type). |
 
@@ -351,11 +360,20 @@ Where downstream tickets land the code that consumes this doc:
       and accepts an `aspectRatio` field on the input directly).
   - D1 schema: add columns to the `generations` table (`style_family TEXT
     NOT NULL`, `subject_template TEXT NOT NULL`, `slots JSON NOT NULL`,
-    `aspect_ratio TEXT NOT NULL`). Existing rows backfilled with a sentinel
-    style (`'photoreal'`), the literal prompt re-parsed as a `T05`
-    setting+time template with empty slots, and the previous aspect ratio
-    read out of `params`. The bootstrap content load (`ct9`) is the only
-    pre-existing data; backfilling 20 rows by hand is acceptable here.
+    `aspect_ratio TEXT NOT NULL`). Existing rows (the `ct9` bootstrap +
+    any cron output produced before pl6.2 ships, ~tens of rows) are
+    backfilled as:
+    - `style_family`: sentinel `'photoreal'` (the closest match to fal-flux
+      default output; this is metadata-only, the image is already produced)
+    - `subject_template`: `'T00'` (the legacy escape hatch)
+    - `slots`: `{ "freeText": "<original prompt verbatim>" }`
+    - `aspect_ratio`: read out of the existing `params.aspectRatio`
+    The chooser excludes `T00` from sampling (per anti-repetition section
+    + the rule attached to the `free-text` slot vocabulary), so backfilled
+    rows render in the feed but never feed back into chooser decisions.
+    If a future ticket wants to retro-classify the backfilled rows into
+    real (`T01`–`T40`) templates by prompt-string matching, that's a
+    separate concern — `T00` is the floor, not the ceiling.
   - Forking semantics: a fork copies the parent's recipe in full and the
     forker may edit individual fields. The recipe is a snapshot, not a
     reference — re-running the same recipe months later under a different
