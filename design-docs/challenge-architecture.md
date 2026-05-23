@@ -168,11 +168,15 @@ the test suite has to catch.
 Wire-format note: `expiresAt` on the response body is an **ISO-8601 string**
 to stay consistent with the shipped v1 API and the rest of the
 JSON-serialized domain shapes (which serialize `Date` as ISO via
-`Response.json`). The `issuedAt` field *inside the HMAC-signed payload* is
-epoch-milliseconds — it's an internal timestamp used only by the verifier
-for TTL math, never appears on the wire to the caller. Mixing units would
-be wrong; the boundary is "internal payload uses numbers, response body uses
-ISO strings."
+`Response.json`). The `issuedAt` field is embedded *inside the HMAC-signed
+token payload* as epoch-milliseconds — it travels with the `challengeId`
+blob (base64-decodable by anyone who has the token, since the payload is
+signed not encrypted), but it is not a separate top-level response field.
+The verifier reads `issuedAt` from the decoded payload to do TTL math; the
+client should treat the `challengeId` as an opaque token and rely on
+`expiresAt` (ISO string) for the human/wire-level expiry timestamp. The
+boundary is "signed-payload uses epoch-ms numbers, top-level response body
+uses ISO strings."
 
 No LLM call on this path. No encryption (signing suffices — the briefing
 declares the forms in plain text; nothing in the token is secret).
@@ -338,7 +342,7 @@ mechanism for "did we exceed today's quota," and the answer is atomic
 by construction at the storage layer.
 
 [LAW:one-source-of-truth] one location for bank entries (KV), one location
-for quota state (D1). The budget guard in `firehose/budget.ts` is about
+for quota state (D1). The budget guard in `app/firehose/budget.ts` is about
 *dollars spent*, not *count of challenges passed*; that's a separate
 concern, separately stored, with its own (already-accepted) TOCTOU
 properties. The two systems do not couple.
