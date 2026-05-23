@@ -34,9 +34,17 @@ export default {
     if (import.meta.env.DEV) {
       const url = new URL(request.url)
       if (url.pathname === "/__scheduled") {
+        // [LAW:types-are-the-program] Separate "absent" from "present-but-junk"
+        // explicitly. `Number(x) || Date.now()` collapses both into "falsy →
+        // fall back", which silently rejects valid `time=0` (Unix epoch) and
+        // masks malformed input. Accept set: any finite number, including 0
+        // and negatives. Reject set: missing param OR non-finite parse —
+        // both fall back to `Date.now()`.
+        const rawTime = url.searchParams.get("time")
+        const parsedTime = rawTime === null ? NaN : Number(rawTime)
         await runScheduled(
           {
-            scheduledTime: Number(url.searchParams.get("time")) || Date.now(),
+            scheduledTime: Number.isFinite(parsedTime) ? parsedTime : Date.now(),
             cron: url.searchParams.get("cron") ?? "* * * * *",
             noRetry: () => {},
           } satisfies ScheduledController,
