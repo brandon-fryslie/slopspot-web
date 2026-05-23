@@ -174,13 +174,19 @@ the test suite has to catch.
      This keeps selection O(1) — no `kv.list()` on the hot path. The
      manifest is the canonical record of "how many entries exist for
      day D"; [LAW:one-source-of-truth] no separate index to drift.
-2. Sign token: { entryId, nonce, issuedAt: now }  via HMAC-SHA256
-   Encode as: base64url(JSON(payload)) + "." + base64url(hmac)
-   (base64url with `=` padding stripped, matching shipped v1, so the
-   challengeId stays URL-safe as an opaque string. Note that `issuedAt`
-   is epoch-ms inside the signed payload — embedded in the challengeId
-   blob, not a separate top-level response field; clients treat
-   challengeId as opaque.)
+2. Encode + sign the payload (matching shipped v1):
+     payloadB64  = base64url(JSON.stringify({ entryId, nonce, issuedAt: now }))
+     sigBytes    = HMAC-SHA256(key = SLOPSPOT_CHALLENGE_SECRET, message = payloadB64)
+     sigB64      = base64url(sigBytes)
+     challengeId = payloadB64 + "." + sigB64
+   The HMAC is computed over the **base64url-encoded payload string**, not
+   over the raw JSON — the verifier recomputes HMAC over the same
+   payloadB64 string, so signing and verifying use identical input bytes.
+   `base64url` here means `+` → `-`, `/` → `_`, `=` padding stripped, so the
+   challengeId is URL-safe as an opaque token. `issuedAt` is epoch-ms
+   inside the signed payload — embedded in the challengeId blob (and thus
+   base64url-decodable by anyone holding it), not a separate top-level
+   response field; clients treat challengeId as opaque.
 3. Return { challengeId, text: briefingText, expiresAt: ISO-8601 string of (now + 240_000) }
    Cache-Control: no-store
 ```
@@ -211,7 +217,8 @@ v1 client that read `templateId` will break; ticket `slopspot-shell-dqx.8`
 covers updating internal consumers (the bootstrap script) accordingly.
 
 **Note on entryId observability:** the signed `challengeId` is
-`base64(payload).hmac`, signed-not-encrypted, so a client can decode the
+`base64url(JSON(payload)) + "." + base64url(hmac)`, signed-not-encrypted,
+so a client can decode the
 `entryId` from any token they receive. That is *not* a security concern:
 exploiting `entryId` to harvest the bank still requires *solving* each
 entry's form constraints to learn what answer satisfies it, which is the
