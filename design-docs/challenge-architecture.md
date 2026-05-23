@@ -183,6 +183,19 @@ uses ISO strings."
 No LLM call on this path. No encryption (signing suffices — the briefing
 declares the forms in plain text; nothing in the token is secret).
 
+**Breaking change vs shipped v1 response shape:** the v1 `issueChallenge()`
+returns `{ challengeId, text, templateId, expiresAt }`. This design's
+response is `{ challengeId, text, expiresAt }` — `templateId` is
+**intentionally removed**. There is no "template" concept anymore; each
+challenge corresponds to a unique `BankEntry` whose `id` is embedded in
+the signed token and never exposed on the wire. Exposing the `entryId`
+to clients would let an adversary index the bank by collecting ids
+across many requests, which is precisely the harvest-attack we want to
+prevent (the bank's anonymity-via-large-population property holds only
+if no per-entry handle leaks). Any v1 client that read `templateId` will
+break; ticket `slopspot-shell-dqx.8` covers updating internal consumers
+(the bootstrap script) accordingly.
+
 `POST /api/generate`:
 
 ```
@@ -493,7 +506,7 @@ The bank-gen path doesn't read the quota. Each seam is typed at its boundary:
 - Is 20/day the right quota? Tune from observed legitimate-usage patterns.
 - Is the 0.90 dictionary-ratio threshold right? Tune from observed
   legitimate-prompt distribution.
-- Are the v1 form variants well-distributed in difficulty? Track per-form
+- Are the form variants well-distributed in difficulty? Track per-form
   pass-rate; rebalance the catalog if specific variants dominate failures.
 
 All four questions need real traffic to answer — not pre-launch deliberation.
