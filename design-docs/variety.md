@@ -61,7 +61,7 @@ final prompt.
 | `cottagecore`               | Cottagecore                | `rural pastoral, hand-knit textures, dappled afternoon sun, embroidery and wildflowers, soft-focus` |
 | `haunted-mundane`           | Haunted mundane            | `everyday scene with one wrong thing, suburban setting, uncanny stillness, eye-level photograph` |
 | `1990s-cgi`                 | 1990s CGI                  | `early Pixar / Reboot-era 3D render, plastic shaders, hard rim light, primary-color materials` |
-| `botanical-illustration`    | Botanical illustration     | `Victorian field-guide plate, ink line work with watercolor wash, latin label, plain background` |
+| `botanical-illustration`    | Botanical illustration     | `Victorian field-guide plate, ink line work with watercolor wash, Latin label, plain background` |
 | `brutalist-architecture`    | Brutalist architecture     | `monolithic concrete, hard noon light, geometric mass, no people, slightly grainy medium-format` |
 | `risograph-print`           | Risograph print            | `risograph print, limited 2–3 color palette (fluoro pink, teal, black), visible registration drift, paper texture` |
 
@@ -124,7 +124,7 @@ T30  "a {profession} whose only client is a {animal}"
 T31  "a {manMadeObject} that has outlived its purpose by a wide margin"
 T32  "a {naturalObject} explained by a {profession} who does not understand it"
 T33  "a {animal} that has been crowned for an obscure achievement"
-T34  "a {era} appliance that promises an {abstractConcept}"
+T34  "a {era} appliance that promises {abstractConcept}"
 T35  "a {setting} that you can only reach through a {setting}"
 T36  "a study of {naturalObject}, mounted and labeled by a {profession}"
 T37  "the {abstractConcept} drawer of a {profession}'s desk"
@@ -301,7 +301,19 @@ monotonous regardless of content.
 **Provider translation** — the chooser commits to an aspect ratio token
 (`1:1` | `16:9` | `9:16` | `4:3` | `3:4`). The provider layer translates:
 
-- `fal-flux`: native categorical (`aspectRatio: '1:1' | '16:9' | '9:16' | '4:3' | '3:4'`).
+- `fal-flux`: maps to fal's `image_size` enum. The five tokens correspond
+  to `square_hd`, `landscape_16_9`, `portrait_16_9`, `landscape_4_3`,
+  `portrait_4_3` respectively. **State of the codebase today** (2026-05):
+  `app/providers/fal-flux.ts` only declares the first three in its
+  `paramsSchema`. pl6.2 widens the schema to all five — fal's
+  `image_size` already supports the additional two, the gap is just in
+  our enum declaration. Until pl6.2 ships, the chooser MUST NOT pick
+  `4:3` or `3:4` for `fal-flux` (the schema would reject); the
+  style-family bias above naturally avoids this because the
+  `4:3`/`3:4`-biased families (anime, 1990s-cgi, botanical-illustration,
+  brutalist-architecture, cyberpunk-neon, liminal) are predominantly
+  SDXL-weighted, but pl6.5 should still gate by per-provider supported
+  ratios at sampling time.
 - `replicate-sdxl`: explicit (w,h) — table:
 
   | token  | w    | h    |
@@ -314,7 +326,10 @@ monotonous regardless of content.
 
 **[LAW:single-enforcer]** — the aspect-ratio enum is the canonical form. Each
 provider translates it once, in its own provider file. The chooser must
-*never* output (w,h) directly.
+*never* output (w,h) directly. Per-provider supported ratios live in the
+provider file's `paramsSchema` (and the chooser reads `provider.supportedAspectRatios`
+to filter the sampling distribution); the canonical `AspectRatio` enum is the
+union of all provider-supported ratios, not a per-provider subset.
 
 ---
 
@@ -413,12 +428,22 @@ Where downstream tickets land the code that consumes this doc:
     `providerVersion`, `params: unknown`, `parentId?`.
   - **Lifting `aspectRatio` is a migration**, not an addition. Today
     `app/providers/fal-flux.ts`'s `paramsSchema` carries `aspectRatio`
-    inside `params`. pl6.2 removes it from the provider's `paramsSchema`
-    and adds it to `Generation` so the chooser can read it back for R4
-    without peeking into `params: unknown`. The provider layer becomes a
-    pure translator from canonical `AspectRatio` to provider-native
-    `aspectRatio`/`(w,h)`. [LAW:one-source-of-truth] — one canonical
-    representation, providers translate at their boundary.
+    inside `params` AND only declares 3 of the 5 canonical values (`1:1`,
+    `16:9`, `9:16`). pl6.2 does both: removes `aspectRatio` from
+    `paramsSchema` (so it lives on `Generation`) AND widens fal-flux's
+    accepted aspect ratios to all 5 (fal's `image_size` already supports
+    `landscape_4_3`/`portrait_4_3` — the gap is just in our enum).
+    The provider layer becomes a pure translator from canonical
+    `AspectRatio` to provider-native `image_size`/`(w,h)`.
+    [LAW:one-source-of-truth] — one canonical representation, providers
+    translate at their boundary.
+  - **`GenerationProvider<P>` interface gains `supportedAspectRatios:
+    readonly AspectRatio[]`** so the chooser can filter the sampling
+    distribution per-provider without per-provider conditional code. The
+    chooser samples `aspectRatio` from the policy distribution intersected
+    with the chosen provider's supported set. If `replicate-sdxl` later
+    supports a sixth ratio that `fal-flux` doesn't, the chooser adapts by
+    reading the metadata, not by branching.
     - Callers updated: `seed.ts` (currently mints fixture recipes),
       `createPost` (writes the recipe to D1), `api.generate.ts` (the
       external action — its `bodySchema.params` now excludes aspectRatio
