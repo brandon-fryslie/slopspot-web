@@ -82,11 +82,17 @@ itself the architecture — no single layer is sufficient.
 | **20/day quota**       | Economic floor — daily spend capped even if all above fall             | Zero (under quota) / honest 429 (over) |
 | **240s token TTL**     | Replay / token-sharing window                                          | Slight: agents must move within 4 min |
 
-[LAW:single-enforcer] every gate runs in one place, on every submission,
-unconditionally. [LAW:dataflow-not-control-flow] there is no "this looks
-suspicious, also check X" branch — *all* gates execute on *every* call.
-Variability is in the **data** (which forms this entry carries, what the
-quota counter says), not in **whether code runs**.
+[LAW:single-enforcer] every gate is defined in one place and is the same
+gate for every submission. [LAW:dataflow-not-control-flow] there is no
+"this looks suspicious, also check X" branch and no caller-conditional
+gate selection — the pipeline is fixed; what varies between calls is
+which *data* gets observed (whether the token is valid, what the entry's
+form params are, what the quota state is), not which checks the code
+chooses to run on this caller. The pipeline is fail-fast — later checks
+do not execute when earlier checks have already produced a failure
+outcome — but that is **dependency-driven short-circuit on a fixed
+pipeline**, not adaptive control flow. See the Verification flow section
+for the precise sequence.
 
 [LAW:one-type-per-behavior] `EasyForm` and `HardForm` are two **distinct
 discriminated unions**, not one union with a difficulty knob. They share the
@@ -249,9 +255,11 @@ for the day. [LAW:errors] this is the documented failure shape — paying for
 the reservation up-front is the cost of avoiding TOCTOU race overshoot.
 
 [LAW:single-enforcer] — one verifier dispatch, one place, one path.
-[LAW:dataflow-not-control-flow] — every gate always runs, in order; the
-variability is in what they conclude, not which fire. Cheapest checks
-first; expensive operation (createPost) last.
+[LAW:dataflow-not-control-flow] — the pipeline is fixed; the variability
+is in what each check concludes (and therefore whether later checks are
+reached via dependency-driven short-circuit), not in which checks the
+code chooses to run on this caller. Cheapest checks first; expensive
+operation (createPost) last.
 
 ---
 
