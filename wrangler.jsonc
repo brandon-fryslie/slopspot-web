@@ -17,6 +17,14 @@
     "enabled": true
   },
   "upload_source_maps": true,
+  // [LAW:one-source-of-truth] Cron schedule for the slop firehose lives in
+  // version control, not the Cloudflare dashboard. Every redeploy reasserts
+  // it. Every 6 hours is the launch cadence — 4 posts/day × $0.003/post is
+  // ~$0.36/month, well under the daily ceiling enforced by `checkBudget`.
+  // Variety.5 may tune the cadence; until then this is the canonical value.
+  "triggers": {
+    "crons": ["0 */6 * * *"]
+  },
   // [LAW:one-source-of-truth] Apex domain binding lives in config, not in the
   // dashboard. `custom_domain: true` makes wrangler the single owner of the A/AAAA
   // records and the managed cert — every redeploy reasserts the binding.
