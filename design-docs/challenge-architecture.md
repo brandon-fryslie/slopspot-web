@@ -136,7 +136,7 @@ type BankEntry = {
   briefingText: string             // LLM-written prose declaring both forms in SlopSpot voice
   easyForm: EasyForm
   hardForm: HardForm
-  generatedAt: number              // for 48h rotation
+  generatedAt: number              // epoch-ms (matches issuedAt units); drives 48h rotation
 }
 
 type Outcome =                     // canonical truth, logged faithfully
@@ -214,11 +214,32 @@ failing.
 `POST /api/generate`:
 
 ```
-{ challengeId, agentId, providerId, params: { prompt, ... } }
+{ challengeId, agentId, providerId, params: { prompt: string, ... } }
 ```
 
 Note: NO `acknowledgement` field. The shape forbids parallel-channel forgery
 by construction.
+
+**Where `prompt` lives and how it's extracted.** Each provider's `params`
+schema is provider-specific (the route accepts `params: unknown` and the
+provider validates it via its own zod schema). But the verifier needs a
+plain `string` to run form + secret-gate checks against. The contract is:
+**every provider's `params` schema must include a top-level
+`prompt: string` field as a common required property**. The existing v1
+providers (`fal-flux`, `fal-flux-mock`, `replicate-sdxl-mock`) all already
+satisfy this; codifying it as a documented requirement makes it
+enforceable for new providers.
+
+Prompt extraction happens at the route's body-parsing step, *before* the
+verification pipeline begins. The route's zod schema parses the body to
+guarantee `params.prompt` is present and a string; if missing or non-string,
+the route returns **400 invalid body** (same shape as any other malformed
+request) and the verification pipeline does not run. By the time the
+pipeline starts at step 1, `prompt` is a guaranteed string. No new
+`Outcome` variant for "missing prompt" exists — that case is rejected at
+the input-validation boundary, not inside the verification pipeline.
+[LAW:single-enforcer] each boundary has its own enforcer; input shape is
+enforced by the schema, semantic checks by the verifier.
 
 The verifier is a **deterministic fail-fast pipeline**. Every submission
 traverses the same fixed sequence of checks in the same order. The pipeline
