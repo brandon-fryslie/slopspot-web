@@ -13,7 +13,7 @@ regardless of how clean the architecture is. The epic body already names the
 five dimensions — model, style, subject, aspect, format — but "be varied" is
 not a thing the firehose chooser can act on. It needs *concrete*
 enumerations, weights, and anti-repetition rules. This doc is the conversion
-of the abstract dimension into the concrete tables.
+of the abstract dimensions into the concrete tables.
 
 The downstream tickets should be **mechanical** after this lands:
 
@@ -146,16 +146,18 @@ Templates are written with English-readable indefinite articles ("a {animal}",
 "an {animal}") because that's how they read in source. The pl6.5 renderer
 owns article correctness: whenever an `a` or `an` token appears immediately
 before a `{slot}` placeholder, the renderer **replaces it** with the article
-that matches the resolved slot value's first phoneme (vowel-sound → `an`,
+that matches the resolved slot value's first character (vowel letter → `an`,
 otherwise → `a`). Articles that appear elsewhere in the template (before
 literal words like "act", "event", "instruction manual page") are emitted
 verbatim.
 
 Heuristic: lowercase the resolved value's first character, then apply the
-vowel rule. `a`/`e`/`i`/`o`/`u` → `an`, else → `a`. The lowercase step
-matters because vocab items include uppercase starts (`ATM`, `Edwardian`,
-`Edo-period`) — a literal lowercase-only check would emit "a ATM" or
-"a Edwardian appliance".
+vowel-letter check. `a`/`e`/`i`/`o`/`u` → `an`, else → `a`. The lowercase
+step matters because vocab items include uppercase starts (`ATM`,
+`Edwardian`, `Edo-period`) — a literal lowercase-only check would emit
+"a ATM" or "a Edwardian appliance". This is a first-character heuristic,
+not pronunciation-aware — it gets most cases right but doesn't model
+phonemes.
 
 The heuristic covers ≥95% of cases in the current vocabularies. Known
 edge cases that the heuristic gets wrong (silent "h" — "honest", numeric
@@ -239,6 +241,17 @@ to a style family it then samples a provider from the weighted distribution.
 This deliberately *does not* hardcode style → provider; it just biases
 toward the model that does that style best given current state of providers.
 
+**Provider ids referenced in this doc:** `fal-flux` matches today's
+`app/providers/fal-flux.ts`. `replicate-sdxl` is the **real provider that
+`slopspot-variety-pl6.3` introduces** — today the registry only has
+`replicate-sdxl-mock`. The weights below reference the future real id
+because the spec describes the end state; the mock provider keeps its
+own id (`replicate-sdxl-mock`) and is used by tests, never by the chooser
+in production. Until pl6.3 lands, the chooser falls back to `fal-flux`
+for every style family (the only registered real provider), and the
+SDXL-weighted styles still ship but all via fal — accepted as a
+suboptimal-during-transition state, not a permanent design.
+
 | style family            | fal-flux | replicate-sdxl | (TBD third) |
 |-------------------------|----------|----------------|-------------|
 | oil-painting            | 0.3      | **1.0**        | —           |
@@ -308,12 +321,12 @@ monotonous regardless of content.
   `paramsSchema`. pl6.2 widens the schema to all five — fal's
   `image_size` already supports the additional two, the gap is just in
   our enum declaration. Until pl6.2 ships, the chooser MUST NOT pick
-  `4:3` or `3:4` for `fal-flux` (the schema would reject); the
-  style-family bias above naturally avoids this because the
-  `4:3`/`3:4`-biased families (anime, 1990s-cgi, botanical-illustration,
-  brutalist-architecture, cyberpunk-neon, liminal) are predominantly
-  SDXL-weighted, but pl6.5 should still gate by per-provider supported
-  ratios at sampling time.
+  `4:3` or `3:4` for `fal-flux` (the schema would reject). Several
+  `4:3`/`3:4`-biased style families are fal-flux-primary
+  (`liminal`, `brutalist-architecture`, `cyberpunk-neon`), so the
+  bias does *not* on its own avoid the gap — the per-provider
+  supported-ratio gate (next bullet) is the single mechanism that
+  enforces the constraint.
 - `replicate-sdxl`: explicit (w,h) — table:
 
   | token  | w    | h    |
@@ -444,10 +457,25 @@ Where downstream tickets land the code that consumes this doc:
     with the chosen provider's supported set. If `replicate-sdxl` later
     supports a sixth ratio that `fal-flux` doesn't, the chooser adapts by
     reading the metadata, not by branching.
-    - Callers updated: `seed.ts` (currently mints fixture recipes),
-      `createPost` (writes the recipe to D1), `api.generate.ts` (the
-      external action — its `bodySchema.params` now excludes aspectRatio
-      and accepts an `aspectRatio` field on the input directly).
+    - Callers updated:
+      - `app/db/feed.ts` — the `getFeed` reader returns recipe-extended
+        rows; the JSON parse at the read boundary reconstructs
+        `RecipeSubject` from the flattened `subject_template`+`slots`
+        columns.
+      - `app/db/posts.ts` — `createPost` accepts the new fields on its
+        input and writes them to D1 in the running→terminal transaction.
+      - `app/routes/api.generate.ts` — the external action's
+        `bodySchema` accepts `styleFamily`, `subject` (a `RecipeSubject`
+        literal), and `aspectRatio` as top-level fields; the provider's
+        `params` no longer carries `aspectRatio`.
+      - `scripts/bootstrap-seed.ts` — backfill pre-existing rows with
+        the T00/photoreal sentinel shape described below, OR regenerate
+        the seed under the new schema (pl6.2's call).
+      - Stale reference cleanup: `CLAUDE.md` currently describes an
+        `app/lib/seed.ts` that does not exist (the actual file is
+        `app/db/feed.ts`); pl6.2 should fix that line while it's
+        editing the architecture section, or a small followup ticket
+        owns just the CLAUDE.md correction.
   - D1 schema: add columns to the `generations` table (`style_family TEXT
     NOT NULL`, `subject_template TEXT NOT NULL`, `slots JSON NOT NULL`,
     `aspect_ratio TEXT NOT NULL`). The two-column representation
@@ -537,9 +565,9 @@ Where downstream tickets land the code that consumes this doc:
    accepts only that enum (fal) or translates via the canonical table
    (sdxl). The (w,h) literal is never the chooser's output.
 6. **A prompt with mismatched articles ("a otter", "an cat").** The pl6.5
-   renderer normalizes any `a`/`an` immediately preceding a slot to match
-   the resolved value's first phoneme. The template strings stay
-   English-readable; the rendering is mechanical.
+   renderer normalizes any `a`/`an` immediately preceding a slot using a
+   lowercase-first-character vowel-letter heuristic. The template strings
+   stay English-readable; the rendering is mechanical.
 
 ## What this design accepts (failure modes documented like success paths)
 
