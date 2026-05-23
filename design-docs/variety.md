@@ -125,7 +125,7 @@ T31  "a {manMadeObject} that has outlived its purpose by a wide margin"
 T32  "a {naturalObject} explained by a {profession} who does not understand it"
 T33  "a {animal} that has been crowned for an obscure achievement"
 T34  "a {era} appliance that promises an {abstractConcept}"
-T35  "a {setting} that exists only between two other {setting}s"
+T35  "a {setting} that you can only reach through a {setting}"
 T36  "a study of {naturalObject}, mounted and labeled by a {profession}"
 T37  "the {abstractConcept} drawer of a {profession}'s desk"
 T38  "a {animal} that has gone into politics"
@@ -151,15 +151,23 @@ otherwise → `a`). Articles that appear elsewhere in the template (before
 literal words like "act", "event", "instruction manual page") are emitted
 verbatim.
 
-Heuristic: first-letter rule. `a`/`e`/`i`/`o`/`u` → `an`, else → `a`. This
-covers ≥95% of cases in the current vocabularies. Known edge cases that
-the heuristic gets wrong (silent "h" — "honest", numeric leading — "1970s"
-pronounced "nineteen") are not currently handled; pl6.5 may add a per-vocab
-override table if it becomes worth it. Wrong article in 5% of generations
-is a smaller harm than coupling vocab items to their pronunciation today.
+Heuristic: lowercase the resolved value's first character, then apply the
+vowel rule. `a`/`e`/`i`/`o`/`u` → `an`, else → `a`. The lowercase step
+matters because vocab items include uppercase starts (`ATM`, `Edwardian`,
+`Edo-period`) — a literal lowercase-only check would emit "a ATM" or
+"a Edwardian appliance".
 
-Templates with no leading article before a slot (T00, T05, T15, T25, T28,
-T35) are emitted verbatim — no normalization needed.
+The heuristic covers ≥95% of cases in the current vocabularies. Known
+edge cases that the heuristic gets wrong (silent "h" — "honest", numeric
+leading — "1970s" pronounced "nineteen") are not currently handled; pl6.5
+may add a per-vocab override table if it becomes worth it. Wrong article
+in 5% of generations is a smaller harm than coupling vocab items to their
+pronunciation today.
+
+The renderer scans every template once for `(a|an) {slot}` occurrences and
+rewrites those positions; templates with no matching positions experience
+zero rewrites (they pass through verbatim). No per-template special-casing
+required — the rule is uniform across the table.
 
 ### Slot vocabularies
 
