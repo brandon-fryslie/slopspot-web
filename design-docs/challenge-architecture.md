@@ -1,7 +1,7 @@
 # Challenge Architecture: The Protein Shell
 
 **Status:** Approved design, ready to implement
-**Supersedes:** The shipped v1 gate (HMAC token + static `"residue"` prefix + budget cap) — `slopspot-security-37c`
+**Supersedes:** The shipped v1 gate (HMAC token + static `"residue"` prefix + budget cap) — lit ticket `slopspot-security-37c`, shipped via PR #8 on branch `security-37c_challenge-gate`
 **Implementation epic:** `slopspot-shell-dqx`
 
 ---
