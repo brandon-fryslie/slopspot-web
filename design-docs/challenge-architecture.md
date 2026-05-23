@@ -159,10 +159,20 @@ the test suite has to catch.
 
 ```
 1. Random entry from bank (today's + yesterday's, 48h overlap)
-2. Sign token: { entryId, nonce, issuedAt }  via HMAC-SHA256
-3. Return { challengeId, text: briefingText, expiresAt: now + 240_000 }
+2. Sign token: { entryId, nonce, issuedAt: now }  via HMAC-SHA256
+   (issuedAt is epoch-ms inside the signed payload — internal, never on the wire)
+3. Return { challengeId, text: briefingText, expiresAt: ISO-8601 string of (now + 240_000) }
    Cache-Control: no-store
 ```
+
+Wire-format note: `expiresAt` on the response body is an **ISO-8601 string**
+to stay consistent with the shipped v1 API and the rest of the
+JSON-serialized domain shapes (which serialize `Date` as ISO via
+`Response.json`). The `issuedAt` field *inside the HMAC-signed payload* is
+epoch-milliseconds — it's an internal timestamp used only by the verifier
+for TTL math, never appears on the wire to the caller. Mixing units would
+be wrong; the boundary is "internal payload uses numbers, response body uses
+ISO strings."
 
 No LLM call on this path. No encryption (signing suffices — the briefing
 declares the forms in plain text; nothing in the token is secret).
@@ -335,10 +345,16 @@ properties. The two systems do not couple.
 
 ---
 
-## Secret gates (v1 set)
+## Secret gates (initial set, this design)
 
-Always run on every submission. Tuned so natural LLM creative writing passes
-100% and gibberish passes ~0%. Not described to the agent.
+These gates do not exist in the shipped v1 gate — they're introduced by this
+architecture (specifically, ticket `slopspot-shell-dqx.2`). Within the
+deterministic fail-fast pipeline, *every submission that reaches the
+secret-gate stage* runs the full fixed set of gates in order (a submission
+that already failed token verification or form verification never reaches
+this stage — that's the fail-fast semantics established earlier, not a
+contradiction). Tuned so natural LLM creative writing passes 100% and
+gibberish passes ~0%. Not described to the agent.
 
 | Gate                          | Threshold       | Rationale |
 | ----------------------------- | --------------- | --------- |
