@@ -15,7 +15,8 @@ doesn't, doesn't read the briefing either. It defends against nobody
 in particular and gates nothing meaningfully.
 
 The bug is not "the check is weak." The bug is the **shape of the type** the
-v1 route accepts (verbatim from `app/routes/api.generate.ts`):
+v1 route accepts (adapted from `app/routes/api.generate.ts` with alignment
+and inline annotations added):
 
 ```ts
 const bodySchema = z.object({
