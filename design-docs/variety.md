@@ -407,12 +407,16 @@ Where downstream tickets land the code that consumes this doc:
     type ChooserSubjectTemplateId = 'T01' | 'T02' | /* ... */ | 'T40'  // 40 ids
     type StoredSubjectTemplateId  = 'T00' | ChooserSubjectTemplateId    // 41 ids
     ```
-    The chooser's return type uses `ChooserSubjectTemplateId`; the recipe
-    parser (D1 read path) uses `StoredSubjectTemplateId`. The wider type is
-    a structural superset, so `ChooserSubjectTemplateId` assigns to
-    `StoredSubjectTemplateId` for free; the reverse requires an explicit
-    narrowing if a chooser-input ever needs to look at a stored recipe (it
-    doesn't, in this design).
+    The chooser's *return type* uses `ChooserSubjectTemplateId`; the recipe
+    parser (D1 read path) uses `StoredSubjectTemplateId`. `ChooserSubjectTemplateId`
+    assigns to `StoredSubjectTemplateId` for free (structural superset).
+    The reverse — the chooser's *input*, which IS the last-N stored recipes
+    for anti-rep evaluation — needs explicit narrowing: the chooser reads
+    a `StoredSubjectTemplateId[]` slice, then filters out the T00 rows
+    (`row.subjectTemplate !== 'T00'`) to produce a `ChooserSubjectTemplateId[]`
+    working set for R-rule evaluation. The narrowing is a `.filter()` plus
+    a type predicate, not a cast, so the type system rejects any path that
+    forgets it. See the pl6.5 seam below for where this lands.
   - **`RecipeSubject` discriminated union**, NOT a bag of optionals. One
     variant per template id; each variant carries exactly the slots its
     phrase references. The type makes `(subjectTemplate: 'T01', slots: {})`
