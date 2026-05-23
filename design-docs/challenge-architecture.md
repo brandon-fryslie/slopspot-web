@@ -160,7 +160,9 @@ the test suite has to catch.
 ```
 1. Random entry from bank (today's + yesterday's, 48h overlap)
 2. Sign token: { entryId, nonce, issuedAt: now }  via HMAC-SHA256
-   (issuedAt is epoch-ms inside the signed payload — internal, never on the wire)
+   (issuedAt is epoch-ms inside the signed payload — embedded in the
+   challengeId blob, not a separate top-level response field; clients
+   treat challengeId as opaque)
 3. Return { challengeId, text: briefingText, expiresAt: ISO-8601 string of (now + 240_000) }
    Cache-Control: no-store
 ```
