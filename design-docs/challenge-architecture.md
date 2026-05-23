@@ -165,10 +165,21 @@ the test suite has to catch.
 
 ```
 1. Random entry from bank (today's + yesterday's, 48h overlap)
+   — KV key scheme: bank-gen writes entries under sequentially-numbered keys
+     per day (e.g. "YYYY-MM-DD:0001" ... "YYYY-MM-DD:N") and writes a
+     small per-day "manifest" key recording N. Issuance reads the
+     manifest for today and yesterday, picks one of the dates at random,
+     picks an index in [1, N] at random, and does a single get-by-key.
+     This keeps selection O(1) — no `kv.list()` on the hot path. The
+     manifest is the canonical record of "how many entries exist for
+     day D"; [LAW:one-source-of-truth] no separate index to drift.
 2. Sign token: { entryId, nonce, issuedAt: now }  via HMAC-SHA256
-   (issuedAt is epoch-ms inside the signed payload — embedded in the
-   challengeId blob, not a separate top-level response field; clients
-   treat challengeId as opaque)
+   Encode as: base64url(JSON(payload)) + "." + base64url(hmac)
+   (base64url with `=` padding stripped, matching shipped v1, so the
+   challengeId stays URL-safe as an opaque string. Note that `issuedAt`
+   is epoch-ms inside the signed payload — embedded in the challengeId
+   blob, not a separate top-level response field; clients treat
+   challengeId as opaque.)
 3. Return { challengeId, text: briefingText, expiresAt: ISO-8601 string of (now + 240_000) }
    Cache-Control: no-store
 ```
@@ -356,7 +367,7 @@ Cost is cents/day. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
 
 | Store                 | Shape                                              | Lifetime |
 | --------------------- | -------------------------------------------------- | -------- |
-| KV `CHALLENGE_BANK`   | `entryId → BankEntry (JSON)`                       | 48h auto-expire |
+| KV `CHALLENGE_BANK`   | per-entry: `"YYYY-MM-DD:NNNN" → BankEntry (JSON)`; per-day manifest: `"YYYY-MM-DD:manifest" → { count: number }` | 48h auto-expire |
 | D1 `challenge_quota`  | `date TEXT PRIMARY KEY, count INTEGER NOT NULL`    | 7d retention (cleaned by cron) |
 
 The bank lives in KV — write-once-daily, read-many, no atomicity needed,
