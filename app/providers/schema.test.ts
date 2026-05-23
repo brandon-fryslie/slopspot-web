@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import '~/providers' // side-effect: populate the registry
+import { getProvider, listProviders } from '~/providers'
 import { ProviderId } from '~/lib/domain'
-import { getProvider } from './registry'
 
 // [LAW:single-enforcer] paramsSchema is the trust boundary between caller-supplied
 // values and what the provider will see. These tests pin the boundary's three
 // minimum invariants: rejects empty, accepts the documented minimum, rejects
 // an over-long prompt (the cheapest abuse vector at the HTTP edge).
+//
+// Importing via ~/providers (not ~/providers/registry) keeps tests on the public
+// surface — the side-effect entrypoint owns "what providers exist". The
+// coverage-gap assertion below makes that ownership load-bearing: a new provider
+// added to ~/providers/index.ts that isn't listed here fails this file.
 
 type ProviderCase = {
   id: string
@@ -14,9 +18,6 @@ type ProviderCase = {
   overLongPromptLength: number
 }
 
-// Each case names ONLY what differs between providers; the three assertions are
-// applied to all of them. If a new provider lands without an entry here, the
-// `getProvider` call in the test will throw — which is the right failure mode.
 const cases: ProviderCase[] = [
   {
     id: 'fal-flux',
@@ -34,6 +35,19 @@ const cases: ProviderCase[] = [
     overLongPromptLength: 1001,
   },
 ]
+
+// [LAW:types-are-the-program] Make the coverage gap impossible. listProviders()
+// is the public surface's enumeration; comparing the registered set to `cases`
+// means adding a new provider without extending this file is a test failure,
+// not a silent skip. The comparison is set-equality (sorted), so order in
+// either list doesn't matter.
+describe('schema test coverage', () => {
+  it('lists every registered provider', () => {
+    const registered = listProviders().map((p) => p.id as string).sort()
+    const covered = cases.map((c) => c.id).sort()
+    expect(covered).toEqual(registered)
+  })
+})
 
 describe.each(cases)('$id paramsSchema', ({ id, minimalValid, overLongPromptLength }) => {
   const provider = getProvider(ProviderId(id))
