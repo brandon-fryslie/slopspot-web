@@ -160,11 +160,18 @@ not pronunciation-aware — it gets most cases right but doesn't model
 phonemes.
 
 The heuristic covers ≥95% of cases in the current vocabularies. Known
-edge cases that the heuristic gets wrong (silent "h" — "honest", numeric
-leading — "1970s" pronounced "nineteen") are not currently handled; pl6.5
-may add a per-vocab override table if it becomes worth it. Wrong article
-in 5% of generations is a smaller harm than coupling vocab items to their
-pronunciation today.
+edge cases the heuristic gets wrong (silent "h" — "honest" should be
+"an honest" but the heuristic emits "a honest"; vowel-sound numerics —
+"8-track" should be "an 8-track" but the heuristic emits "a 8-track")
+are not currently handled; pl6.5 may add a per-vocab override table if
+it becomes worth it. Wrong article in <5% of generations is a smaller
+harm than coupling vocab items to their pronunciation today.
+
+(For reference, cases the heuristic gets *right* despite looking
+tricky: "1970s" → "a 1970s" is correct because "nineteen" begins with
+a consonant sound; "Edwardian" → "an Edwardian" is correct because
+the lowercase step preserves the vowel start. The heuristic only
+misses when the letter and the sound disagree.)
 
 The renderer scans every template once for `(a|an) {slot}` occurrences and
 rewrites those positions; templates with no matching positions experience
@@ -339,9 +346,15 @@ monotonous regardless of content.
 
 **[LAW:single-enforcer]** — the aspect-ratio enum is the canonical form. Each
 provider translates it once, in its own provider file. The chooser must
-*never* output (w,h) directly. Per-provider supported ratios live in the
-provider file's `paramsSchema` (and the chooser reads `provider.supportedAspectRatios`
-to filter the sampling distribution); the canonical `AspectRatio` enum is the
+*never* output (w,h) directly. The authoritative source for *which* ratios
+each provider supports is the **`supportedAspectRatios: readonly AspectRatio[]`
+metadata field** on the provider object (post-pl6.2 — see implementation
+seams). This is NOT `paramsSchema`: after pl6.2, `aspectRatio` is lifted
+out of `paramsSchema` and into `Generation` itself, so the provider's
+`paramsSchema` no longer carries it. Validation moves with it — the
+provider's `generate(params, ctx)` boundary stops validating aspect ratio,
+and the chooser is responsible for only sampling ratios within
+`provider.supportedAspectRatios`. The canonical `AspectRatio` enum is the
 union of all provider-supported ratios, not a per-provider subset.
 
 ---
@@ -408,8 +421,10 @@ Where downstream tickets land the code that consumes this doc:
     type StoredSubjectTemplateId  = 'T00' | ChooserSubjectTemplateId    // 41 ids
     ```
     The chooser's *return type* uses `ChooserSubjectTemplateId`; the recipe
-    parser (D1 read path) uses `StoredSubjectTemplateId`. `ChooserSubjectTemplateId`
-    assigns to `StoredSubjectTemplateId` for free (structural superset).
+    parser (D1 read path) uses `StoredSubjectTemplateId`. `StoredSubjectTemplateId`
+    is a value-level superset of `ChooserSubjectTemplateId` (it adds only
+    `'T00'`), so every chooser-produced value is also a valid stored value
+    by assignment.
     The reverse — the chooser's *input*, which IS the last-N stored recipes
     for anti-rep evaluation — needs explicit narrowing: the chooser reads
     a `StoredSubjectTemplateId[]` slice, then filters out the T00 rows
