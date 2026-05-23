@@ -30,7 +30,7 @@ Currently in **design / pre-launch phase**. Backlog and grooming cadence are tra
 - **Validation:** Zod (at trust boundaries only — request bodies, provider params, upstream responses)
 - **AI providers:** `@fal-ai/client` for fal.ai; mocks for fal-flux and Replicate SDXL
 - **Storage:** none yet — D1 + KV + R2 land in the persistence epic (`slopspot-persistence-xiq`)
-- **Tests:** Vitest installed; first tests land in `slopspot-foundation-bux.3`
+- **Tests:** Vitest via `vitest.config.ts` (kept off `vite.config.ts` because `@cloudflare/vite-plugin` crashes vitest's config resolver). Files use `.test.ts` next to source for most modules; `app/lib/` uses a `__tests__/` subdir. Foundation canaries: domain exhaustiveness (compile-time), provider paramsSchema validation, registry uniqueness, fal-flux response parser.
 - **TypeScript:** strict, composite project (root `tsconfig.json` references `tsconfig.node.json` + `tsconfig.cloudflare.json`)
 - **Package manager:** pnpm (lockfile `pnpm-lock.yaml`, workspace declared in `pnpm-workspace.yaml`). Do not run `npm install` or `yarn`.
 
@@ -45,7 +45,7 @@ Currently in **design / pre-launch phase**. Backlog and grooming cadence are tra
 - `pnpm lint` — flat-config ESLint over `app/**` and `workers/**`
 - `pnpm test` / `pnpm test:watch` — Vitest
 
-There is no test runner with tests yet (foundation.3 lands them). `pnpm test` works but currently runs zero specs.
+The exhaustiveness gate at `app/lib/__tests__/domain-exhaustiveness.test.ts` is a compile-time check — its real verifier is `tsc -b` in `pnpm typecheck`, not the vitest runner. Adding a variant to `Content`, `GenerationStatus`, or `Media` without extending the discriminator switches there breaks the build at the `: never` assignments. That's by design.
 
 ## Secrets
 

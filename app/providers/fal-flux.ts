@@ -32,6 +32,15 @@ const responseSchema = z.object({
   seed: z.number().optional(),
 })
 
+// [LAW:single-enforcer] The seam between fal's response bytes and our domain
+// Media lives here as one named function. The provider's generate() calls it;
+// the test pins its behavior. Refactoring the response shape touches one place.
+export function parseFalFluxResponse(data: unknown, alt: string): Media {
+  const parsed = responseSchema.parse(data)
+  const first = parsed.images[0]
+  return { kind: "image", url: first.url, w: first.width, h: first.height, alt }
+}
+
 export const falFlux: GenerationProvider<Params> = {
   id: ProviderId("fal-flux"),
   version: "2026-05-17",
@@ -47,14 +56,6 @@ export const falFlux: GenerationProvider<Params> = {
         num_inference_steps: p.steps,
       },
     })
-    const data = responseSchema.parse(result.data)
-    const first = data.images[0]
-    return {
-      kind: "image",
-      url: first.url,
-      w: first.width,
-      h: first.height,
-      alt: p.prompt,
-    }
+    return parseFalFluxResponse(result.data, p.prompt)
   },
 }
