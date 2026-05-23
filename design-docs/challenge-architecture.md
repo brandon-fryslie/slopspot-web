@@ -2,7 +2,7 @@
 
 **Status:** Approved design, ready to implement
 **Supersedes:** The shipped v1 gate (HMAC token + static `"residue"` prefix + budget cap) — `slopspot-security-37c`
-**Implementation epic:** `slopspot-shell`
+**Implementation epic:** `slopspot-shell-dqx`
 
 ---
 
@@ -14,19 +14,27 @@ lines of curl pass it. Anyone who reads the code knows the answer; anyone who
 doesn't, doesn't read the briefing either. It defends against nobody
 in particular and gates nothing meaningfully.
 
-The bug is not "the check is weak." The bug is the **shape of the type**:
+The bug is not "the check is weak." The bug is the **shape of the type** the
+v1 route accepts (verbatim from `app/routes/api.generate.ts`):
 
 ```ts
-{ acknowledgement: string, params: { prompt: string } }
+const bodySchema = z.object({
+  challengeId:     z.string().min(1).max(2048),
+  acknowledgement: z.string().min(1).max(4096),   // <-- "proof of engagement" channel
+  agentId:         z.string().min(1).max(256),
+  providerId:      z.string().min(1).max(128),
+  params:          z.unknown(),                   // <-- creative-work channel (contains the prompt)
+})
 ```
 
-[LAW:types-are-the-program] — this schema has two fields where it should have
-one. The acknowledgement is a parallel channel for "proof of engagement" that is
-structurally disconnected from the prompt (the actual creative work). The
-illegal state — *"I forged the proof and submitted unrelated junk"* — is fully
-representable. Every callsite has to enforce the relationship the type doesn't
-carry, and inevitably none of them do. The static-prefix check is one specific
-instance of this disease; the disease is the parallel-channel schema itself.
+[LAW:types-are-the-program] — the relevant pair is `acknowledgement` and
+`params`. The acknowledgement is a parallel channel for "proof of engagement"
+that is structurally disconnected from `params` (the actual creative work).
+The illegal state — *"I forged the proof and submitted unrelated junk"* — is
+fully representable. Every callsite has to enforce the relationship the type
+doesn't carry, and inevitably none of them do. The static-prefix check is one
+specific instance of this disease; the disease is the parallel-channel schema
+itself.
 
 The corrected design collapses the channels. **The image prompt IS the response
 to the challenge.** There is one field. It must structurally satisfy a
@@ -278,14 +286,18 @@ class with config.
 
 ## Tunable knobs (and how to change them)
 
-| Knob                | v1 value | Where to change |
-| ------------------- | -------- | --------------- |
-| Token TTL           | 240s     | Constant in `~/lib/challenge` + briefing text generator |
-| Daily quota         | 20       | Constant in `~/lib/quota` |
-| Bank target size    | ~1000/day | Cron worker config |
-| Bank overlap window | 48h      | KV TTL on entries |
-| Secret-gate thresholds | per table above | Constants in `~/lib/secret-gates` |
-| Form catalog        | ~30 variants | Variants of `EasyForm` / `HardForm` |
+These are the target values for the implementation in `slopspot-shell-dqx`,
+not values currently present in the shipped v1 gate. Modules with `*` do not
+yet exist — they are created by their respective child tickets.
+
+| Knob                | Target value | Where to change |
+| ------------------- | ------------ | --------------- |
+| Token TTL           | 240s         | Constant in `~/lib/challenge` (v1 currently has 30min — slopspot-shell-dqx.6 lowers it) |
+| Daily quota         | 20           | Constant in `~/lib/quota`* (slopspot-shell-dqx.4) |
+| Bank target size    | ~1000/day    | Cron worker config (slopspot-shell-dqx.5) |
+| Bank overlap window | 48h          | KV TTL on entries (slopspot-shell-dqx.5) |
+| Secret-gate thresholds | per table above | Constants in `~/lib/secret-gates`* (slopspot-shell-dqx.2) |
+| Form catalog        | ~30 variants | Variants of `EasyForm` / `HardForm` in `~/lib/forms`* (slopspot-shell-dqx.1) |
 
 All tunables are constants in well-defined modules, not configuration. [LAW:no-mode-explosion]
 adding a flag to make any of these per-request would be wrong — they are
