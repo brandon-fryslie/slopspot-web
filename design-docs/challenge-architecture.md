@@ -186,15 +186,24 @@ declares the forms in plain text; nothing in the token is secret).
 **Breaking change vs shipped v1 response shape:** the v1 `issueChallenge()`
 returns `{ challengeId, text, templateId, expiresAt }`. This design's
 response is `{ challengeId, text, expiresAt }` — `templateId` is
-**intentionally removed**. There is no "template" concept anymore; each
-challenge corresponds to a unique `BankEntry` whose `id` is embedded in
-the signed token and never exposed on the wire. Exposing the `entryId`
-to clients would let an adversary index the bank by collecting ids
-across many requests, which is precisely the harvest-attack we want to
-prevent (the bank's anonymity-via-large-population property holds only
-if no per-entry handle leaks). Any v1 client that read `templateId` will
-break; ticket `slopspot-shell-dqx.8` covers updating internal consumers
-(the bootstrap script) accordingly.
+**intentionally removed** because there is no "template" concept anymore.
+Each challenge corresponds to a unique `BankEntry`; there is no shared
+template behind a set of challenges to identify with a `templateId`. Any
+v1 client that read `templateId` will break; ticket `slopspot-shell-dqx.8`
+covers updating internal consumers (the bootstrap script) accordingly.
+
+**Note on entryId observability:** the signed `challengeId` is
+`base64(payload).hmac`, signed-not-encrypted, so a client can decode the
+`entryId` from any token they receive. That is *not* a security concern:
+exploiting `entryId` to harvest the bank still requires *solving* each
+entry's form constraints to learn what answer satisfies it, which is the
+very LLM-required NLP work the gate exists to require. The bank's
+defense is not "the entryId is secret" but "each entryId-to-passing-prompt
+mapping costs an LLM call to discover, and the bank rotates daily."
+A motivated adversary can absolutely batch-precompute a cache for the
+current bank by calling an LLM many times — they would simply be doing
+the work we're gating on, in advance. That is the gate succeeding, not
+failing.
 
 `POST /api/generate`:
 
@@ -367,12 +376,14 @@ properties. The two systems do not couple.
 ## Secret gates (initial set, this design)
 
 These gates do not exist in the shipped v1 gate — they're introduced by this
-architecture (specifically, ticket `slopspot-shell-dqx.2`). Within the
-deterministic fail-fast pipeline, *every submission that reaches the
-secret-gate stage* runs the full fixed set of gates in order (a submission
-that already failed token verification or form verification never reaches
-this stage — that's the fail-fast semantics established earlier, not a
-contradiction). Tuned so natural LLM creative writing passes 100% and
+architecture (specifically, ticket `slopspot-shell-dqx.2`). Every submission
+that reaches the secret-gate stage runs the gates in order, fail-fast — the
+first gate that fails produces `Outcome.secret_gate_failed{gate}` carrying
+that gate's id, and the remaining gates do not execute. This is the same
+fail-fast pattern as the outer pipeline: deterministic ordering, no
+adaptive policy, dependency-driven short-circuit. (A submission that
+already failed token or form verification never reaches the secret-gate
+stage at all.) Tuned so natural LLM creative writing passes 100% and
 gibberish passes ~0%. Not described to the agent.
 
 | Gate                          | Threshold       | Rationale |
