@@ -137,9 +137,12 @@ type Outcome =                     // canonical truth, logged faithfully
   | { kind: 'generated';           postId: string }
   | { kind: 'token_invalid' }
   | { kind: 'token_expired' }
+  | { kind: 'bank_entry_missing' }                     // HMAC-valid token, but entry not in KV (server-side bank issue)
   | { kind: 'form_violation';      which: 'easy' | 'hard'; detail: string }
   | { kind: 'secret_gate_failed';  gate: string }      // gate name logged, not returned
   | { kind: 'quota_exhausted' }
+
+type FormConstraint = EasyForm | HardForm              // union alias used at seam boundaries
 ```
 
 [LAW:types-are-the-program] — every legal state is exactly one variant of
@@ -191,7 +194,7 @@ The pipeline:
 
 ```
 1. Verify HMAC + TTL on token        → Outcome.token_invalid / token_expired
-2. Extract entryId, KV lookup        → BankEntry (token_invalid on lookup miss)
+2. Extract entryId, KV lookup        → BankEntry (bank_entry_missing on lookup miss)
 3. verifyEasy(prompt, entry.easyForm) → Outcome.form_violation{which:'easy'} on fail
 4. verifyHard(prompt, entry.hardForm) → Outcome.form_violation{which:'hard'} on fail
 5. for gate in SECRET_GATES:
@@ -220,10 +223,20 @@ first; expensive operation (createPost) last.
 generated              → 200 { post }
 token_invalid          → 401  (legitimate signal — caller refreshes)
 token_expired          → 401  (legitimate signal — caller refreshes)
+bank_entry_missing     → 503  (server-side bank issue: HMAC was valid but entry not in KV — not the caller's fault; they should retry)
 form_violation         → 403 with specific reason (the constraint is in the briefing — naming it is not disclosure)
 secret_gate_failed     → 403 generic ("submission did not meet quality criteria")
 quota_exhausted        → 429 honest ("daily quota reached, try tomorrow")
 ```
+
+The `bank_entry_missing` variant is distinct from `token_invalid` precisely
+because the failure origin is different. An HMAC-valid token whose `entryId`
+is not in KV indicates a server-side problem (cron failure, manual KV purge,
+TTL misconfig) — telling the caller "your token is invalid" would be wrong;
+they hold a token the server itself signed. [LAW:errors] this failure shape
+is documented as a known operator-side concern; the 503 honestly signals
+"transient server issue, retry" while logs capture the missing entry id for
+ops to investigate.
 
 [LAW:one-source-of-truth] internal state (logs, metrics) and external response
 agree on **whether** something happened; they differ only on **how much
@@ -286,19 +299,31 @@ The quota counter lives in D1, not KV. The "20/day hard cap" claim is only
 true if the counter increment is atomic against concurrent requests. KV's
 read-modify-write is non-atomic and not strongly consistent — concurrent
 submissions near the cap could each read `count = 19`, each write `count = 20`,
-and overshoot. D1 (SQLite-backed) supports atomic conditional increment:
+and overshoot. D1 (SQLite-backed) supports atomic conditional increment.
+
+The first request of a day has no row yet, so a bare UPDATE-with-guard
+would affect zero rows and be indistinguishable from "already at cap."
+`quota.tryReserve(today)` runs two statements in a single D1 batch (atomic
+against concurrent batches):
 
 ```sql
+-- Step 1: ensure today's row exists (idempotent; does nothing on conflict)
+INSERT INTO challenge_quota (date, count) VALUES (?1, 0)
+  ON CONFLICT(date) DO NOTHING;
+
+-- Step 2: atomic conditional increment
 UPDATE challenge_quota
    SET count = count + 1
  WHERE date = ?1 AND count < 20
-RETURNING count
+RETURNING count;
 ```
 
-The verifier calls `quota.tryReserve(today)` which executes this update.
-If the affected-row count is 1, the slot is reserved and verification
-proceeds to `createPost`. If 0, the row already hit 20 and we return
-`Outcome.quota_exhausted`. [LAW:single-enforcer] there is exactly one
+If Step 2's `RETURNING` yields a row, the slot is reserved and verification
+proceeds to `createPost`. If empty, the day is at cap and we return
+`Outcome.quota_exhausted`. Step 1 is unconditional and idempotent;
+[LAW:dataflow-not-control-flow] there is no "is this the first request of
+the day" branch — both statements always run, and the second's guard
+discriminates the outcome. [LAW:single-enforcer] there is exactly one
 mechanism for "did we exceed today's quota," and the answer is atomic
 by construction at the storage layer.
 
@@ -389,7 +414,12 @@ properties of the deployed system, not properties of the request.
 
 ---
 
-## What is NOT in v1 (explicit deferrals)
+## What is NOT in this design (explicit deferrals and rejections)
+
+To avoid the v1/v2 confusion: this section lists things that are *not part
+of the protein-shell architecture*, whether because they were considered
+and rejected (decision recorded here so the rejection isn't relitigated)
+or because they're future scope beyond this epic.
 
 - **Adversarial honeypot / decoy challenges**: rejected design choice. Honest
   responses for all outcomes; the goal is conformance, not punishment.
