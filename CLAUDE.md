@@ -64,7 +64,7 @@ The architecture is **deliberately type-driven**. `app/lib/domain.ts` is the sou
 
 Key seams:
 
-- **`workers/app.ts`** — Single entry. Wraps `createRequestHandler` and routes every request into RR7's request handler. **The only place Cloudflare bindings (`env`, `ctx`) cross into the application world**; loaders/actions read them as `context.cloudflare.env`.
+- **`workers/app.ts`** — Single entry. Wraps `createRequestHandler` for `fetch` and delegates to `runScheduled(event, env)` for `scheduled` (the cron entry). **The only place Cloudflare bindings (`env`, `ctx`) cross into the application world**; loaders/actions read them as `context.cloudflare.env`. Also carries a tiny dev-only `GET /__scheduled` debug route gated by `import.meta.env.DEV` — Vite tree-shakes it from production builds. See "Verification expectations" for why.
 
 - **`app/root.tsx`** — RR7 root: `<Layout>` is the HTML shell, `<App>` is `<Outlet />`, `<ErrorBoundary>` handles thrown loader/action errors. Anything in `<Layout>` wraps every route.
 
@@ -73,6 +73,8 @@ Key seams:
 - **`app/routes/home.tsx`** — Homepage. `loader({ context })` calls `getFeed(context.cloudflare.env)`. Component receives `loaderData` typed via `./+types/home`.
 
 - **`app/routes/api.generate.ts`** — Resource route (no default export). `action({ request, context })` handles `POST`. It is the HTTP trust boundary only: parses the body, attributes a fixed `api` agent origin (until auth lands), and delegates to `createPost` (`~/db/posts`). Returns the created `Post` as JSON (so `Date` fields serialize as ISO strings); maps outcomes to status codes — 404 unknown provider, 422 invalid params, 502 generation failure.
+
+- **`app/firehose/`** — Cron-side feature module. `budget.ts` is the **single enforcer** for spend cap (`checkBudget`); `pickPrompt.ts` is a pure FNV-1a hash from `scheduledTime` to one of 10 fixture prompts (variety.5 replaces it with `chooseNextGeneration()`); `scheduled.ts` orchestrates them — `checkBudget → pickPrompt → createPost` — and is the function `workers/app.ts:scheduled` delegates to. The cron schedule (`0 */6 * * *`) lives in `wrangler.jsonc:triggers.crons`.
 
 - **`app/db/posts.ts`** — `createPost(input, { env })`: the **single enforcer** for post creation. Every writer (this route, the firehose cron, the bootstrap script, future submission UI) funnels through it. Pre-inserts the post + `generations` row as `running` (batched in one transaction) before calling the provider, so a failure leaves an observable `failed` row rather than nothing; on success ingests the image via `ingestImage` and stores the rehosted `/media/<sha256>` url. Synchronous, so it never persists `pending`.
 
@@ -109,3 +111,5 @@ Key seams:
 ## Verification expectations
 
 Per the workspace laws: goals must be machine-verifiable, and "tests pass" alone is not "done." For UI/feature work, start `pnpm dev` and exercise the feature in a browser (cherry-chrome-mcp is available) before declaring complete. When in doubt about Workers-runtime behavior (Node API availability, request semantics), spot-check with `pnpm exec wrangler dev` — that's the runtime prod uses. Type-checking and lint verify code correctness, not feature correctness — say so explicitly if you cannot verify behaviorally.
+
+**Cron triggers:** `wrangler dev --test-scheduled` is documented to expose `GET /__scheduled` as a cron-fire endpoint, but that mechanism is bundler-middleware that wrangler only injects when wrangler itself bundles the worker. The RR7 Cloudflare vite plugin builds our bundle, so wrangler's middleware never runs and `/__scheduled` falls through to the RR7 router (404). The workaround in `workers/app.ts` recreates the same contract dev-only and is dead-code in production. To exercise the cron locally: `pnpm dev`, then `curl 'http://localhost:<port>/__scheduled'` (use the URL vite prints on startup) — this hits real fal.ai and writes a row to local D1, so it costs ~$0.003 per fire.
