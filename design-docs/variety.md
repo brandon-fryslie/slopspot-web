@@ -17,20 +17,23 @@ of the abstract dimension into the concrete tables.
 
 The downstream tickets should be **mechanical** after this lands:
 
-- `pl6.2` should be a one-file change adding `styleFamily: StyleFamily` and
-  `subjectTemplate: SubjectTemplateId` (and the slot record) to the
-  `Generation` type's `recipe`, where those names are literal copies of the
-  identifiers below.
-- `pl6.5` should be a chooser that, given the last N persisted posts,
-  selects one tuple `(styleFamily, subjectTemplate, slotFills, providerId,
-  aspectRatio)` according to the weights and anti-repetition rules below.
-  No new policy decisions; every check is already named here.
+- `pl6.2` extends the `Generation` type with `styleFamily: StyleFamily`,
+  `aspectRatio: AspectRatio`, and `subject: RecipeSubject` (a
+  template-discriminated union where each variant carries exactly the slots
+  its phrase references — see "Implementation seams" for the shape). All
+  names and values come from this doc.
+- `pl6.5` is a chooser that, given the last N persisted posts, selects
+  `(styleFamily, RecipeSubject, providerId, aspectRatio)` according to the
+  weights and anti-repetition rules below. The chooser's output type
+  excludes the legacy template (`T00`) by construction. No new policy
+  decisions; every check is already named here.
 
 [LAW:types-are-the-program] — the point of this doc is to make the
-constraints concrete enough that the *type* of a `Generation.recipe` is
-exactly the shape of legal variability. Once the enums exist, a malformed
-generation (style family that doesn't exist, subject template the chooser
-couldn't have produced) is unrepresentable.
+constraints concrete enough that the *type* of a `Generation` recipe is
+exactly the shape of legal variability. Once the enums and discriminated
+union exist, a malformed recipe (style family that doesn't exist, slots
+that don't match the chosen template, chooser producing a backfill-only
+template) is unrepresentable.
 
 ---
 
@@ -87,47 +90,47 @@ backfilling rows that pre-date this schema; see "Implementation seams" for
 when it's populated and the rule that the chooser must never sample it.
 
 ```
-T00  "{free-text}"                                                          // legacy/backfill only — chooser MUST exclude
+T00  "{freeText}"                                                          // legacy/backfill only — chooser MUST exclude
 T01  "a {animal} working as a {profession}"
 T02  "an {animal} performing an act of {emotion}"
 T03  "the last {profession} of the {era}, retiring"
-T04  "a {man-made-object} from the {era}, abandoned in a {setting}"
-T05  "{setting} at {time-of-day}"
-T06  "a {natural-object}, photographed as if it were a {man-made-object}"
-T07  "a {man-made-object}, photographed as if it were a {natural-object}"
-T08  "a {animal} thinking about {abstract-concept}"
-T09  "a vending machine that dispenses {abstract-concept}"
-T10  "diagram of how a {man-made-object} actually works (charmingly wrong)"
-T11  "instructions for using a {man-made-object} you have never seen"
+T04  "a {manMadeObject} from the {era}, abandoned in a {setting}"
+T05  "{setting} at {timeOfDay}"
+T06  "a {naturalObject}, photographed as if it were a {manMadeObject}"
+T07  "a {manMadeObject}, photographed as if it were a {naturalObject}"
+T08  "a {animal} thinking about {abstractConcept}"
+T09  "a vending machine that dispenses {abstractConcept}"
+T10  "diagram of how a {manMadeObject} actually works (charmingly wrong)"
+T11  "instructions for using a {manMadeObject} you have never seen"
 T12  "a {profession} on their first day, posing for a portrait"
-T13  "the {era} version of a {man-made-object} that does not yet exist"
-T14  "a {animal} accepting a small award for {abstract-concept}"
+T13  "the {era} version of a {manMadeObject} that does not yet exist"
+T14  "a {animal} accepting a small award for {abstractConcept}"
 T15  "{setting}, but it is the {era}"
-T16  "a still life of {man-made-object} and {natural-object}, arranged like a memory"
-T17  "a {animal} reading a {man-made-object}"
+T16  "a still life of {manMadeObject} and {naturalObject}, arranged like a memory"
+T17  "a {animal} reading a {manMadeObject}"
 T18  "a {profession} who is secretly a {animal}"
-T19  "the {abstract-concept} room of a {setting}"
+T19  "the {abstractConcept} room of a {setting}"
 T20  "a postcard from a {setting} that is not real"
-T21  "the saddest {man-made-object} in the {setting}"
-T22  "a {animal} that has just learned about {abstract-concept}"
-T23  "an instruction manual page for {abstract-concept}"
-T24  "a {natural-object} that is also a {profession}'s workplace"
+T21  "the saddest {manMadeObject} in the {setting}"
+T22  "a {animal} that has just learned about {abstractConcept}"
+T23  "an instruction manual page for {abstractConcept}"
+T24  "a {naturalObject} that is also a {profession}'s workplace"
 T25  "the official {era} portrait of {animal}, oil-finished even when it isn't oil"
-T26  "a {man-made-object} that has been given a small, dignified ceremony"
-T27  "a community board flyer for an event called {abstract-concept}"
+T26  "a {manMadeObject} that has been given a small, dignified ceremony"
+T27  "a community board flyer for an event called {abstractConcept}"
 T28  "{setting}, after closing time, still warm"
 T29  "a {animal} captured in the act of forgetting"
 T30  "a {profession} whose only client is a {animal}"
-T31  "a {man-made-object} that has outlived its purpose by a wide margin"
-T32  "a {natural-object} explained by a {profession} who does not understand it"
+T31  "a {manMadeObject} that has outlived its purpose by a wide margin"
+T32  "a {naturalObject} explained by a {profession} who does not understand it"
 T33  "a {animal} that has been crowned for an obscure achievement"
-T34  "a {era} appliance that promises an {abstract-concept}"
+T34  "a {era} appliance that promises an {abstractConcept}"
 T35  "a {setting} that exists only between two other {setting}s"
-T36  "a study of {natural-object}, mounted and labeled by a {profession}"
-T37  "the {abstract-concept} drawer of a {profession}'s desk"
+T36  "a study of {naturalObject}, mounted and labeled by a {profession}"
+T37  "the {abstractConcept} drawer of a {profession}'s desk"
 T38  "a {animal} that has gone into politics"
-T39  "a {man-made-object} found in a {setting} where it does not belong"
-T40  "a {profession} caught daydreaming about a {natural-object}"
+T39  "a {manMadeObject} found in a {setting} where it does not belong"
+T40  "a {profession} caught daydreaming about a {naturalObject}"
 ```
 
 The templates are intentionally **slightly absurd**. SlopSpot is an aggregator
@@ -136,6 +139,27 @@ content should have a strong editorial voice, not produce stock photography.
 A literal template like "a cat" makes a forgettable image; "a fennec working
 as a lighthouse-keeper, captured in the act of forgetting" makes an image
 worth scrolling.
+
+### Template rendering (article normalization)
+
+Templates are written with English-readable indefinite articles ("a {animal}",
+"an {animal}") because that's how they read in source. The pl6.5 renderer
+owns article correctness: whenever an `a` or `an` token appears immediately
+before a `{slot}` placeholder, the renderer **replaces it** with the article
+that matches the resolved slot value's first phoneme (vowel-sound → `an`,
+otherwise → `a`). Articles that appear elsewhere in the template (before
+literal words like "act", "event", "instruction manual page") are emitted
+verbatim.
+
+Heuristic: first-letter rule. `a`/`e`/`i`/`o`/`u` → `an`, else → `a`. This
+covers ≥95% of cases in the current vocabularies. Known edge cases that
+the heuristic gets wrong (silent "h" — "honest", numeric leading — "1970s"
+pronounced "nineteen") are not currently handled; pl6.5 may add a per-vocab
+override table if it becomes worth it. Wrong article in 5% of generations
+is a smaller harm than coupling vocab items to their pronunciation today.
+
+Templates with no leading article before a slot (T00, T05, T15, T25, T28,
+T35) are emitted verbatim — no normalization needed.
 
 ### Slot vocabularies
 
@@ -151,13 +175,13 @@ profession
   taxidermist, organist, harbor-pilot, clockmaker, perfumer, cooper,
   bookbinder, glassblower, claims-adjuster
 
-man-made-object
+manMadeObject
   pay-phone, ATM, vending-machine, slot-machine, telegraph, dial-phone,
   jukebox, fax-machine, microfilm-reader, dictaphone, overhead-projector,
   cash-register, telex, ham-radio, slide-projector, polaroid-camera,
   filing-cabinet, rotary-rolodex, ticket-punch, parking-meter
 
-natural-object
+naturalObject
   river, mountain, glacier, fjord, marsh, dune, geyser, mangrove, salt-flat,
   caldera, oxbow-lake, sinkhole, terraced-hillside, peat-bog, tide-pool,
   cloud-bank, kelp-forest, granite-outcrop
@@ -169,7 +193,7 @@ setting
   parking-garage-stairwell, public-library-mezzanine, conference-hotel-bar,
   airport-chapel, rural-funeral-home, community-center-basement
 
-time-of-day
+timeOfDay
   golden-hour, blue-hour, just-after-sunrise, late-afternoon-flat-light,
   noon, deep-night, dawn-with-fog, the-hour-after-it-rains
 
@@ -182,13 +206,13 @@ emotion
   reverent, sheepish, embarrassed, delighted-but-trying-not-to-show-it,
   gently-baffled
 
-abstract-concept
+abstractConcept
   patience, regret, almost-remembrance, the-feeling-of-clean-laundry,
   small-victories, vocational-pride, the-second-half-of-an-anecdote,
   bureaucratic-grace, hospitality, the-passage-of-time, residual-warmth,
   permission, archival-care
 
-free-text  (used only by template T00, see below)
+freeText  (used only by template T00, see below)
   — opaque string carried as-is; no vocabulary, no enumeration. Populated
   exclusively by the pl6.2 backfill for rows that pre-date the recipe
   schema. The chooser MUST exclude T00 from sampling for new generations.
@@ -338,13 +362,46 @@ takes over from the table above. **Out of scope for this doc.**
 Where downstream tickets land the code that consumes this doc:
 
 - **`pl6.2`** — `app/lib/domain.ts` + providers + D1:
-  - `StyleFamily` literal-union type with the 14 ids above. `SubjectTemplateId`
-    literal-union over `T01`–`T40`. `Slots` record (`{ animal?: string;
-    profession?: string; ... }`, one optional field per slot vocabulary).
-    `AspectRatio` literal-union over `'1:1' | '16:9' | '9:16' | '4:3' | '3:4'`.
+  - `StyleFamily` literal-union type with the 14 ids above. `AspectRatio`
+    literal-union over `'1:1' | '16:9' | '9:16' | '4:3' | '3:4'`.
+  - **Two `SubjectTemplateId` types**, deliberately split per [LAW:types-are-the-program]
+    — the rule "the chooser never produces T00" is enforced by the type, not
+    by an assertion:
+    ```ts
+    type ChooserSubjectTemplateId = 'T01' | 'T02' | /* ... */ | 'T40'  // 40 ids
+    type StoredSubjectTemplateId  = 'T00' | ChooserSubjectTemplateId    // 41 ids
+    ```
+    The chooser's return type uses `ChooserSubjectTemplateId`; the recipe
+    parser (D1 read path) uses `StoredSubjectTemplateId`. The wider type is
+    a structural superset, so `ChooserSubjectTemplateId` assigns to
+    `StoredSubjectTemplateId` for free; the reverse requires an explicit
+    narrowing if a chooser-input ever needs to look at a stored recipe (it
+    doesn't, in this design).
+  - **`RecipeSubject` discriminated union**, NOT a bag of optionals. One
+    variant per template id; each variant carries exactly the slots its
+    phrase references. The type makes `(subjectTemplate: 'T01', slots: {})`
+    unrepresentable — the compiler refuses. Shape:
+    ```ts
+    type RecipeSubject =
+      | { subjectTemplate: 'T00'; slots: { freeText: string } }
+      | { subjectTemplate: 'T01'; slots: { animal: string; profession: string } }
+      | { subjectTemplate: 'T02'; slots: { animal: string; emotion: string } }
+      | { subjectTemplate: 'T03'; slots: { profession: string; era: string } }
+      | { subjectTemplate: 'T04'; slots: { manMadeObject: string; era: string; setting: string } }
+      | { subjectTemplate: 'T05'; slots: { setting: string; timeOfDay: string } }
+      // ... one variant per row in the templates table, slots derived
+      //     mechanically from the {placeholders} in that template's phrase.
+    ```
+    The 41 variants are mechanically derivable from the templates table by
+    inspecting each phrase's `{placeholders}`. A small codegen helper or
+    hand-written list is fine — both produce identical types. Anti-rep R6
+    iterates `RecipeSubject['slots']` via a generic helper, not by hardcoding
+    slot names; same generic works for every variant.
   - The `Generation` type (the recipe — `Content.kind === 'generation'` carries
-    `recipe: Generation`) gains four fields: `styleFamily`, `subjectTemplate`,
-    `slots`, and `aspectRatio`. These join the existing `providerId`,
+    `recipe: Generation`) gains: `styleFamily: StyleFamily`, `aspectRatio:
+    AspectRatio`, and `subject: RecipeSubject` (the discriminated union
+    above — `subjectTemplate` and `slots` live inside the union, not as
+    sibling fields). These join the existing `providerId`,
     `providerVersion`, `params: unknown`, `parentId?`.
   - **Lifting `aspectRatio` is a migration**, not an addition. Today
     `app/providers/fal-flux.ts`'s `paramsSchema` carries `aspectRatio`
@@ -360,20 +417,29 @@ Where downstream tickets land the code that consumes this doc:
       and accepts an `aspectRatio` field on the input directly).
   - D1 schema: add columns to the `generations` table (`style_family TEXT
     NOT NULL`, `subject_template TEXT NOT NULL`, `slots JSON NOT NULL`,
-    `aspect_ratio TEXT NOT NULL`). Existing rows (the `ct9` bootstrap +
-    any cron output produced before pl6.2 ships, ~tens of rows) are
-    backfilled as:
+    `aspect_ratio TEXT NOT NULL`). The two-column representation
+    (`subject_template` + `slots`) flattens the `RecipeSubject`
+    discriminated union for storage; the parse step at the D1 read boundary
+    reconstructs the union (it's the trust boundary, so a Zod schema that
+    enforces "slots match what `subjectTemplate` requires" lives there).
+    Slot-id casing: the JSON column stores camelCase keys exactly matching
+    the TS type's keys ({ "manMadeObject": "ATM" }, { "freeText": "..." }
+    — never kebab-case in JSON or TS).
+  - **Backfill** for existing rows (the `ct9` bootstrap + any cron output
+    produced before pl6.2 ships, ~tens of rows):
     - `style_family`: sentinel `'photoreal'` (the closest match to fal-flux
       default output; this is metadata-only, the image is already produced)
-    - `subject_template`: `'T00'` (the legacy escape hatch)
+    - `subject_template`: `'T00'` (the legacy escape hatch — only T00
+      reads/writes route through `StoredSubjectTemplateId` here; the
+      chooser's `ChooserSubjectTemplateId` can never produce it)
     - `slots`: `{ "freeText": "<original prompt verbatim>" }`
     - `aspect_ratio`: read out of the existing `params.aspectRatio`
-    The chooser excludes `T00` from sampling (per anti-repetition section
-    + the rule attached to the `free-text` slot vocabulary), so backfilled
-    rows render in the feed but never feed back into chooser decisions.
-    If a future ticket wants to retro-classify the backfilled rows into
-    real (`T01`–`T40`) templates by prompt-string matching, that's a
-    separate concern — `T00` is the floor, not the ceiling.
+    Backfilled rows render in the feed but never feed back into chooser
+    decisions (because the chooser's type literally cannot produce T00 and
+    R-rules operate on the stored type viewed through a filter that drops
+    T00 rows). If a future ticket wants to retro-classify the backfilled
+    rows into real (`T01`–`T40`) templates by prompt-string matching,
+    that's a separate concern — `T00` is the floor, not the ceiling.
   - Forking semantics: a fork copies the parent's recipe in full and the
     forker may edit individual fields. The recipe is a snapshot, not a
     reference — re-running the same recipe months later under a different
@@ -381,21 +447,30 @@ Where downstream tickets land the code that consumes this doc:
     is fine.
 
 - **`pl6.5`** — `app/firehose/chooseNextGeneration.ts`:
-  - Reads the last 20 posts via `app/db/posts.ts` (extend the reader if
-    needed for cheap "recent recipes" lookup).
+  - Reads the last 20 persisted recipes via `app/db/posts.ts` (extend the
+    reader if needed for cheap "recent recipes" lookup). The reader
+    returns `StoredSubjectTemplateId`-typed values; R-rule application
+    filters out T00 rows so the chooser's working window contains only
+    `ChooserSubjectTemplateId` shapes.
   - Builds a weighted distribution of style families (uniform, then
     multiplied by R5 downweights).
   - Samples style family (R1 hard-rejects the most recent).
-  - Samples subject template (R2 hard-rejects last 5).
-  - Samples slot-fills from vocabularies (R6 soft-downweights last-20 slot
-    values).
+  - Samples subject template from `ChooserSubjectTemplateId` (R2
+    hard-rejects last 5; T00 is unreachable by type).
+  - For the chosen template, looks up its exact slot-shape from
+    `RecipeSubject`'s discriminator and samples each required slot from
+    the corresponding vocabulary (R6 soft-downweights last-20 values per
+    slot id).
   - Samples provider from the row of the model-assignment table for the
     chosen style family (R3 hard-rejects the most recent provider if >1
     exists).
   - Samples aspect ratio from the policy distribution × style-family
-    multipliers (R4 hard-rejects last 2 ratios).
-  - Composes the final prompt: `<style.promptSeed>, <template.fill(slots)>`.
-  - Returns `{ providerId, params, recipe }` — `createPost` is the writer.
+    multipliers (R4 hard-rejects per its restated rule).
+  - Composes the final prompt: `<template.fill(slots)>, <style.promptSeed>`,
+    where `template.fill(slots)` runs the article-normalization pass over
+    `[a/an before slot]` positions (see "Template rendering").
+  - Returns a recipe object that satisfies `Generation`'s extended type —
+    `createPost` is the writer.
 
 - **`pl6.5` also replaces `pickPrompt.ts`** — the FNV-1a placeholder in the
   firehose is the dumb baseline this design supersedes. The cron handler
@@ -406,18 +481,32 @@ Where downstream tickets land the code that consumes this doc:
 ## What this design forbids by construction
 
 1. **A generation with a style family or subject template that doesn't
-   exist.** The `StyleFamily` and `SubjectTemplateId` types are literal
-   unions; only the doc's values are constructible. (Strings carried in
-   D1 are parsed at the trust boundary into those literal unions —
-   [LAW:no-defensive-null-guards] inside the trust boundary.)
-2. **Two consecutive posts in the same style family.** R1 is enforced by
+   exist.** `StyleFamily`, `StoredSubjectTemplateId`, and
+   `ChooserSubjectTemplateId` are all literal-union types; only the doc's
+   values are constructible. Strings carried in D1 are parsed at the read
+   boundary into those literal unions ([LAW:no-defensive-null-guards] —
+   defenses live at the trust boundary, not inside it).
+2. **A recipe whose slots don't match its template.** `RecipeSubject` is a
+   discriminated union: each `subjectTemplate` variant carries exactly the
+   slot keys its phrase references. `(subjectTemplate: 'T01', slots: {})`
+   does not type-check; `(subjectTemplate: 'T05', slots: { setting: 'x' })`
+   does not type-check (missing `timeOfDay`). The compiler refuses.
+3. **The chooser producing a backfill-only template.** `ChooserSubjectTemplateId`
+   is `'T01' | ... | 'T40'` — `'T00'` is not in the union. A chooser that
+   tries to return T00 fails at the function's return type. No runtime
+   "must not be T00" assertion is needed.
+4. **Two consecutive posts in the same style family.** R1 is enforced by
    the chooser; the type `(StyleFamily, RecentPosts)` constructs the
    reject-list before sampling. No callsite branches on "did I already
    pick this style."
-3. **A provider receiving non-canonical aspect ratio params.** The chooser
+5. **A provider receiving non-canonical aspect ratio params.** The chooser
    produces an `AspectRatio` enum value; the provider's `paramsSchema`
    accepts only that enum (fal) or translates via the canonical table
    (sdxl). The (w,h) literal is never the chooser's output.
+6. **A prompt with mismatched articles ("a otter", "an cat").** The pl6.5
+   renderer normalizes any `a`/`an` immediately preceding a slot to match
+   the resolved value's first phoneme. The template strings stay
+   English-readable; the rendering is mechanical.
 
 ## What this design accepts (failure modes documented like success paths)
 
