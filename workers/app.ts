@@ -34,14 +34,15 @@ export default {
     if (import.meta.env.DEV) {
       const url = new URL(request.url)
       if (url.pathname === "/__scheduled") {
-        // [LAW:types-are-the-program] Separate "absent" from "present-but-junk"
-        // explicitly. `Number(x) || Date.now()` collapses both into "falsy →
-        // fall back", which silently rejects valid `time=0` (Unix epoch) and
-        // masks malformed input. Accept set: any finite number, including 0
-        // and negatives. Reject set: missing param OR non-finite parse —
-        // both fall back to `Date.now()`.
-        const rawTime = url.searchParams.get("time")
-        const parsedTime = rawTime === null ? NaN : Number(rawTime)
+        // [LAW:types-are-the-program] Accept set: a non-empty string that
+        // parses to a finite number (including 0 and negatives — `time=0`
+        // must reach the handler as Unix epoch for deterministic tests).
+        // Reject set: missing param, empty/whitespace param (`?time=`),
+        // or a value `Number()` cannot parse — all fall back to `Date.now()`.
+        // Trim first so the empty-check is the single discriminator between
+        // "user gave us nothing" and "user gave us something parseable".
+        const rawTime = url.searchParams.get("time")?.trim() ?? ""
+        const parsedTime = rawTime === "" ? NaN : Number(rawTime)
         await runScheduled(
           {
             scheduledTime: Number.isFinite(parsedTime) ? parsedTime : Date.now(),

@@ -62,9 +62,11 @@ export async function runScheduled(
     // is the source of truth for "what happened." We catch here only to keep
     // the worker alive; re-throwing would abort the scheduled invocation and
     // lose the log line.
-    console.error('firehose.scheduled: createPost threw', {
-      prompt,
-      error: err instanceof Error ? err.message : String(err),
-    })
+    // [LAW:no-silent-fallbacks] Log the raw error as a separate argument so
+    // Workers' log renderer preserves the stack trace; collapsing to
+    // `err.message` here would drop the most useful diagnostic. The
+    // generations row still carries `describeError`'s structured detail for
+    // long-term observability — this log is the operator-side breadcrumb.
+    console.error('firehose.scheduled: createPost threw', { prompt }, err)
   }
 }
