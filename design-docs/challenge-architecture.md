@@ -127,10 +127,10 @@ type HardForm =                                    // creative LLM-required
 
 type BankEntry = {
   id: string                       // KV key
-  briefing_text: string            // LLM-written prose declaring both forms in SlopSpot voice
-  easy_form: EasyForm
-  hard_form: HardForm
-  generated_at: number             // for 48h rotation
+  briefingText: string             // LLM-written prose declaring both forms in SlopSpot voice
+  easyForm: EasyForm
+  hardForm: HardForm
+  generatedAt: number              // for 48h rotation
 }
 
 type Outcome =                     // canonical truth, logged faithfully
@@ -156,8 +156,8 @@ the test suite has to catch.
 
 ```
 1. Random entry from bank (today's + yesterday's, 48h overlap)
-2. Sign token: { entry_id, nonce, issuedAt }  via HMAC-SHA256
-3. Return { challengeId, text: briefing_text, expiresAt: now + 240_000 }
+2. Sign token: { entryId, nonce, issuedAt }  via HMAC-SHA256
+3. Return { challengeId, text: briefingText, expiresAt: now + 240_000 }
    Cache-Control: no-store
 ```
 
@@ -173,17 +173,39 @@ declares the forms in plain text; nothing in the token is secret).
 Note: NO `acknowledgement` field. The shape forbids parallel-channel forgery
 by construction.
 
+The verifier is a **deterministic fail-fast pipeline**. Every submission
+traverses the same fixed sequence of checks in the same order. The pipeline
+short-circuits on the first failing check — but this is *data-dependent
+short-circuit*, not policy-driven control flow. There is no "if this looks
+suspicious, also run X" branch and no per-caller variability in which checks
+fire; later checks depend on earlier checks' results (you can't run form
+verification without first looking up the `BankEntry`, you can't look up the
+entry without a verified token). That is dependency ordering, not adaptive
+policy. [LAW:dataflow-not-control-flow] is satisfied: the variability that
+shapes outcomes lives in **data** (the token's entry pointer, the entry's
+form params, the quota state) flowing through one fixed pipeline; *which
+code runs* is determined by *which inputs got far enough to be observed*,
+not by branching on caller identity or context.
+
+The pipeline:
+
 ```
 1. Verify HMAC + TTL on token        → Outcome.token_invalid / token_expired
-2. Extract entry_id, KV lookup       → BankEntry
-3. verifyForm(easy_form, prompt)     → Outcome.form_violation{which:'easy'} on fail
-4. verifyForm(hard_form, prompt)     → Outcome.form_violation{which:'hard'} on fail
+2. Extract entryId, KV lookup        → BankEntry (token_invalid on lookup miss)
+3. verifyEasy(prompt, entry.easyForm) → Outcome.form_violation{which:'easy'} on fail
+4. verifyHard(prompt, entry.hardForm) → Outcome.form_violation{which:'hard'} on fail
 5. for gate in SECRET_GATES:
-     gate(prompt)                    → Outcome.secret_gate_failed on fail
-6. quota.check(today)                → Outcome.quota_exhausted on full
+     gate(prompt)                    → Outcome.secret_gate_failed{gate} on fail
+6. quota.tryReserve(today)           → Outcome.quota_exhausted on full
 7. createPost(params, origin)        → Outcome.generated
-8. quota.increment(today)
 ```
+
+Notice step 6 is `tryReserve`, not check-then-increment — see the Quota
+section for the atomic-update mechanism that makes the 20/day cap a real
+hard cap rather than a best-effort soft cap. The reservation happens
+*before* `createPost`; if `createPost` fails, we accept the slot is consumed
+for the day. [LAW:errors] this is the documented failure shape — paying for
+the reservation up-front is the cost of avoiding TOCTOU race overshoot.
 
 [LAW:single-enforcer] — one verifier dispatch, one place, one path.
 [LAW:dataflow-not-control-flow] — every gate always runs, in order; the
@@ -252,16 +274,39 @@ Cost is cents/day. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
 
 ## Storage
 
-| Namespace          | Shape                                              | Lifetime |
-| ------------------ | -------------------------------------------------- | -------- |
-| `CHALLENGE_BANK`   | `entry_id → BankEntry (JSON)`                      | 48h auto-expire |
-| `CHALLENGE_QUOTA`  | `YYYY-MM-DD → count: number`                       | 7d auto-expire |
+| Store                 | Shape                                              | Lifetime |
+| --------------------- | -------------------------------------------------- | -------- |
+| KV `CHALLENGE_BANK`   | `entryId → BankEntry (JSON)`                       | 48h auto-expire |
+| D1 `challenge_quota`  | `date TEXT PRIMARY KEY, count INTEGER NOT NULL`    | 7d retention (cleaned by cron) |
 
-[LAW:one-source-of-truth] one location for bank entries, one location for
-quota state. The quota counter is the canonical record of "how many real
-generations occurred today" — the budget guard in `firehose/budget.ts` is
-about *dollars spent*, not *count of challenges passed*. They are
-independent concerns and stay independent.
+The bank lives in KV — write-once-daily, read-many, no atomicity needed,
+auto-expiry handles rotation. KV is the right tool.
+
+The quota counter lives in D1, not KV. The "20/day hard cap" claim is only
+true if the counter increment is atomic against concurrent requests. KV's
+read-modify-write is non-atomic and not strongly consistent — concurrent
+submissions near the cap could each read `count = 19`, each write `count = 20`,
+and overshoot. D1 (SQLite-backed) supports atomic conditional increment:
+
+```sql
+UPDATE challenge_quota
+   SET count = count + 1
+ WHERE date = ?1 AND count < 20
+RETURNING count
+```
+
+The verifier calls `quota.tryReserve(today)` which executes this update.
+If the affected-row count is 1, the slot is reserved and verification
+proceeds to `createPost`. If 0, the row already hit 20 and we return
+`Outcome.quota_exhausted`. [LAW:single-enforcer] there is exactly one
+mechanism for "did we exceed today's quota," and the answer is atomic
+by construction at the storage layer.
+
+[LAW:one-source-of-truth] one location for bank entries (KV), one location
+for quota state (D1). The budget guard in `firehose/budget.ts` is about
+*dollars spent*, not *count of challenges passed*; that's a separate
+concern, separately stored, with its own (already-accepted) TOCTOU
+properties. The two systems do not couple.
 
 ---
 
@@ -379,8 +424,8 @@ properties of the deployed system, not properties of the request.
                                                                     map Outcome → HTTP response)
                                                                               │
                                                                               ▼
-                                                                       KV: CHALLENGE_QUOTA
-                                                                       (increment on generated)
+                                                                       D1: challenge_quota
+                                                                       (atomic UPDATE … WHERE count < 20)
 ```
 
 [LAW:one-way-deps] no back-edges. The verify path doesn't write to the bank.
