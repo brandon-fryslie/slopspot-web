@@ -733,25 +733,27 @@ export function renderTemplate(subject: RecipeSubject): string {
 // natural weights. A style family always names at least one provider with
 // weight 1.0 — bare {} would be a degenerate row, so it doesn't exist.
 //
-// Provider ids referenced: 'fal-flux' is real today; 'replicate-sdxl' is the
-// real provider pl6.3 introduces. The chooser falls back to fal-flux when
-// the named provider isn't registered (transitional state, not permanent).
+// Provider ids referenced: 'fal-flux' (photographic / clean), 'replicate-sdxl'
+// (painterly / illustrative workhorse), 'replicate-ideogram' (typography /
+// designed-flat). Ideogram leads on style families where typography or a
+// designed-flat aesthetic dominates (risograph-print, botanical-illustration —
+// Latin labels, anime — dedicated style_type, vaporwave — design-y vibe).
 export const STYLE_FAMILY_PROVIDER_WEIGHTS: Record<
   StyleFamily,
   Record<string, number>
 > = {
-  'oil-painting': { 'fal-flux': 0.3, 'replicate-sdxl': 1.0 },
-  photoreal: { 'fal-flux': 1.0, 'replicate-sdxl': 0.3 },
-  'cyberpunk-neon': { 'fal-flux': 0.5, 'replicate-sdxl': 1.0 },
-  liminal: { 'fal-flux': 1.0, 'replicate-sdxl': 0.3 },
-  'low-poly': { 'fal-flux': 0.3, 'replicate-sdxl': 1.0 },
-  vaporwave: { 'fal-flux': 0.5, 'replicate-sdxl': 1.0 },
-  watercolor: { 'fal-flux': 0.3, 'replicate-sdxl': 1.0 },
-  anime: { 'fal-flux': 0.3, 'replicate-sdxl': 1.0 },
-  cottagecore: { 'fal-flux': 0.5, 'replicate-sdxl': 1.0 },
-  'haunted-mundane': { 'fal-flux': 1.0, 'replicate-sdxl': 0.5 },
-  '1990s-cgi': { 'fal-flux': 1.0, 'replicate-sdxl': 0.5 },
-  'botanical-illustration': { 'fal-flux': 0.5, 'replicate-sdxl': 1.0 },
-  'brutalist-architecture': { 'fal-flux': 1.0, 'replicate-sdxl': 0.3 },
-  'risograph-print': { 'fal-flux': 0.3, 'replicate-sdxl': 1.0 },
+  'oil-painting': { 'fal-flux': 0.3, 'replicate-sdxl': 1.0, 'replicate-ideogram': 0.2 },
+  photoreal: { 'fal-flux': 1.0, 'replicate-sdxl': 0.3, 'replicate-ideogram': 0.2 },
+  'cyberpunk-neon': { 'fal-flux': 0.5, 'replicate-sdxl': 1.0, 'replicate-ideogram': 0.5 },
+  liminal: { 'fal-flux': 1.0, 'replicate-sdxl': 0.3, 'replicate-ideogram': 0.2 },
+  'low-poly': { 'fal-flux': 0.3, 'replicate-sdxl': 1.0, 'replicate-ideogram': 0.3 },
+  vaporwave: { 'fal-flux': 0.5, 'replicate-sdxl': 0.5, 'replicate-ideogram': 1.0 },
+  watercolor: { 'fal-flux': 0.3, 'replicate-sdxl': 1.0, 'replicate-ideogram': 0.2 },
+  anime: { 'fal-flux': 0.3, 'replicate-sdxl': 0.5, 'replicate-ideogram': 1.0 },
+  cottagecore: { 'fal-flux': 0.5, 'replicate-sdxl': 1.0, 'replicate-ideogram': 0.3 },
+  'haunted-mundane': { 'fal-flux': 1.0, 'replicate-sdxl': 0.5, 'replicate-ideogram': 0.3 },
+  '1990s-cgi': { 'fal-flux': 1.0, 'replicate-sdxl': 0.5, 'replicate-ideogram': 0.5 },
+  'botanical-illustration': { 'fal-flux': 0.5, 'replicate-sdxl': 0.5, 'replicate-ideogram': 1.0 },
+  'brutalist-architecture': { 'fal-flux': 1.0, 'replicate-sdxl': 0.3, 'replicate-ideogram': 0.2 },
+  'risograph-print': { 'fal-flux': 0.3, 'replicate-sdxl': 0.5, 'replicate-ideogram': 1.0 },
 }
