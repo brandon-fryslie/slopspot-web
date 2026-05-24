@@ -61,7 +61,14 @@ describe('domain exhaustiveness (compile-time)', () => {
   it('Content has exactly the variants the discriminator handles', () => {
     const generation: Content = {
       kind: 'generation',
-      recipe: { providerId: ProviderId('p'), providerVersion: 'v', params: {} },
+      recipe: {
+        providerId: ProviderId('p'),
+        providerVersion: 'v',
+        params: {},
+        styleFamily: 'photoreal',
+        aspectRatio: '1:1',
+        subject: { subjectTemplate: 'T00', slots: { freeText: 'x' } },
+      },
       status: { kind: 'pending', queuedAt: new Date() },
     }
     const upload: Content = {

@@ -1,6 +1,13 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["vite.config.ts", "scripts/**/*.ts"],
+  // app/lib/variety.ts is the canonical AspectRatio source; the bootstrap
+  // script type-imports it to avoid drift between the script's local SPECS
+  // and the API contract. The file is also included by tsconfig.cloudflare —
+  // it's pure data + Zod, no DOM/Workers types, so it compiles cleanly in
+  // both contexts. Composite mode tolerates the dual-include because both
+  // projects share `noEmit: true` (inherited from tsconfig.json), so there's
+  // no duplicate-emit conflict.
+  "include": ["vite.config.ts", "scripts/**/*.ts", "app/lib/variety.ts"],
   "compilerOptions": {
     "composite": true,
     "strict": true,

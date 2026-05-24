@@ -72,8 +72,14 @@ export const posts = sqliteTable(
 //
 // The CHECK constraint requires the companion fields of the current status to
 // be present and forbids fields from other arms — so transitions must clear
-// stale data. style_family + style_subject_template are nullable now; the
-// variety epic (slopspot-variety-pl6.2) backfills them.
+// stale data.
+//
+// style_family / subject_template / slots_json / aspect_ratio are the variety
+// taxonomy fields from design-docs/variety.md, all NOT NULL. They're orthogonal
+// to the status discriminator (every status arm carries them), so they're not
+// part of the status CHECK — each row has them by construction, written once
+// at insert time. Slot keys live in slots_json as a JSON object whose shape
+// is enforced by recipeSubjectSchema at the application read boundary.
 export const generations = sqliteTable(
   'generations',
   {
@@ -84,8 +90,17 @@ export const generations = sqliteTable(
     providerVersion: text('provider_version').notNull(),
     paramsJson: text('params_json').notNull(),
     parentPostId: text('parent_post_id').references(() => posts.id),
-    styleFamily: text('style_family'),
-    styleSubjectTemplate: text('style_subject_template'),
+    // [LAW:one-source-of-truth] The DB-level DEFAULTs duplicate values that
+    // 0001_variety_taxonomy.sql sets so `ALTER TABLE ADD COLUMN NOT NULL` can
+    // populate existing rows. createPost always supplies these fields
+    // explicitly — the DEFAULTs never fire in normal writes, they exist only
+    // for migration scaffolding. Declaring them here keeps the schema source
+    // of truth aligned with the migration so drizzle-kit's next `generate`
+    // doesn't try to drop them.
+    styleFamily: text('style_family').notNull().default('photoreal'),
+    subjectTemplate: text('subject_template').notNull().default('T00'),
+    slotsJson: text('slots_json').notNull().default('{"freeText":""}'),
+    aspectRatio: text('aspect_ratio').notNull().default('1:1'),
     status: text('status', {
       enum: ['pending', 'running', 'succeeded', 'failed'],
     }).notNull(),

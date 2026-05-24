@@ -30,6 +30,12 @@ import {
   type Origin,
   type Post,
 } from '~/lib/domain'
+import {
+  aspectRatioSchema,
+  recipeSubjectSchema,
+  styleFamilySchema,
+  type RecipeSubject,
+} from '~/lib/variety'
 
 // One flat join row. The sibling tables are nullable because the DB does not
 // enforce cross-table cardinality (that is createPost's transactional invariant);
@@ -115,6 +121,27 @@ function toStatus(g: DbGeneration): GenerationStatus {
   }
 }
 
+// [LAW:types-are-the-program] Reconstruct the RecipeSubject discriminated union
+// from the flattened storage columns. recipeSubjectSchema enforces that the
+// slots JSON object's keys match exactly what the subject_template variant
+// requires — so a row where (subject_template, slots_json) drifted (e.g.
+// 'T05' with only `setting`, missing `timeOfDay`) fails loud here, the way
+// a missing-column violation does in `required`. [LAW:no-silent-fallbacks]
+function toRecipeSubject(
+  subjectTemplate: string,
+  slotsJson: string,
+  postId: string,
+): RecipeSubject {
+  const slots = parseJson<unknown>(slotsJson, `slots_json for post ${postId}`)
+  const parsed = recipeSubjectSchema.safeParse({ subjectTemplate, slots })
+  if (!parsed.success) {
+    throw new Error(
+      `feed: malformed recipe subject for post ${postId}: ${parsed.error.message}`,
+    )
+  }
+  return parsed.data
+}
+
 function toContent(row: FeedRow): Content {
   if (row.post.contentKind === 'upload') {
     absent(row.generation, `generations row for upload post ${row.post.id}`)
@@ -126,12 +153,21 @@ function toContent(row: FeedRow): Content {
   }
   absent(row.upload, `uploads row for generation post ${row.post.id}`)
   const g = required(row.generation, `generations row for post ${row.post.id}`)
+  // Variety fields at the trust boundary: Zod literal-union parses fail loud on
+  // any storage value outside the documented enums (style family or aspect
+  // ratio that no longer exists, mis-typed). [LAW:no-silent-fallbacks]
+  const styleFamily = styleFamilySchema.parse(g.styleFamily)
+  const aspectRatio = aspectRatioSchema.parse(g.aspectRatio)
+  const subject = toRecipeSubject(g.subjectTemplate, g.slotsJson, g.postId)
   return {
     kind: 'generation',
     recipe: {
       providerId: ProviderId(g.providerId),
       providerVersion: g.providerVersion,
       params: parseJson<unknown>(g.paramsJson, `params_json for post ${g.postId}`),
+      styleFamily,
+      aspectRatio,
+      subject,
       parentId: g.parentPostId === null ? undefined : PostId(g.parentPostId),
     },
     status: toStatus(g),

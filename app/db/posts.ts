@@ -10,12 +10,24 @@ import { db } from '~/db/client'
 import { generations, posts } from '~/db/schema'
 import { getProvider } from '~/providers'
 import { ingestImage } from '~/storage/ingest'
-import type { Media, Origin, Post, PostId, ProviderId } from '~/lib/domain'
+import type {
+  AspectRatio,
+  Media,
+  Origin,
+  Post,
+  PostId,
+  ProviderId,
+  RecipeSubject,
+  StyleFamily,
+} from '~/lib/domain'
 import { PostId as makePostId } from '~/lib/domain'
 
 export type CreatePostInput = {
   providerId: ProviderId
   params: unknown
+  styleFamily: StyleFamily
+  subject: RecipeSubject
+  aspectRatio: AspectRatio
   origin: Origin
   parentId?: PostId
 }
@@ -102,6 +114,10 @@ export async function createPost(
       providerVersion: provider.version,
       paramsJson: JSON.stringify(params),
       parentPostId: input.parentId ?? null,
+      styleFamily: input.styleFamily,
+      subjectTemplate: input.subject.subjectTemplate,
+      slotsJson: JSON.stringify(input.subject.slots),
+      aspectRatio: input.aspectRatio,
       status: 'running',
       startedAt,
     }),
@@ -110,7 +126,10 @@ export async function createPost(
   let output: Media
   let completedAt: Date
   try {
-    const generated = await provider.generate(params, { env })
+    const generated = await provider.generate(
+      { params, aspectRatio: input.aspectRatio },
+      { env },
+    )
     // [LAW:single-enforcer] Every external image flows through ingestImage so the
     // stored url is ours (R2), never the provider CDN. Every provider today
     // produces image media; a non-image return is an unsupported capability, so
@@ -162,6 +181,9 @@ export async function createPost(
         providerId: provider.id,
         providerVersion: provider.version,
         params,
+        styleFamily: input.styleFamily,
+        aspectRatio: input.aspectRatio,
+        subject: input.subject,
         parentId: input.parentId,
       },
       status: { kind: 'succeeded', output, completedAt },

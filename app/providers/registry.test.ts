@@ -20,7 +20,8 @@ function makeStubProvider(id: string): GenerationProvider<{ prompt: string }> {
     displayName: id,
     paramsSchema: z.object({ prompt: z.string() }),
     capabilities: { producesMedia: ['image'], supportsSeed: false, costEstimateUsd: 0 },
-    async generate(_p) {
+    supportedAspectRatios: ['1:1'],
+    async generate(_input) {
       return { kind: 'image', url: 'u', w: 1, h: 1 }
     },
   }

@@ -56,10 +56,14 @@ describe('runScheduled', () => {
     expect(createPostMock).toHaveBeenCalledTimes(1)
     const [input, ctx] = createPostMock.mock.calls[0]!
     expect(input.providerId).toBe('fal-flux')
-    expect(input.params.aspectRatio).toBe('1:1')
     expect(input.params.steps).toBe(4)
     expect(typeof input.params.prompt).toBe('string')
     expect(input.params.prompt.length).toBeGreaterThan(0)
+    // pl6.2: aspectRatio is no longer in params — it's a Generation top-level field.
+    expect(input.params.aspectRatio).toBeUndefined()
+    expect(typeof input.aspectRatio).toBe('string')
+    expect(typeof input.styleFamily).toBe('string')
+    expect(input.subject.subjectTemplate).not.toBe('T00')
     expect(input.origin).toEqual({
       actor: { kind: 'agent', agentId: 'sys:slop-cron' },
     })
@@ -76,7 +80,7 @@ describe('runScheduled', () => {
     expect(errSpy).toHaveBeenCalled()
   })
 
-  it('passes the event scheduledTime through pickPrompt: different ticks → potentially different prompts', async () => {
+  it('passes the event scheduledTime through chooseNextGeneration: different ticks → potentially different prompts', async () => {
     const { runScheduled } = await import('./scheduled')
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
     createPostMock.mockResolvedValue({ id: 'post-test-1' })

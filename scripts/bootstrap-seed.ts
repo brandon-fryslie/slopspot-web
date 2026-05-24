@@ -14,6 +14,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// [LAW:one-source-of-truth] AspectRatio is canonical in app/lib/variety.ts.
+// The script imports the type rather than re-declaring it so a future
+// add/remove of an aspect token is a single-file change. Relative path
+// because the script's tsconfig.node.json doesn't carry the ~/* alias
+// (cloudflare-side only); tsx and the project-references graph handle
+// the cross-project import.
+import type { AspectRatio } from '../app/lib/variety'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(__dirname, '.bootstrap-state.json')
 
@@ -52,7 +60,8 @@ function saveState(target: string, records: Record<string, { postId: string; cre
 
 type Spec = {
   id: string
-  params: { prompt: string; aspectRatio: '1:1' | '16:9' | '9:16'; steps: number }
+  prompt: string
+  aspectRatio: AspectRatio
 }
 
 // Canonical spec list derived from app/lib/seed.ts.
@@ -65,38 +74,37 @@ type Spec = {
 // [LAW:one-source-of-truth] Once this script has run and seed.ts is deleted, this
 // list is the authoritative record of what the bootstrap created (alongside the
 // .bootstrap-state.json that maps each id to its D1 post uuid).
+//
+// Variety taxonomy fields (slopspot-variety-pl6.2): bootstrap rows are hand-
+// curated free-text, not chooser-generated, so they all use the T00 backfill
+// sentinel shape — { subjectTemplate: 'T00', slots: { freeText: prompt } } —
+// and styleFamily: 'photoreal' as the catch-all (same convention the migration
+// applies). pl6.5's chooser owns producing real T01-T40 recipes; the bootstrap
+// stays in the legacy lane it always inhabited.
 const SPECS: Spec[] = [
-  { id: 'p001', params: { prompt: 'a cat in a sunbeam, oil painting, dust motes', aspectRatio: '1:1', steps: 4 } },
-  // replicate-sdxl-mock 1024x1024 → 1:1
-  { id: 'p002', params: { prompt: 'cyberpunk noodle shop at night, neon rain', aspectRatio: '1:1', steps: 4 } },
-  { id: 'p003', params: { prompt: 'lonely lighthouse, storm, romantic painting', aspectRatio: '9:16', steps: 4 } },
-  // replicate-sdxl-mock 1280x720 → 16:9
-  { id: 'p004', params: { prompt: 'corgi astronaut planting a flag on the moon', aspectRatio: '16:9', steps: 4 } },
-  { id: 'p005', params: { prompt: 'ramen as topology, fractal noodle universe', aspectRatio: '1:1', steps: 4 } },
-  // replicate-sdxl-mock 768x1024 → 9:16 (portrait closest)
-  { id: 'p006', params: { prompt: 'a frog wearing a tiny crown, regal portrait', aspectRatio: '9:16', steps: 4 } },
-  { id: 'p007', params: { prompt: '1980s mall food court, liminal, fluorescent', aspectRatio: '16:9', steps: 4 } },
-  // replicate-sdxl-mock 1024x1024 → 1:1
-  { id: 'p008', params: { prompt: 'a haunted vending machine in a parking lot', aspectRatio: '1:1', steps: 4 } },
-  { id: 'p009', params: { prompt: 'two robots arguing about parking', aspectRatio: '16:9', steps: 4 } },
-  // replicate-sdxl-mock 896x1152 → 9:16 (portrait closest)
-  { id: 'p010', params: { prompt: 'cottagecore goblin baking bread, soft light', aspectRatio: '9:16', steps: 4 } },
-  { id: 'p011', params: { prompt: 'cathedral made of seashells under water', aspectRatio: '9:16', steps: 4 } },
-  // replicate-sdxl-mock 1024x1024 → 1:1
-  { id: 'p012', params: { prompt: 'opossum CEO giving a TED talk', aspectRatio: '1:1', steps: 4 } },
-  { id: 'p013', params: { prompt: 'an ancient computer that prints prophecies on receipt paper', aspectRatio: '1:1', steps: 4 } },
-  // replicate-sdxl-mock 1280x720 → 16:9
-  { id: 'p014', params: { prompt: 'low-poly mountain landscape at dawn', aspectRatio: '16:9', steps: 4 } },
-  { id: 'p015', params: { prompt: 'medieval knight riding a roomba into battle', aspectRatio: '16:9', steps: 4 } },
+  { id: 'p001', prompt: 'a cat in a sunbeam, oil painting, dust motes', aspectRatio: '1:1' },
+  { id: 'p002', prompt: 'cyberpunk noodle shop at night, neon rain', aspectRatio: '1:1' },
+  { id: 'p003', prompt: 'lonely lighthouse, storm, romantic painting', aspectRatio: '9:16' },
+  { id: 'p004', prompt: 'corgi astronaut planting a flag on the moon', aspectRatio: '16:9' },
+  { id: 'p005', prompt: 'ramen as topology, fractal noodle universe', aspectRatio: '1:1' },
+  { id: 'p006', prompt: 'a frog wearing a tiny crown, regal portrait', aspectRatio: '9:16' },
+  { id: 'p007', prompt: '1980s mall food court, liminal, fluorescent', aspectRatio: '16:9' },
+  { id: 'p008', prompt: 'a haunted vending machine in a parking lot', aspectRatio: '1:1' },
+  { id: 'p009', prompt: 'two robots arguing about parking', aspectRatio: '16:9' },
+  { id: 'p010', prompt: 'cottagecore goblin baking bread, soft light', aspectRatio: '9:16' },
+  { id: 'p011', prompt: 'cathedral made of seashells under water', aspectRatio: '9:16' },
+  { id: 'p012', prompt: 'opossum CEO giving a TED talk', aspectRatio: '1:1' },
+  { id: 'p013', prompt: 'an ancient computer that prints prophecies on receipt paper', aspectRatio: '1:1' },
+  { id: 'p014', prompt: 'low-poly mountain landscape at dawn', aspectRatio: '16:9' },
+  { id: 'p015', prompt: 'medieval knight riding a roomba into battle', aspectRatio: '16:9' },
   // upload "a photo i took with my phone" → fal-flux generation
-  { id: 'p016', params: { prompt: 'candid street photograph, phone camera aesthetic, grain, authentic moment', aspectRatio: '1:1', steps: 4 } },
+  { id: 'p016', prompt: 'candid street photograph, phone camera aesthetic, grain, authentic moment', aspectRatio: '1:1' },
   // upload "breaking: local agent posts text..." → fal-flux generation
-  { id: 'p017', params: { prompt: 'newspaper headline about an AI claiming victory on the internet, surreal editorial illustration', aspectRatio: '16:9', steps: 4 } },
-  // replicate-sdxl-mock 1024x1024 → 1:1
-  { id: 'p018', params: { prompt: 'feral office printer escapes into the woods', aspectRatio: '1:1', steps: 4 } },
+  { id: 'p017', prompt: 'newspaper headline about an AI claiming victory on the internet, surreal editorial illustration', aspectRatio: '16:9' },
+  { id: 'p018', prompt: 'feral office printer escapes into the woods', aspectRatio: '1:1' },
   // upload "a moody landscape i shot" → fal-flux generation
-  { id: 'p019', params: { prompt: 'moody landscape, overcast sky, atmospheric, natural light, minimal', aspectRatio: '16:9', steps: 4 } },
-  { id: 'p020', params: { prompt: 'a single sock, dramatic spotlight, museum vitrine', aspectRatio: '1:1', steps: 4 } },
+  { id: 'p019', prompt: 'moody landscape, overcast sky, atmospheric, natural light, minimal', aspectRatio: '16:9' },
+  { id: 'p020', prompt: 'a single sock, dramatic spotlight, museum vitrine', aspectRatio: '1:1' },
 ]
 
 async function main(): Promise<void> {
@@ -130,7 +138,7 @@ async function main(): Promise<void> {
       continue
     }
 
-    const label = spec.params.prompt.slice(0, 55)
+    const label = spec.prompt.slice(0, 55)
     process.stdout.write(`  ${spec.id}: "${label}..." `)
 
     let response: Response
@@ -138,7 +146,16 @@ async function main(): Promise<void> {
       response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ providerId: 'fal-flux', params: spec.params }),
+        body: JSON.stringify({
+          providerId: 'fal-flux',
+          params: { prompt: spec.prompt, steps: 4 },
+          styleFamily: 'photoreal',
+          subject: {
+            subjectTemplate: 'T00',
+            slots: { freeText: spec.prompt },
+          },
+          aspectRatio: spec.aspectRatio,
+        }),
       })
     } catch (err) {
       console.log(`NETWORK ERROR: ${String(err)}`)

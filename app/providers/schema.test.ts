@@ -18,20 +18,24 @@ type ProviderCase = {
   overLongPromptLength: number
 }
 
+// [LAW:single-enforcer] Post-pl6.2 paramsSchemas no longer carry aspectRatio
+// (canonical AspectRatio is a Generation top-level field, not provider input).
+// SDXL likewise no longer takes width/height in params — those derive from
+// the canonical AspectRatio via the provider's own translation table.
 const cases: ProviderCase[] = [
   {
     id: 'fal-flux',
-    minimalValid: { prompt: 'hello', aspectRatio: '1:1', steps: 1 },
+    minimalValid: { prompt: 'hello', steps: 1 },
     overLongPromptLength: 501,
   },
   {
     id: 'fal-flux-mock',
-    minimalValid: { prompt: 'hello', aspectRatio: '1:1', steps: 1 },
+    minimalValid: { prompt: 'hello', steps: 1 },
     overLongPromptLength: 501,
   },
   {
     id: 'replicate-sdxl-mock',
-    minimalValid: { prompt: 'hello', width: 512, height: 512, guidanceScale: 7.5 },
+    minimalValid: { prompt: 'hello', guidanceScale: 7.5 },
     overLongPromptLength: 1001,
   },
 ]
