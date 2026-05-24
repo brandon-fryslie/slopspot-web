@@ -1,23 +1,38 @@
 import { fal } from "@fal-ai/client"
 import { z } from "zod"
-import { ProviderId, type Media } from "~/lib/domain"
+import { ASPECT_RATIOS } from "~/lib/variety"
+import { ProviderId, type AspectRatio, type Media } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
 
-// Real fal.ai FLUX schnell provider. Same paramsSchema *shape* as fal-flux-mock
-// (categorical aspectRatio + step count), with schnell's tighter step bound (1-4).
-// The mock and the real provider intentionally share schema shape so seed posts
-// and UI forms work against either by changing one providerId string.
+// Real fal.ai FLUX schnell provider. Params are provider-specific (prompt +
+// step count, with schnell's tighter 1-4 bound). The canonical aspectRatio
+// no longer lives in params — it arrives as GenerationInput.aspectRatio and
+// is translated to fal's image_size enum at this boundary (see imageSize
+// below). [LAW:single-enforcer] one canonical AspectRatio → one provider-
+// native translation site per provider.
 const params = z.object({
   prompt: z.string().min(1).max(500),
-  aspectRatio: z.enum(["1:1", "16:9", "9:16"]),
   steps: z.number().int().min(1).max(4),
 })
 type Params = z.infer<typeof params>
 
-const imageSize: Record<Params["aspectRatio"], "square_hd" | "landscape_16_9" | "portrait_16_9"> = {
+// fal's image_size enum, keyed by the canonical AspectRatio token. fal supports
+// all 5 ratios; the previous schema only exposed 3 — the rest is the variety
+// epic widening the supported set, not a fal change. [LAW:single-enforcer]
+// changes to this table happen exactly here.
+const imageSize: Record<
+  AspectRatio,
+  | "square_hd"
+  | "landscape_16_9"
+  | "portrait_16_9"
+  | "landscape_4_3"
+  | "portrait_4_3"
+> = {
   "1:1": "square_hd",
   "16:9": "landscape_16_9",
   "9:16": "portrait_16_9",
+  "4:3": "landscape_4_3",
+  "3:4": "portrait_4_3",
 }
 
 // [LAW:no-defensive-null-guards] This is a *trust boundary* parse, not a
@@ -43,16 +58,17 @@ export function parseFalFluxResponse(data: unknown, alt: string): Media {
 
 export const falFlux: GenerationProvider<Params> = {
   id: ProviderId("fal-flux"),
-  version: "2026-05-17",
+  version: "2026-05-24",
   displayName: "fal.ai FLUX schnell",
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0.003 },
-  async generate(p, { env }): Promise<Media> {
+  supportedAspectRatios: ASPECT_RATIOS,
+  async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
     fal.config({ credentials: env.SLOPSPOT_FAL_API_KEY })
     const result = await fal.run("fal-ai/flux/schnell", {
       input: {
         prompt: p.prompt,
-        image_size: imageSize[p.aspectRatio],
+        image_size: imageSize[aspectRatio],
         num_inference_steps: p.steps,
       },
     })

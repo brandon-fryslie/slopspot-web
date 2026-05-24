@@ -6,17 +6,30 @@ import { UnknownProviderError } from "~/providers"
 import { createPost, InvalidParamsError } from "~/db/posts"
 import { verifyChallenge } from "~/lib/challenge"
 import { checkBudget } from "~/firehose/budget"
+import {
+  aspectRatioSchema,
+  recipeSubjectSchema,
+  styleFamilySchema,
+} from "~/lib/variety"
 
 // [LAW:single-enforcer] This route is the HTTP trust boundary for generation.
 // Verification order: challenge gate → budget → createPost. Each layer is
 // enforced once here and nowhere else. createPost itself is unaware of auth.
-
+//
+// The variety taxonomy fields (styleFamily, subject, aspectRatio) are top-
+// level body fields — not part of `params`, which is provider-specific.
+// recipeSubjectSchema enforces slots-match-template at the boundary, so
+// `(subjectTemplate: 'T05', slots: { setting: 'x' })` (missing timeOfDay)
+// fails parse here, not inside createPost.
 const bodySchema = z.object({
   challengeId: z.string().min(1).max(2048),
   acknowledgement: z.string().min(1).max(4096),
   agentId: z.string().min(1).max(256),
   providerId: z.string().min(1).max(128),
   params: z.unknown(),
+  styleFamily: styleFamilySchema,
+  subject: recipeSubjectSchema,
+  aspectRatio: aspectRatioSchema,
 })
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -92,6 +105,9 @@ export async function action({ request, context }: Route.ActionArgs) {
       {
         providerId: ProviderId(parsed.providerId),
         params: parsed.params,
+        styleFamily: parsed.styleFamily,
+        subject: parsed.subject,
+        aspectRatio: parsed.aspectRatio,
         origin,
       },
       { env: context.cloudflare.env },
