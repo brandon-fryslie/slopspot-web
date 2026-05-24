@@ -248,33 +248,30 @@ to a style family it then samples a provider from the weighted distribution.
 This deliberately *does not* hardcode style → provider; it just biases
 toward the model that does that style best given current state of providers.
 
-**Provider ids referenced in this doc:** `fal-flux` matches today's
-`app/providers/fal-flux.ts`. `replicate-sdxl` is the **real provider that
-`slopspot-variety-pl6.3` introduces** — today the registry only has
-`replicate-sdxl-mock`. The weights below reference the future real id
-because the spec describes the end state; the mock provider keeps its
-own id (`replicate-sdxl-mock`) and is used by tests, never by the chooser
-in production. Until pl6.3 lands, the chooser falls back to `fal-flux`
-for every style family (the only registered real provider), and the
-SDXL-weighted styles still ship but all via fal — accepted as a
-suboptimal-during-transition state, not a permanent design.
+**Provider ids referenced in this doc:** `fal-flux` (`app/providers/fal-flux.ts`),
+`replicate-sdxl` (`app/providers/replicate-sdxl.ts`, pl6.3),
+`replicate-ideogram` (`app/providers/replicate-ideogram.ts`, pl6.4 —
+ideogram-v2-turbo for typography-in-image and designed-flat aesthetics).
+Each provider also ships a sibling `-mock` registered alongside; mocks share
+the params shape but never participate in chooser selection (the chooser
+weights below only reference the three real ids).
 
-| style family            | fal-flux | replicate-sdxl | (TBD third) |
-|-------------------------|----------|----------------|-------------|
-| oil-painting            | 0.3      | **1.0**        | —           |
-| photoreal               | **1.0**  | 0.3            | —           |
-| cyberpunk-neon          | 0.5      | **1.0**        | —           |
-| liminal                 | **1.0**  | 0.3            | —           |
-| low-poly                | 0.3      | **1.0**        | —           |
-| vaporwave               | 0.5      | **1.0**        | —           |
-| watercolor              | 0.3      | **1.0**        | —           |
-| anime                   | 0.3      | **1.0**        | —           |
-| cottagecore             | 0.5      | **1.0**        | —           |
-| haunted-mundane         | **1.0**  | 0.5            | —           |
-| 1990s-cgi               | **1.0**  | 0.5            | —           |
-| botanical-illustration  | 0.5      | **1.0**        | —           |
-| brutalist-architecture  | **1.0**  | 0.3            | —           |
-| risograph-print         | 0.3      | **1.0**        | —           |
+| style family            | fal-flux | replicate-sdxl | replicate-ideogram |
+|-------------------------|----------|----------------|--------------------|
+| oil-painting            | 0.3      | **1.0**        | 0.2                |
+| photoreal               | **1.0**  | 0.3            | 0.2                |
+| cyberpunk-neon          | 0.5      | **1.0**        | 0.5                |
+| liminal                 | **1.0**  | 0.3            | 0.2                |
+| low-poly                | 0.3      | **1.0**        | 0.3                |
+| vaporwave               | 0.5      | 0.5            | **1.0**            |
+| watercolor              | 0.3      | **1.0**        | 0.2                |
+| anime                   | 0.3      | 0.5            | **1.0**            |
+| cottagecore             | 0.5      | **1.0**        | 0.3                |
+| haunted-mundane         | **1.0**  | 0.5            | 0.3                |
+| 1990s-cgi               | **1.0**  | 0.5            | 0.5                |
+| botanical-illustration  | 0.5      | 0.5            | **1.0**            |
+| brutalist-architecture  | **1.0**  | 0.3            | 0.2                |
+| risograph-print         | 0.3      | 0.5            | **1.0**            |
 
 Reasoning (not policy — just the why behind the numbers):
 
@@ -282,13 +279,16 @@ Reasoning (not policy — just the why behind the numbers):
   styles (photoreal, liminal, haunted-mundane, brutalist) and at the "clean
   plastic" of 1990s-cgi. It's weaker on painterly textures (visible brush,
   watercolor bleed, ink work).
-- SDXL is the painterly/illustrative workhorse — oil, watercolor, anime, low-poly,
-  cottagecore, botanical-illustration, risograph, vaporwave, cyberpunk-neon
-  all play to its strengths.
-- The third provider slot is reserved for a tonal outlier (Imagen, Ideogram,
-  FLUX pro) — its weights are TBD until pl6.3.1 (real third provider) lands.
-  When it does, *some* style families should re-weight to give the third
-  provider the lead; the doc gets edited then.
+- SDXL is the painterly/illustrative workhorse — oil, watercolor, low-poly,
+  cottagecore, cyberpunk-neon play to its strengths.
+- Ideogram-v2-turbo leads on style families where typography or
+  designed-flat aesthetics dominate: `risograph-print` (typography + flat
+  color), `botanical-illustration` (Latin labels on Victorian plates),
+  `anime` (ideogram has a dedicated Anime `style_type` enum value),
+  `vaporwave` (designed aesthetic with frequent text elements). On
+  photographic / painterly styles it sits at 0.2–0.5 as a tonal-outlier
+  secondary — it occasionally fires, contributing variety even where it's
+  not the best fit.
 
 **[LAW:one-source-of-truth]** — these weights are the *single source* for
 provider selection. The chooser must not hardcode an alternative mapping.
@@ -343,6 +343,16 @@ monotonous regardless of content.
   | `9:16` | 768  | 1344 |
   | `4:3`  | 1152 | 896  |
   | `3:4`  | 896  | 1152 |
+
+- `replicate-ideogram`: passes `aspect_ratio` as ideogram's native enum
+  string (byte-identical to canonical for the 5 we use) and stores nominal
+  (w,h) for `Media.w/h` — ideogram's API doesn't echo dims in the response
+  (output is a single URL with no width/height field) and the `aspect_ratio`
+  input picks an internal resolution we don't control exactly. Both Replicate
+  providers consume the same `REPLICATE_CANONICAL_DIMS` table in
+  `app/providers/replicate-helpers.ts` (identical to SDXL's column above), so
+  the feed has a single mental model of "what does ratio X mean in pixels"
+  enforced by construction — there is no per-provider dims constant to drift.
 
 **[LAW:single-enforcer]** — the aspect-ratio enum is the canonical form. Each
 provider translates it once, in its own provider file. The chooser must

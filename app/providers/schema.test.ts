@@ -43,6 +43,16 @@ const cases: ProviderCase[] = [
     minimalValid: { prompt: 'hello', guidanceScale: 7.5 },
     overLongPromptLength: 1001,
   },
+  {
+    id: 'replicate-ideogram',
+    minimalValid: { prompt: 'hello' },
+    overLongPromptLength: 1001,
+  },
+  {
+    id: 'replicate-ideogram-mock',
+    minimalValid: { prompt: 'hello' },
+    overLongPromptLength: 1001,
+  },
 ]
 
 // [LAW:types-are-the-program] Make the coverage gap impossible. listProviders()

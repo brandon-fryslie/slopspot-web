@@ -3,13 +3,17 @@
 import { registerProvider } from './registry'
 import { falFluxMock } from './fal-flux-mock'
 import { replicateSdxlMock } from './replicate-sdxl-mock'
+import { replicateIdeogramMock } from './replicate-ideogram-mock'
 import { falFlux } from './fal-flux'
 import { replicateSdxl } from './replicate-sdxl'
+import { replicateIdeogram } from './replicate-ideogram'
 
 registerProvider(falFlux)
 registerProvider(falFluxMock)
 registerProvider(replicateSdxl)
 registerProvider(replicateSdxlMock)
+registerProvider(replicateIdeogram)
+registerProvider(replicateIdeogramMock)
 
 export { getProvider, listProviders, UnknownProviderError } from './registry'
 export type { GenerationProvider, GenerationCapabilities } from './types'
