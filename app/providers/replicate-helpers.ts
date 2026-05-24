@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { AspectRatio } from "~/lib/domain"
 
 // Shared trust-boundary code for the Replicate prediction API. Replicate's
 // `/v1/predictions` envelope is identical for every model — only `output`'s
@@ -9,6 +10,23 @@ import { z } from "zod"
 // [LAW:one-source-of-truth] One Replicate envelope shape, one place it's
 // declared. SDXL returns `output: string[]`, Ideogram returns `output: string`
 // — that genuine variance stays in each provider's own response parser.
+
+// [LAW:one-source-of-truth] Canonical (w,h) per AspectRatio for Replicate-family
+// providers. SDXL consumes these as the explicit `width`/`height` it sends to
+// the Replicate API (SDXL's input requires explicit dims); Ideogram consumes
+// them as the nominal dims it records in `Media.w/h` (Ideogram's API doesn't
+// echo dims in the response, and its `aspect_ratio` enum picks an internal
+// resolution we don't control). One table, two consumers — two providers
+// cannot diverge on "what does ratio X mean in pixels" because there is no
+// second copy to drift from. Values are from `design-docs/variety.md`
+// §Aspect ratio policy.
+export const REPLICATE_CANONICAL_DIMS: Record<AspectRatio, { w: number; h: number }> = {
+  "1:1": { w: 1024, h: 1024 },
+  "16:9": { w: 1344, h: 768 },
+  "9:16": { w: 768, h: 1344 },
+  "4:3": { w: 1152, h: 896 },
+  "3:4": { w: 896, h: 1152 },
+}
 
 const PREDICTION_STATUSES = ['starting', 'processing', 'succeeded', 'failed', 'canceled'] as const
 

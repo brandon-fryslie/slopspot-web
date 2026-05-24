@@ -72,16 +72,19 @@ describe('parseReplicateIdeogramResponse', () => {
 })
 
 describe('IDEOGRAM_DIMS', () => {
-  // Nominal dims table. The chooser + storage layer both consult this; this
-  // test pins the values so an accidental edit doesn't silently shift the
-  // feed's expected layout geometry for ideogram outputs.
+  // Ideogram re-exports the shared REPLICATE_CANONICAL_DIMS table from
+  // replicate-helpers. This test pins both the canonical values (so an
+  // accidental edit to the shared table is caught here AND in the SDXL test)
+  // and the contract that ideogram delivers the same nominal dims as SDXL
+  // for every canonical ratio — [LAW:one-source-of-truth] no per-provider
+  // drift on "what does ratio X mean in pixels".
   it('matches the canonical nominal dimensions for every canonical ratio', () => {
     expect(IDEOGRAM_DIMS).toEqual({
       '1:1': { w: 1024, h: 1024 },
       '16:9': { w: 1344, h: 768 },
       '9:16': { w: 768, h: 1344 },
-      '4:3': { w: 1152, h: 864 },
-      '3:4': { w: 864, h: 1152 },
+      '4:3': { w: 1152, h: 896 },
+      '3:4': { w: 896, h: 1152 },
     })
   })
 })

@@ -2,7 +2,12 @@ import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
 import { ProviderId, type AspectRatio, type Media } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
-import { createPrediction, pollPrediction, predictionSchema } from "./replicate-helpers"
+import {
+  REPLICATE_CANONICAL_DIMS,
+  createPrediction,
+  pollPrediction,
+  predictionSchema,
+} from "./replicate-helpers"
 
 // Real Replicate Ideogram v2-turbo provider. The "third aesthetic signature"
 // for the variety epic — ideogram's strength is typography-in-image and
@@ -41,21 +46,10 @@ const IDEOGRAM_ASPECT_RATIO: Record<AspectRatio, '1:1' | '16:9' | '9:16' | '4:3'
   '3:4': '3:4',
 }
 
-// [LAW:one-source-of-truth] Nominal dimensions per canonical AspectRatio.
-// Ideogram's API doesn't echo dims in the response (output is a single URL,
-// no width/height field), and the `aspect_ratio` input picks an internal
-// resolution we don't control exactly. These are the canonical dims we
-// advertise downstream — Media.w/h is used for layout / aspect preservation,
-// not for byte-level dim assertions (the stored image is content-addressed
-// in R2). Values match SDXL's table so the feed has a single mental model
-// of "what does ratio X mean in pixels".
-export const IDEOGRAM_DIMS: Record<AspectRatio, { w: number; h: number }> = {
-  '1:1': { w: 1024, h: 1024 },
-  '16:9': { w: 1344, h: 768 },
-  '9:16': { w: 768, h: 1344 },
-  '4:3': { w: 1152, h: 864 },
-  '3:4': { w: 864, h: 1152 },
-}
+// Ideogram's nominal (w,h) per canonical AspectRatio is the shared
+// REPLICATE_CANONICAL_DIMS table in `./replicate-helpers`. Re-exported under
+// the IDEOGRAM_DIMS name for backwards-compatible test imports.
+export const IDEOGRAM_DIMS: Record<AspectRatio, { w: number; h: number }> = REPLICATE_CANONICAL_DIMS
 
 // Ideogram v2-turbo returns a single string URL as `output`, not an array
 // (unlike SDXL which returns string[]). Trust-boundary schema reflects that
@@ -95,7 +89,7 @@ export const replicateIdeogram: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.025 },
   supportedAspectRatios: ASPECT_RATIOS,
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
-    const { w, h } = IDEOGRAM_DIMS[aspectRatio]
+    const { w, h } = REPLICATE_CANONICAL_DIMS[aspectRatio]
     const input = {
       prompt: p.prompt,
       aspect_ratio: IDEOGRAM_ASPECT_RATIO[aspectRatio],

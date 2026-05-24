@@ -1,8 +1,13 @@
 import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
-import { ProviderId, type AspectRatio, type Media } from "~/lib/domain"
+import { ProviderId, type Media } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
-import { createPrediction, pollPrediction, predictionSchema } from "./replicate-helpers"
+import {
+  REPLICATE_CANONICAL_DIMS,
+  createPrediction,
+  pollPrediction,
+  predictionSchema,
+} from "./replicate-helpers"
 
 // Real Replicate SDXL provider. Params are provider-specific (negativePrompt,
 // guidanceScale, seed — none of which fal has), so the abstraction's
@@ -19,17 +24,10 @@ const params = z.object({
 })
 type Params = z.infer<typeof params>
 
-// [LAW:one-source-of-truth] SDXL's native dims by canonical AspectRatio. Both
-// the real provider and the mock consult this same constant — there is exactly
-// one answer to "what dimensions does SDXL render for ratio X". Values are
-// from the variety design doc's §Aspect ratio policy.
-export const SDXL_DIMS: Record<AspectRatio, { w: number; h: number }> = {
-  "1:1": { w: 1024, h: 1024 },
-  "16:9": { w: 1344, h: 768 },
-  "9:16": { w: 768, h: 1344 },
-  "4:3": { w: 1152, h: 896 },
-  "3:4": { w: 896, h: 1152 },
-}
+// SDXL's native (w,h) per canonical AspectRatio is the shared
+// REPLICATE_CANONICAL_DIMS table in `./replicate-helpers`. Re-exported under
+// the SDXL_DIMS name for backwards-compatible test imports.
+export const SDXL_DIMS = REPLICATE_CANONICAL_DIMS
 
 // SDXL with num_outputs:1 returns a one-element string[] of image URLs.
 const succeededOutputSchema = z.array(z.string().url()).min(1)
@@ -64,7 +62,7 @@ export const replicateSdxl: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.0035 },
   supportedAspectRatios: ASPECT_RATIOS,
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
-    const { w, h } = SDXL_DIMS[aspectRatio]
+    const { w, h } = REPLICATE_CANONICAL_DIMS[aspectRatio]
     const input = {
       prompt: p.prompt,
       ...(p.negativePrompt !== undefined ? { negative_prompt: p.negativePrompt } : {}),

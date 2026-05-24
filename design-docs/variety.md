@@ -348,9 +348,11 @@ monotonous regardless of content.
   string (byte-identical to canonical for the 5 we use) and stores nominal
   (w,h) for `Media.w/h` — ideogram's API doesn't echo dims in the response
   (output is a single URL with no width/height field) and the `aspect_ratio`
-  input picks an internal resolution we don't control exactly. Nominal dims
-  match SDXL's table so the feed has a single mental model of "what does
-  ratio X mean in pixels."
+  input picks an internal resolution we don't control exactly. Both Replicate
+  providers consume the same `REPLICATE_CANONICAL_DIMS` table in
+  `app/providers/replicate-helpers.ts` (identical to SDXL's column above), so
+  the feed has a single mental model of "what does ratio X mean in pixels"
+  enforced by construction — there is no per-provider dims constant to drift.
 
 **[LAW:single-enforcer]** — the aspect-ratio enum is the canonical form. Each
 provider translates it once, in its own provider file. The chooser must
