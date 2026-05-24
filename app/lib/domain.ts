@@ -4,6 +4,10 @@
 // and a structural pattern-match downstream. No bag-of-optionals, no nullable
 // discriminators.
 
+import type { AspectRatio, RecipeSubject, StyleFamily } from './variety'
+
+export type { AspectRatio, RecipeSubject, StyleFamily } from './variety'
+
 declare const Brand: unique symbol
 type Branded<T, B extends string> = T & { readonly [Brand]: B }
 
@@ -25,13 +29,31 @@ export type Media =
   | { kind: 'text'; body: string }
   | { kind: 'audio'; url: string; durationMs: number }
 
-// A Generation is a recipe. `params` is `unknown` here on purpose: the provider plugin
-// owns the params schema and validates at the boundary. `providerVersion` pins the
-// schema so old posts remain interpretable when a provider revises their API.
+// [LAW:types-are-the-program] A Generation is a recipe. Three categories of
+// field:
+//
+//   1. Provider-specific (`params: unknown`): the plugin owns this schema and
+//      validates at its trust boundary. `providerVersion` pins the schema so
+//      old posts remain interpretable when a provider revises their API.
+//   2. Canonical-across-providers (`aspectRatio`, `styleFamily`, `subject`):
+//      these are part of the variety taxonomy, not provider input. Lifted out
+//      of `params` (where `aspectRatio` previously lived for fal-flux) so a
+//      single canonical representation flows across all providers. Each
+//      provider translates `aspectRatio` to its native shape at its own
+//      boundary. [LAW:single-enforcer]
+//   3. Lineage (`parentId?`): set on forks, undefined otherwise.
+//
+// `styleFamily`/`aspectRatio`/`subject` are required (not optional) — every
+// Content.kind === 'generation' row carries them by construction. User uploads
+// use the upload Content variant which doesn't carry a recipe at all, so the
+// "what about non-generations" question doesn't apply here.
 export type Generation = {
   providerId: ProviderId
   providerVersion: string
   params: unknown
+  styleFamily: StyleFamily
+  aspectRatio: AspectRatio
+  subject: RecipeSubject
   parentId?: PostId
 }
 
