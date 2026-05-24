@@ -199,10 +199,13 @@ export const TEMPLATE_PHRASES: Record<StoredSubjectTemplateId, string> = {
 
 // [LAW:one-source-of-truth] Explicit slot-key list per template, used by
 // the chooser to know what to sample and by the variety consistency test to
-// verify the phrase ↔ slot list alignment. Each entry is the set of unique
-// placeholder names appearing in TEMPLATE_PHRASES[id], in declaration order.
+// verify the phrase ↔ slot list alignment. Each entry is the SET of unique
+// placeholder names appearing in TEMPLATE_PHRASES[id] — order is not
+// load-bearing because chooseNextGeneration's sampleSlots hashes by slot
+// name (not by index), so any permutation produces the same recipe.
 // Test in variety.test.ts re-extracts placeholders from each phrase and
-// asserts equality — drift between phrase and slot list fails the test.
+// asserts set-equality (sorted) — drift between phrase and slot list fails
+// the test.
 export const TEMPLATE_SLOT_KEYS = {
   T00: ['freeText'],
   T01: ['animal', 'profession'],

@@ -50,6 +50,7 @@
           "autoincrement": false,
           "default": "'photoreal'"
         },
+
         "subject_template": {
           "name": "subject_template",
           "type": "text",

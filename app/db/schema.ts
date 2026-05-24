@@ -90,10 +90,17 @@ export const generations = sqliteTable(
     providerVersion: text('provider_version').notNull(),
     paramsJson: text('params_json').notNull(),
     parentPostId: text('parent_post_id').references(() => posts.id),
-    styleFamily: text('style_family').notNull(),
-    subjectTemplate: text('subject_template').notNull(),
-    slotsJson: text('slots_json').notNull(),
-    aspectRatio: text('aspect_ratio').notNull(),
+    // [LAW:one-source-of-truth] The DB-level DEFAULTs duplicate values that
+    // 0001_variety_taxonomy.sql sets so `ALTER TABLE ADD COLUMN NOT NULL` can
+    // populate existing rows. createPost always supplies these fields
+    // explicitly — the DEFAULTs never fire in normal writes, they exist only
+    // for migration scaffolding. Declaring them here keeps the schema source
+    // of truth aligned with the migration so drizzle-kit's next `generate`
+    // doesn't try to drop them.
+    styleFamily: text('style_family').notNull().default('photoreal'),
+    subjectTemplate: text('subject_template').notNull().default('T00'),
+    slotsJson: text('slots_json').notNull().default('{"freeText":""}'),
+    aspectRatio: text('aspect_ratio').notNull().default('1:1'),
     status: text('status', {
       enum: ['pending', 'running', 'succeeded', 'failed'],
     }).notNull(),

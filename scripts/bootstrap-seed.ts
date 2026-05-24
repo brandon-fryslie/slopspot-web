@@ -14,6 +14,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// [LAW:one-source-of-truth] AspectRatio is canonical in app/lib/variety.ts.
+// The script imports the type rather than re-declaring it so a future
+// add/remove of an aspect token is a single-file change. Relative path
+// because the script's tsconfig.node.json doesn't carry the ~/* alias
+// (cloudflare-side only); tsx and the project-references graph handle
+// the cross-project import.
+import type { AspectRatio } from '../app/lib/variety'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const STATE_FILE = join(__dirname, '.bootstrap-state.json')
 
@@ -50,7 +58,6 @@ function saveState(target: string, records: Record<string, { postId: string; cre
   writeFileSync(STATE_FILE, JSON.stringify(existing, null, 2))
 }
 
-type AspectRatio = '1:1' | '16:9' | '9:16' | '4:3' | '3:4'
 type Spec = {
   id: string
   prompt: string
