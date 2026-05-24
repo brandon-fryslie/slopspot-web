@@ -427,48 +427,54 @@ export type SlotId = keyof typeof SLOT_VOCABS | 'freeText'
 export const recipeSubjectSchema = z.discriminatedUnion('subjectTemplate', [
   z.object({
     subjectTemplate: z.literal('T00'),
-    slots: z.object({ freeText: z.string().min(1) }).strict(),
+    // T00.slots.freeText carries the legacy/backfill prompt verbatim — the
+    // max matches fal-flux's paramsSchema prompt cap (500) since the
+    // backfilled rows' params_json.prompt was bounded by the same limit at
+    // write-time. T01-T40 slots hold vocab items (longest ~36 chars), so the
+    // tighter 100-char cap on those rejects pathological inputs without
+    // truncating any legitimate vocab value.
+    slots: z.object({ freeText: z.string().min(1).max(500) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T01'),
     slots: z
-      .object({ animal: z.string().min(1), profession: z.string().min(1) })
+      .object({ animal: z.string().min(1).max(100), profession: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T02'),
     slots: z
-      .object({ animal: z.string().min(1), emotion: z.string().min(1) })
+      .object({ animal: z.string().min(1).max(100), emotion: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T03'),
     slots: z
-      .object({ profession: z.string().min(1), era: z.string().min(1) })
+      .object({ profession: z.string().min(1).max(100), era: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T04'),
     slots: z
       .object({
-        manMadeObject: z.string().min(1),
-        era: z.string().min(1),
-        setting: z.string().min(1),
+        manMadeObject: z.string().min(1).max(100),
+        era: z.string().min(1).max(100),
+        setting: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T05'),
     slots: z
-      .object({ setting: z.string().min(1), timeOfDay: z.string().min(1) })
+      .object({ setting: z.string().min(1).max(100), timeOfDay: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T06'),
     slots: z
       .object({
-        naturalObject: z.string().min(1),
-        manMadeObject: z.string().min(1),
+        naturalObject: z.string().min(1).max(100),
+        manMadeObject: z.string().min(1).max(100),
       })
       .strict(),
   }),
@@ -476,8 +482,8 @@ export const recipeSubjectSchema = z.discriminatedUnion('subjectTemplate', [
     subjectTemplate: z.literal('T07'),
     slots: z
       .object({
-        manMadeObject: z.string().min(1),
-        naturalObject: z.string().min(1),
+        manMadeObject: z.string().min(1).max(100),
+        naturalObject: z.string().min(1).max(100),
       })
       .strict(),
   }),
@@ -485,171 +491,171 @@ export const recipeSubjectSchema = z.discriminatedUnion('subjectTemplate', [
     subjectTemplate: z.literal('T08'),
     slots: z
       .object({
-        animal: z.string().min(1),
-        abstractConcept: z.string().min(1),
+        animal: z.string().min(1).max(100),
+        abstractConcept: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T09'),
-    slots: z.object({ abstractConcept: z.string().min(1) }).strict(),
+    slots: z.object({ abstractConcept: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T10'),
-    slots: z.object({ manMadeObject: z.string().min(1) }).strict(),
+    slots: z.object({ manMadeObject: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T11'),
-    slots: z.object({ manMadeObject: z.string().min(1) }).strict(),
+    slots: z.object({ manMadeObject: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T12'),
-    slots: z.object({ profession: z.string().min(1) }).strict(),
+    slots: z.object({ profession: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T13'),
     slots: z
-      .object({ era: z.string().min(1), manMadeObject: z.string().min(1) })
+      .object({ era: z.string().min(1).max(100), manMadeObject: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T14'),
     slots: z
       .object({
-        animal: z.string().min(1),
-        abstractConcept: z.string().min(1),
+        animal: z.string().min(1).max(100),
+        abstractConcept: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T15'),
     slots: z
-      .object({ setting: z.string().min(1), era: z.string().min(1) })
+      .object({ setting: z.string().min(1).max(100), era: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T16'),
     slots: z
       .object({
-        manMadeObject: z.string().min(1),
-        naturalObject: z.string().min(1),
+        manMadeObject: z.string().min(1).max(100),
+        naturalObject: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T17'),
     slots: z
-      .object({ animal: z.string().min(1), manMadeObject: z.string().min(1) })
+      .object({ animal: z.string().min(1).max(100), manMadeObject: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T18'),
     slots: z
-      .object({ profession: z.string().min(1), animal: z.string().min(1) })
+      .object({ profession: z.string().min(1).max(100), animal: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T19'),
     slots: z
       .object({
-        abstractConcept: z.string().min(1),
-        setting: z.string().min(1),
+        abstractConcept: z.string().min(1).max(100),
+        setting: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T20'),
-    slots: z.object({ setting: z.string().min(1) }).strict(),
+    slots: z.object({ setting: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T21'),
     slots: z
-      .object({ manMadeObject: z.string().min(1), setting: z.string().min(1) })
+      .object({ manMadeObject: z.string().min(1).max(100), setting: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T22'),
     slots: z
       .object({
-        animal: z.string().min(1),
-        abstractConcept: z.string().min(1),
+        animal: z.string().min(1).max(100),
+        abstractConcept: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T23'),
-    slots: z.object({ abstractConcept: z.string().min(1) }).strict(),
+    slots: z.object({ abstractConcept: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T24'),
     slots: z
       .object({
-        naturalObject: z.string().min(1),
-        profession: z.string().min(1),
+        naturalObject: z.string().min(1).max(100),
+        profession: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T25'),
     slots: z
-      .object({ era: z.string().min(1), animal: z.string().min(1) })
+      .object({ era: z.string().min(1).max(100), animal: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T26'),
-    slots: z.object({ manMadeObject: z.string().min(1) }).strict(),
+    slots: z.object({ manMadeObject: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T27'),
-    slots: z.object({ abstractConcept: z.string().min(1) }).strict(),
+    slots: z.object({ abstractConcept: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T28'),
-    slots: z.object({ setting: z.string().min(1) }).strict(),
+    slots: z.object({ setting: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T29'),
-    slots: z.object({ animal: z.string().min(1) }).strict(),
+    slots: z.object({ animal: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T30'),
     slots: z
-      .object({ profession: z.string().min(1), animal: z.string().min(1) })
+      .object({ profession: z.string().min(1).max(100), animal: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T31'),
-    slots: z.object({ manMadeObject: z.string().min(1) }).strict(),
+    slots: z.object({ manMadeObject: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T32'),
     slots: z
       .object({
-        naturalObject: z.string().min(1),
-        profession: z.string().min(1),
+        naturalObject: z.string().min(1).max(100),
+        profession: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T33'),
-    slots: z.object({ animal: z.string().min(1) }).strict(),
+    slots: z.object({ animal: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T34'),
     slots: z
-      .object({ era: z.string().min(1), abstractConcept: z.string().min(1) })
+      .object({ era: z.string().min(1).max(100), abstractConcept: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T35'),
-    slots: z.object({ setting: z.string().min(1) }).strict(),
+    slots: z.object({ setting: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T36'),
     slots: z
       .object({
-        naturalObject: z.string().min(1),
-        profession: z.string().min(1),
+        naturalObject: z.string().min(1).max(100),
+        profession: z.string().min(1).max(100),
       })
       .strict(),
   }),
@@ -657,27 +663,27 @@ export const recipeSubjectSchema = z.discriminatedUnion('subjectTemplate', [
     subjectTemplate: z.literal('T37'),
     slots: z
       .object({
-        abstractConcept: z.string().min(1),
-        profession: z.string().min(1),
+        abstractConcept: z.string().min(1).max(100),
+        profession: z.string().min(1).max(100),
       })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T38'),
-    slots: z.object({ animal: z.string().min(1) }).strict(),
+    slots: z.object({ animal: z.string().min(1).max(100) }).strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T39'),
     slots: z
-      .object({ manMadeObject: z.string().min(1), setting: z.string().min(1) })
+      .object({ manMadeObject: z.string().min(1).max(100), setting: z.string().min(1).max(100) })
       .strict(),
   }),
   z.object({
     subjectTemplate: z.literal('T40'),
     slots: z
       .object({
-        profession: z.string().min(1),
-        naturalObject: z.string().min(1),
+        profession: z.string().min(1).max(100),
+        naturalObject: z.string().min(1).max(100),
       })
       .strict(),
   }),
