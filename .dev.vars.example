@@ -1,4 +1,5 @@
 # Copy this to .dev.vars (gitignored) and fill in real values for local dev.
 # In prod, set each with: wrangler secret put <KEY_NAME>
 SLOPSPOT_FAL_API_KEY=
+SLOPSPOT_REPLICATE_API_KEY=
 SLOPSPOT_CHALLENGE_SECRET=
