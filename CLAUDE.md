@@ -29,7 +29,7 @@ Currently in **design / pre-launch phase**. Backlog and grooming cadence are tra
 - **Styling:** Tailwind CSS v4 via `@tailwindcss/vite` (CSS-config; no `tailwind.config.*`)
 - **Validation:** Zod (at trust boundaries only — request bodies, provider params, upstream responses)
 - **AI providers:** `@fal-ai/client` for fal.ai; mocks for fal-flux and Replicate SDXL
-- **Storage:** D1 (`env.DB`, slopspot-db) for posts/generations/uploads/votes via Drizzle ORM; R2 (`env.MEDIA`, slopspot-media) for content-addressed image storage via `app/storage/ingest.ts`. KV not in use yet.
+- **Storage:** D1 (binding `DB`, database slopspot-db) for posts/generations/uploads/votes; **all callers go through `db(env)` in `app/db/client.ts`** — no other module touches `env.DB` directly. R2 (binding `MEDIA`, bucket slopspot-media) for content-addressed image storage; all writes go through `app/storage/ingest.ts` and all reads through `app/routes/media.$key.ts`. KV not in use yet.
 - **Tests:** Vitest via `vitest.config.ts` (kept off `vite.config.ts` because `@cloudflare/vite-plugin` crashes vitest's config resolver). Files use `.test.ts` next to source for most modules; `app/lib/` uses a `__tests__/` subdir. Foundation canaries: domain exhaustiveness (compile-time), provider paramsSchema validation, registry uniqueness, fal-flux response parser, variety taxonomy consistency (phrase ↔ slot keys, RecipeSubject shape).
 - **TypeScript:** strict, composite project (root `tsconfig.json` references `tsconfig.node.json` + `tsconfig.cloudflare.json`)
 - **Package manager:** pnpm (lockfile `pnpm-lock.yaml`, workspace declared in `pnpm-workspace.yaml`). Do not run `npm install` or `yarn`.
