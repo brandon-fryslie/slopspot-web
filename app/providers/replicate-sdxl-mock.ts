@@ -1,17 +1,17 @@
 import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
-import { ProviderId, type AspectRatio, type Media } from "~/lib/domain"
+import { ProviderId, type Media } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
+import { SDXL_DIMS } from "./replicate-sdxl"
 
 // Replicate SDXL mock. Params remain *structurally different* from fal-flux:
 // negativePrompt, guidanceScale, seed — none of which fal has. That asymmetry
 // is the point — the provider abstraction has to absorb genuine variance, not
 // just be the same shape in three files.
 //
-// What previously lived in params and no longer does: width/height. Per the
-// variety design doc those derive from the canonical AspectRatio token (see
-// dims below), so the provider receives `aspectRatio` via GenerationInput and
-// translates here. [LAW:single-enforcer] one provider-native translation site.
+// [LAW:one-source-of-truth] SDXL native dims are owned by ./replicate-sdxl
+// (SDXL_DIMS). Mock and real provider render the same canonical AspectRatio
+// to the same (w,h) — there is no scenario where they should diverge.
 const params = z.object({
   prompt: z.string().min(1).max(1000),
   negativePrompt: z.string().max(500).optional(),
@@ -19,15 +19,6 @@ const params = z.object({
   seed: z.number().int().optional(),
 })
 type Params = z.infer<typeof params>
-
-// AspectRatio → (w,h) table from the variety design doc's §Aspect ratio policy.
-const dims: Record<AspectRatio, { w: number; h: number }> = {
-  "1:1": { w: 1024, h: 1024 },
-  "16:9": { w: 1344, h: 768 },
-  "9:16": { w: 768, h: 1344 },
-  "4:3": { w: 1152, h: 896 },
-  "3:4": { w: 896, h: 1152 },
-}
 
 function hash(s: string): number {
   let h = 0
@@ -43,7 +34,7 @@ export const replicateSdxlMock: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
   async generate({ params: p, aspectRatio }): Promise<Media> {
-    const { w, h } = dims[aspectRatio]
+    const { w, h } = SDXL_DIMS[aspectRatio]
     const seed = p.seed ?? hash(p.prompt)
     return {
       kind: "image",
