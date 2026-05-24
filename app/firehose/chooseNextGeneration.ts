@@ -58,9 +58,14 @@ function pick<T>(list: readonly T[], seed: number, kind: string): T {
 }
 
 // Sample required slots for the chosen template uniformly from their vocabs.
-// Each (template, slot-key) pair gets an independent hash, so two slots of the
-// same vocab type within one template (e.g. T35's recursive setting) draw
-// from the same vocab but at independent positions per the kind-tagged hash.
+// Each (template, slot-key) pair gets a hash independent of the other
+// dimensions (style/aspect/subject), so within one fire the slot choice doesn't
+// correlate with the surrounding choices. TEMPLATE_SLOT_KEYS deduplicates by
+// name, so T35 ({setting} appears twice in the phrase) yields a single
+// `setting` slot that the renderer fills into both placeholders — the
+// recursive-setting output ("a motel-corridor that you can only reach through
+// a motel-corridor") is by-design per the design doc's editorial voice, not
+// two independent draws.
 //
 // The slot key type narrows to (animal | profession | manMadeObject |
 // naturalObject | setting | timeOfDay | era | emotion | abstractConcept) — TS
