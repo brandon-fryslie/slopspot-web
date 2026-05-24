@@ -579,10 +579,16 @@ Where downstream tickets land the code that consumes this doc:
    the chooser; the type `(StyleFamily, RecentPosts)` constructs the
    reject-list before sampling. No callsite branches on "did I already
    pick this style."
-5. **A provider receiving non-canonical aspect ratio params.** The chooser
-   produces an `AspectRatio` enum value; the provider's `paramsSchema`
-   accepts only that enum (fal) or translates via the canonical table
-   (sdxl). The (w,h) literal is never the chooser's output.
+5. **A provider receiving a non-canonical or unsupported aspect ratio.**
+   The chooser only samples within `provider.supportedAspectRatios` (the
+   metadata field added by pl6.2), so it can never select a ratio the
+   chosen provider doesn't accept. The provider receives a canonical
+   `AspectRatio` enum value via `Generation.aspectRatio` (no longer
+   carried in `params`); the provider file translates at its boundary —
+   to fal's `image_size` for fal-flux, to an explicit `(w,h)` for sdxl
+   via the canonical table. The chooser never outputs `(w,h)` or
+   `image_size` directly. [LAW:single-enforcer] — one canonical
+   representation, one translation site per provider.
 6. **A prompt with mismatched articles ("a otter", "an cat").** The pl6.5
    renderer normalizes any `a`/`an` immediately preceding a slot using a
    lowercase-first-character vowel-letter heuristic. The template strings
