@@ -56,6 +56,11 @@ export function parseFalFluxResponse(data: unknown, alt: string): Media {
   return { kind: "image", url: first.url, w: first.width, h: first.height, alt }
 }
 
+// fal-flux schnell tops out at 4 inference steps; 4 is the cheapest
+// non-degenerate output. No style influence, no seed (schnell doesn't support
+// it) — the chooser's seed argument is ignored by construction.
+const FIREHOSE_STEPS = 4
+
 export const falFlux: GenerationProvider<Params> = {
   id: ProviderId("fal-flux"),
   version: "2026-05-24",
@@ -63,6 +68,9 @@ export const falFlux: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0.003 },
   supportedAspectRatios: ASPECT_RATIOS,
+  defaultParamsForRecipe({ prompt }): Params {
+    return { prompt, steps: FIREHOSE_STEPS }
+  },
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
     fal.config({ credentials: env.SLOPSPOT_FAL_API_KEY })
     const result = await fal.run("fal-ai/flux/schnell", {
