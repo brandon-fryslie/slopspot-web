@@ -34,6 +34,11 @@ const cases: ProviderCase[] = [
     overLongPromptLength: 501,
   },
   {
+    id: 'replicate-sdxl',
+    minimalValid: { prompt: 'hello', guidanceScale: 7.5 },
+    overLongPromptLength: 1001,
+  },
+  {
     id: 'replicate-sdxl-mock',
     minimalValid: { prompt: 'hello', guidanceScale: 7.5 },
     overLongPromptLength: 1001,
