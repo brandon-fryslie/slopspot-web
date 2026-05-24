@@ -115,7 +115,7 @@ T21  "the saddest {manMadeObject} in the {setting}"
 T22  "a {animal} that has just learned about {abstractConcept}"
 T23  "an instruction manual page for {abstractConcept}"
 T24  "a {naturalObject} that is also a {profession}'s workplace"
-T25  "the official {era} portrait of {animal}, oil-finished even when it isn't oil"
+T25  "the official {era} portrait of a {animal}, oil-finished even when it isn't oil"
 T26  "a {manMadeObject} that has been given a small, dignified ceremony"
 T27  "a community board flyer for an event called {abstractConcept}"
 T28  "{setting}, after closing time, still warm"
@@ -224,9 +224,9 @@ emotion
   gently-baffled
 
 abstractConcept
-  patience, regret, almost-remembrance, the-feeling-of-clean-laundry,
-  small-victories, vocational-pride, the-second-half-of-an-anecdote,
-  bureaucratic-grace, hospitality, the-passage-of-time, residual-warmth,
+  patience, regret, almost-remembrance, feeling-of-clean-laundry,
+  small-victories, vocational-pride, second-half-of-an-anecdote,
+  bureaucratic-grace, hospitality, passage-of-time, residual-warmth,
   permission, archival-care
 
 freeText  (used only by template T00, see below)
