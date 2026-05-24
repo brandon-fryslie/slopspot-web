@@ -3,16 +3,19 @@
 // actual orchestration so the entry stays a thin binding-pass.
 //
 // [LAW:dataflow-not-control-flow] Same operations every fire:
-// checkBudget → getRecentRecipes → listProviders → chooseNextGeneration →
-// createPost. The budget result decides whether createPost runs, not a branch
-// on environment or feature flag. A provider failure is data (a 'failed'
-// generations row) not a thrown crash; we catch here only so the worker
-// stays alive for the next fire.
+// checkBudget → (select phase) → (execute phase). The budget result decides
+// whether the work phases run, not a branch on environment or feature flag.
+// Every failure mode maps to the same outcome — log structurally, never
+// crash the worker. Two phase-scoped catches (select vs execute) because
+// the available context differs by phase, not because the handling differs.
 
 import { createPost } from '~/db/posts'
 import { getRecentRecipes } from '~/db/recent'
 import { checkBudget } from '~/firehose/budget'
-import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
+import {
+  chooseNextGeneration,
+  type ChooserOutput,
+} from '~/firehose/chooseNextGeneration'
 import { AgentId } from '~/lib/domain'
 import { listProviders } from '~/providers'
 
@@ -40,13 +43,36 @@ export async function runScheduled(
     return
   }
 
-  const recent = await getRecentRecipes(env, RECENT_WINDOW)
-  const providers = listProviders()
-  const recipe = chooseNextGeneration({
-    scheduledTimeMs: event.scheduledTime,
-    recent,
-    providers,
-  })
+  // [LAW:dataflow-not-control-flow] Both phases of the fire (select + execute)
+  // share the same outcome shape: log structurally, never crash the worker.
+  // Two distinct catches because the available context differs by phase, not
+  // because the error handling is different — the select phase has no recipe
+  // to log, the execute phase does. A single catch over both phases would
+  // either lose the recipe context on execute failures or require an undefined-
+  // tracker on the recipe variable, both worse than the two-phase split.
+  let recipe: ChooserOutput
+  try {
+    const recent = await getRecentRecipes(env, RECENT_WINDOW)
+    const providers = listProviders()
+    recipe = chooseNextGeneration({
+      scheduledTimeMs: event.scheduledTime,
+      recent,
+      providers,
+    })
+  } catch (err) {
+    // [LAW:single-enforcer] Pre-decision failure: D1 outage, malformed stored
+    // row that fails the trust-boundary parse in getRecentRecipes, chooser
+    // config bug (e.g., zero-weight pool), or provider params builder throw.
+    // There is no row to record state on (createPost hasn't been called); the
+    // Workers log is the only record this fire happened. Worker stays alive
+    // for the next fire either way.
+    console.error(
+      'firehose.scheduled: recipe selection failed',
+      { scheduledTime: event.scheduledTime },
+      err,
+    )
+    return
+  }
 
   try {
     const post = await createPost(

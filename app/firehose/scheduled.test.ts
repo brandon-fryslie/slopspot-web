@@ -83,6 +83,22 @@ describe('runScheduled', () => {
     expect(errSpy).toHaveBeenCalled()
   })
 
+  it('does not throw when getRecentRecipes rejects — logs select-phase failure and keeps the worker alive', async () => {
+    const { runScheduled } = await import('./scheduled')
+    checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
+    getRecentRecipesMock.mockRejectedValue(new Error('D1 read failed'))
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(runScheduled(fakeEvent(0), fakeEnv)).resolves.toBeUndefined()
+    expect(errSpy).toHaveBeenCalled()
+    // Select-phase failure → createPost is never reached.
+    expect(createPostMock).not.toHaveBeenCalled()
+    // The structured log carries scheduledTime so the failed fire is locatable.
+    const call = errSpy.mock.calls[0]!
+    expect(call[0]).toBe('firehose.scheduled: recipe selection failed')
+    expect(call[1]).toEqual({ scheduledTime: 0 })
+  })
+
   it('drives provider selection from the chooser — providers vary across fires', async () => {
     const { runScheduled } = await import('./scheduled')
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
