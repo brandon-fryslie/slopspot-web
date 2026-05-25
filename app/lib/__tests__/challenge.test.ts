@@ -96,11 +96,19 @@ describe('issueChallenge', () => {
         put: vi.fn(),
       } as unknown as KVNamespace,
     } as unknown as Env
-    const result = await issueChallenge(env)
-    expect(result.text).toBe('good briefing from valid entry')
+    // Math.random → 0 keeps every Fisher-Yates swap a no-op, so ids stay [FAKE_ENTRY_ID, GOOD_ID]
+    // and the malformed-skip branch is deterministically exercised before GOOD_ID is found
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    try {
+      const result = await issueChallenge(env)
+      expect(result.text).toBe('good briefing from valid entry')
+      expect(env.CHALLENGE_BANK.get).toHaveBeenCalledWith(FAKE_ENTRY_ID)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
-  it('retries when manifest contains an expired entry — shuffle guarantees distinct picks', async () => {
+  it('retries when manifest contains an expired entry — missing entry is skipped', async () => {
     const GOOD_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
     const store = new Map<string, string>([
       ['manifest', JSON.stringify({ ids: [FAKE_ENTRY_ID, GOOD_ID] })],
@@ -114,10 +122,16 @@ describe('issueChallenge', () => {
         put: vi.fn(),
       } as unknown as KVNamespace,
     } as unknown as Env
-
-    // Shuffle guarantees both IDs are tried; regardless of order, GOOD_ID is found
-    const result = await issueChallenge(env)
-    expect(result.text).toBe('good briefing')
+    // Math.random → 0 keeps every Fisher-Yates swap a no-op, so ids stay [FAKE_ENTRY_ID, GOOD_ID]
+    // and the expired-entry skip path is deterministically exercised before GOOD_ID is found
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    try {
+      const result = await issueChallenge(env)
+      expect(result.text).toBe('good briefing')
+      expect(env.CHALLENGE_BANK.get).toHaveBeenCalledWith(FAKE_ENTRY_ID)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 
