@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { env, fetchMock } from 'cloudflare:test'
 import { ingestImage } from '~/storage/ingest'

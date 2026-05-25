@@ -1,0 +1,43 @@
+{
+  // [LAW:locality-or-seam] Standalone tsconfig for Workers integration tests.
+  // NOT referenced by tsconfig.json — TypeScript project references require
+  // the referenced project to emit declarations, but noEmit:true (inherited
+  // by tsconfig.cloudflare.json from tsconfig.json) forbids that.
+  //
+  // Purpose: IDE type checking and vitest's TypeScript integration for test
+  // files in app/storage/__tests__/ and app/routes/__tests__/. These files
+  // are excluded from tsconfig.cloudflare.json (which lacks the two extra
+  // types they need):
+  //   - @cloudflare/vitest-pool-workers: declares the virtual `cloudflare:test`
+  //     module (env, fetchMock, SELF)
+  //   - node: provides Buffer for binary fetchMock reply bodies (nodejs_compat
+  //     makes it available at runtime; this file makes it available to tsc)
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["vite/client", "@cloudflare/vitest-pool-workers", "node"],
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./app/*"]
+    },
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": [
+    "app/storage/__tests__/**/*",
+    "app/routes/__tests__/**/*",
+    // App source the tests import from — included directly since project
+    // references require emit which noEmit forbids.
+    "app/storage/ingest.ts",
+    "app/routes/media.$key.ts",
+    "app/lib/domain.ts",
+    "app/lib/variety.ts",
+    "app/db/client.ts",
+    "worker-configuration.d.ts"
+  ]
+}
