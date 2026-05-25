@@ -168,10 +168,16 @@ export async function verifyChallenge(
 ): Promise<ChallengeVerifyResult> {
   const now = opts.now ?? Date.now()
   // Internal bypass: precedes secret check so bootstrap works in any env config.
+  // Constant-time XOR comparison avoids timing attacks on the token value.
   const internalSeedToken = env.SLOPSPOT_INTERNAL_SEED_TOKEN as string | undefined
-  if (internalSeedToken && opts.internalToken === internalSeedToken) {
-    console.log('[challenge] internal bypass accepted; gate pipeline skipped')
-    return { kind: 'verified', entryId: 'internal' }
+  const providedToken = opts.internalToken ?? ''
+  if (internalSeedToken && providedToken.length === internalSeedToken.length && providedToken.length > 0) {
+    let diff = 0
+    for (let i = 0; i < internalSeedToken.length; i++) diff |= providedToken.charCodeAt(i) ^ internalSeedToken.charCodeAt(i)
+    if (diff === 0) {
+      console.log('[challenge] internal bypass accepted; gate pipeline skipped')
+      return { kind: 'verified', entryId: 'internal' }
+    }
   }
 
   const secret = env.SLOPSPOT_CHALLENGE_SECRET
