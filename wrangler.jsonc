@@ -17,13 +17,13 @@
     "enabled": true
   },
   "upload_source_maps": true,
-  // [LAW:one-source-of-truth] Cron schedule for the slop firehose lives in
-  // version control, not the Cloudflare dashboard. Every redeploy reasserts
-  // it. Every 6 hours is the launch cadence — 4 posts/day × $0.003/post is
-  // ~$0.36/month, well under the daily ceiling enforced by `checkBudget`.
-  // Variety.5 may tune the cadence; until then this is the canonical value.
+  // [LAW:one-source-of-truth] Cron schedules live in version control, not the
+  // Cloudflare dashboard. Every redeploy reasserts them.
+  // "0 */6 * * *": slop firehose — 4 posts/day at $0.003/post ≈ $0.36/month.
+  // "0 3 * * *": bank-gen — ~1000 BankEntry records daily at 03:00 UTC with
+  //   48h TTL overlap. Model: claude-haiku-4-5-20251001 (cost-efficient bulk gen).
   "triggers": {
-    "crons": ["0 */6 * * *"]
+    "crons": ["0 */6 * * *", "0 3 * * *"]
   },
   // [LAW:one-source-of-truth] Apex domain binding lives in config, not in the
   // dashboard. `custom_domain: true` makes wrangler the single owner of the A/AAAA
@@ -57,6 +57,17 @@
     {
       "binding": "MEDIA",
       "bucket_name": "slopspot-media"
+    }
+  ],
+  // [LAW:one-source-of-truth] CHALLENGE_BANK KV namespace is the single store
+  // for bank-gen BankEntry records. bank-gen writes; GET /api/challenge reads.
+  // 48h TTL on each entry provides overlap when the daily cron writes the next
+  // batch before the previous day's entries expire.
+  "kv_namespaces": [
+    {
+      "binding": "CHALLENGE_BANK",
+      "id": "5b77072453964f4d84c0b5ea043ff8f1",
+      "preview_id": "ec82192cc8dc478e9b70d607c7f26637"
     }
   ]
 }

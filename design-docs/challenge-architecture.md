@@ -364,10 +364,21 @@ the hot path. A failed cron leaves the previous day's bank intact for 48h —
 failures), `GET /api/challenge` returns 503, not a stub challenge. The system
 halts loudly rather than degrading silently.
 
-**LLM choice: Anthropic API** for bank-gen. Bank quality is the entire surface
-quality of the gate — Claude writes the SlopSpot voice markedly better than
-Workers AI's Llama-class models, and this work happens once a day in batch.
-Cost is cents/day. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
+**LLM choice: `claude-haiku-4-5-20251001`** for bank-gen. Haiku is cost-efficient
+for bulk generation (~1000 calls/day) and sufficient for briefing prose quality.
+The briefings are 150-300 words with a fixed voice — quality difference vs Sonnet
+is negligible at this task. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
+
+Each `BankEntry` is stored under a UUID key with 48h TTL:
+```ts
+type BankEntry = {
+  id: string           // crypto.randomUUID()
+  briefing_text: string
+  easy_form: EasyForm
+  hard_form: HardForm
+  generated_at: number // Date.now()
+}
+```
 
 ---
 
@@ -375,7 +386,7 @@ Cost is cents/day. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
 
 | Store                 | Shape                                              | Lifetime |
 | --------------------- | -------------------------------------------------- | -------- |
-| KV `CHALLENGE_BANK`   | per-entry: `"YYYY-MM-DD:NNNN" → BankEntry (JSON)`; per-day manifest: `"YYYY-MM-DD:manifest" → { count: number }` | 48h auto-expire |
+| KV `CHALLENGE_BANK`   | per-entry: `uuid → BankEntry (JSON)`; GET /api/challenge picks a random key | 48h auto-expire |
 | D1 `challenge_quota`  | `date TEXT PRIMARY KEY, count INTEGER NOT NULL`    | 7d retention (cleaned by cron) |
 
 The bank lives in KV — write-once-daily, read-many, no atomicity needed,
