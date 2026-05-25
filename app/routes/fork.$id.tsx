@@ -11,7 +11,7 @@ import {
   type RecipeSubject,
   type StyleFamily,
 } from "~/lib/domain"
-import { ASPECT_RATIOS, STYLE_FAMILIES, TEMPLATE_PHRASES } from "~/lib/variety"
+import { ASPECT_RATIOS, STYLE_FAMILIES, renderTemplate } from "~/lib/variety"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
 // submit-side action lives at /api/fork/:id (a resource route), matching the
@@ -31,12 +31,14 @@ import { ASPECT_RATIOS, STYLE_FAMILIES, TEMPLATE_PHRASES } from "~/lib/variety"
 
 // Each provider's paramsSchema has `prompt: string` — the canonical "what to
 // generate" field. The form lets the user edit this; other provider-specific
-// tunables (steps / negativePrompt / seed / styleType) are re-derived from the
-// recipe in the action via defaultParamsForRecipe, mirroring the firehose
+// tunables (steps / negativePrompt / seed / styleType) are re-derived from
+// the recipe in the action via defaultParamsForRecipe, mirroring the firehose
 // chooser's translation. `.trim()` mirrors the body schema's trim so a parent
 // stored with incidental whitespace doesn't pre-fill an effectively-empty
-// prompt (which the submit button would then disable). PROMPT_MAX is imported
-// from the action so [LAW:one-source-of-truth] holds for the upper bound.
+// prompt. PROMPT_MAX is imported from `~/lib/fork-bounds`, the shared client/
+// server-safe module that holds the union ceiling — wide enough to accept any
+// parent's stored prompt; the per-provider tighter bound (provider.promptMaxLength)
+// drives the form's maxLength + counter.
 const promptedParamsSchema = z
   .object({ prompt: z.string().trim().min(1).max(PROMPT_MAX) })
   .passthrough()
@@ -50,6 +52,14 @@ type LoaderData = {
   parentShortId: string
   providerId: string
   providerDisplayName: string
+  // [LAW:one-source-of-truth] The parent provider's prompt upper bound,
+  // pulled from provider.promptMaxLength. The textarea's maxLength + counter
+  // use this so the UI rejects an over-long prompt at typing time rather
+  // than letting the user discover it via a 422 from createPost. The wire
+  // schema in api.fork.$id.ts validates against the union-ceiling PROMPT_MAX
+  // (so an SDXL fork can submit 1000 chars even if the form was hosted by
+  // a fal-flux page); the per-provider bound here is purely a UX affordance.
+  promptMax: number
   prompt: string
   styleFamily: StyleFamily
   aspectRatio: AspectRatio
@@ -77,8 +87,14 @@ export async function loader({
   const prompted = promptedParamsSchema.parse(parent.content.recipe.params)
 
   let providerDisplayName: string = parent.content.recipe.providerId
+  // Default to the union ceiling so a deregistered provider doesn't strand
+  // the form with a zero-length textarea; the wire schema will still apply
+  // the same ceiling if the user submits.
+  let providerPromptMax: number = PROMPT_MAX
   try {
-    providerDisplayName = getProvider(parent.content.recipe.providerId).displayName
+    const provider = getProvider(parent.content.recipe.providerId)
+    providerDisplayName = provider.displayName
+    providerPromptMax = provider.promptMaxLength
   } catch (e) {
     if (!(e instanceof UnknownProviderError)) throw e
     // The provider was deregistered since the parent's creation. Surface the
@@ -91,11 +107,17 @@ export async function loader({
     parentShortId: parent.id.slice(0, 8),
     providerId: parent.content.recipe.providerId,
     providerDisplayName,
+    promptMax: providerPromptMax,
     prompt: prompted.prompt,
     styleFamily: parent.content.recipe.styleFamily,
     aspectRatio: parent.content.recipe.aspectRatio,
     subject: parent.content.recipe.subject,
-    subjectPhrase: TEMPLATE_PHRASES[parent.content.recipe.subject.subjectTemplate],
+    // [LAW:one-source-of-truth] renderTemplate is the shared filler that
+    // resolves `{slot}` placeholders into vocab values and normalizes a/an
+    // articles. Using it here means the "subject" affordance shows what the
+    // user is actually forking ("a marmoset performing an act of embarrassed")
+    // rather than the raw template ("an {animal} performing an act of {emotion}").
+    subjectPhrase: renderTemplate(parent.content.recipe.subject),
   }
 }
 
@@ -186,11 +208,11 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           </pre>
         </InfoField>
 
-        <Field label="prompt" hint={`${prompt.trim().length}/${PROMPT_MAX}`}>
+        <Field label="prompt" hint={`${prompt.trim().length}/${loaderData.promptMax}`}>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            maxLength={PROMPT_MAX}
+            maxLength={loaderData.promptMax}
             rows={5}
             disabled={submitting}
             className="block w-full resize-y rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm leading-relaxed text-white/85 placeholder:text-white/30 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"

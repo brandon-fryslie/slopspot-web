@@ -68,6 +68,7 @@ export const falFlux: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0.003 },
   supportedAspectRatios: ASPECT_RATIOS,
+  promptMaxLength: 500,
   defaultParamsForRecipe({ prompt }): Params {
     return { prompt, steps: FIREHOSE_STEPS }
   },
