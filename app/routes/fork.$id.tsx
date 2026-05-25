@@ -4,6 +4,7 @@ import { useNavigate } from "react-router"
 import { z } from "zod"
 import { getPostById } from "~/db/feed"
 import { getProvider, UnknownProviderError } from "~/providers"
+import { PROMPT_MAX } from "./api.fork.$id"
 import {
   PostId,
   type AspectRatio,
@@ -28,19 +29,14 @@ import { ASPECT_RATIOS, STYLE_FAMILIES, TEMPLATE_PHRASES } from "~/lib/variety"
 // upload posts can never produce a fork-button click; the 400 here defends
 // direct-URL access.
 
-// [LAW:one-source-of-truth] PROMPT_MAX is the one constant the pre-fill schema
-// and the wire body schema (in api.fork.$id.ts) both reference for the upper
-// bound. SDXL and ideogram store up to 1000 chars; fal-flux stores up to 500.
-// Reading at 1000 accepts every stored row and never silently truncates.
-const PROMPT_MAX = 1000
-
 // Each provider's paramsSchema has `prompt: string` — the canonical "what to
 // generate" field. The form lets the user edit this; other provider-specific
 // tunables (steps / negativePrompt / seed / styleType) are re-derived from the
 // recipe in the action via defaultParamsForRecipe, mirroring the firehose
 // chooser's translation. `.trim()` mirrors the body schema's trim so a parent
 // stored with incidental whitespace doesn't pre-fill an effectively-empty
-// prompt (which the submit button would then disable).
+// prompt (which the submit button would then disable). PROMPT_MAX is imported
+// from the action so [LAW:one-source-of-truth] holds for the upper bound.
 const promptedParamsSchema = z
   .object({ prompt: z.string().trim().min(1).max(PROMPT_MAX) })
   .passthrough()
@@ -177,16 +173,16 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       </header>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-5">
-        <Field label="provider" hint="preserved from parent">
+        <InfoField label="provider" hint="preserved from parent">
           <ReadOnlyValue>{loaderData.providerDisplayName}</ReadOnlyValue>
-        </Field>
+        </InfoField>
 
-        <Field label="subject" hint="preserved from parent">
+        <InfoField label="subject" hint="preserved from parent">
           <ReadOnlyValue>{loaderData.subjectPhrase}</ReadOnlyValue>
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-[11px] leading-relaxed text-white/65">
 {JSON.stringify(loaderData.subject, null, 2)}
           </pre>
-        </Field>
+        </InfoField>
 
         <Field label="prompt" hint={`${prompt.trim().length}/${PROMPT_MAX}`}>
           <textarea
@@ -252,6 +248,14 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   )
 }
 
+// [LAW:types-are-the-program] Two wrapper components instead of one with a
+// mode flag. `<label>` is for form controls (clicking the label focuses the
+// input). `<div>` is for read-only displays, which may contain non-phrasing
+// content like `<pre>` that `<label>` does not permit. A single Field with a
+// boolean `readOnly` prop would have to branch on the discriminator at render
+// time and admit nonsense states ("readOnly label wrapping an input"); two
+// components make the right element-type a property of which component the
+// caller chose, structural rather than runtime.
 function Field({
   label,
   hint,
@@ -263,12 +267,35 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="flex items-center justify-between font-mono text-[11px] uppercase tracking-wider text-white/50">
-        <span>{label}</span>
-        {hint !== undefined && <span className="text-white/35">{hint}</span>}
-      </span>
+      <FieldHeader label={label} hint={hint} />
       {children}
     </label>
+  )
+}
+
+function InfoField({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <FieldHeader label={label} hint={hint} />
+      {children}
+    </div>
+  )
+}
+
+function FieldHeader({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <span className="flex items-center justify-between font-mono text-[11px] uppercase tracking-wider text-white/50">
+      <span>{label}</span>
+      {hint !== undefined && <span className="text-white/35">{hint}</span>}
+    </span>
   )
 }
 

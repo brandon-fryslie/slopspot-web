@@ -25,7 +25,12 @@ import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
 // params via provider.defaultParamsForRecipe → delegate to createPost with
 // parentId set.
 
-const PROMPT_MAX = 1000
+// [LAW:one-source-of-truth] The fork-prompt upper bound. Exported so the
+// loader's pre-fill schema (fork.$id.tsx) reads from this exact constant
+// instead of declaring its own — one symbol, one bound, no drift if it ever
+// changes. SDXL + ideogram store up to 1000 chars; fal-flux up to 500. The
+// fork bound at 1000 accepts every stored row and never silently truncates.
+export const PROMPT_MAX = 1000
 
 const bodySchema = z.object({
   prompt: z.string().trim().min(1).max(PROMPT_MAX),
@@ -48,7 +53,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   } catch (e) {
     return invalidBodyResponse(
       e,
-      "body must be { prompt: string (1..1000 after trim), styleFamily, aspectRatio }",
+      `body must be { prompt: string (1..${PROMPT_MAX} after trim), styleFamily, aspectRatio }`,
     )
   }
 
