@@ -11,6 +11,7 @@ import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
 import { AgentId, PostId, type Origin } from "~/lib/domain"
 import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
+import { PROMPT_MAX } from "~/lib/fork-bounds"
 
 // [LAW:single-enforcer] The HTTP trust boundary for fork submission. Resource
 // route (no default export) — matching /api/posts/:id/vote and
@@ -24,13 +25,6 @@ import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
 // a generation → budget gate → voter id resolve → derive provider-native
 // params via provider.defaultParamsForRecipe → delegate to createPost with
 // parentId set.
-
-// [LAW:one-source-of-truth] The fork-prompt upper bound. Exported so the
-// loader's pre-fill schema (fork.$id.tsx) reads from this exact constant
-// instead of declaring its own — one symbol, one bound, no drift if it ever
-// changes. SDXL + ideogram store up to 1000 chars; fal-flux up to 500. The
-// fork bound at 1000 accepts every stored row and never silently truncates.
-export const PROMPT_MAX = 1000
 
 const bodySchema = z.object({
   prompt: z.string().trim().min(1).max(PROMPT_MAX),
@@ -168,6 +162,21 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       { headers, status: 201 },
     )
   } catch (e) {
+    // [LAW:single-enforcer] Mirror /api/generate's error-mapping shape. The
+    // pre-lookup above resolved the provider once, but createPost's internal
+    // getProvider call runs again — a race during dev HMR (registry rebuilt
+    // between the two calls) would surface UnknownProviderError from inside
+    // createPost. Map it to the same 404 the pre-lookup uses rather than
+    // letting it fall to the generic 502.
+    if (e instanceof UnknownProviderError) {
+      return Response.json(
+        {
+          error: "parent post's provider is no longer registered",
+          providerId: parent.content.recipe.providerId,
+        },
+        { status: 404 },
+      )
+    }
     if (e instanceof InvalidParamsError) {
       return Response.json(
         {

@@ -4,7 +4,7 @@ import { useNavigate } from "react-router"
 import { z } from "zod"
 import { getPostById } from "~/db/feed"
 import { getProvider, UnknownProviderError } from "~/providers"
-import { PROMPT_MAX } from "./api.fork.$id"
+import { PROMPT_MAX } from "~/lib/fork-bounds"
 import {
   PostId,
   type AspectRatio,
@@ -140,9 +140,11 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         const detail = await res.text().catch(() => "")
         throw new Error(`fork failed: ${res.status} ${detail}`.trim())
       }
-      // Fork succeeded → navigate to home. The new post is already inserted
-      // (createPost is synchronous on success) so it appears at the top of
-      // the feed once createdAt ordering is applied.
+      // Fork succeeded → navigate to home. The new post is already persisted
+      // (createPost is synchronous on success) and the home loader will pick
+      // it up. The feed orders by (score DESC, createdAt DESC), so a fresh
+      // fork at score 0 lands at the top of the zero-score band — not
+      // necessarily the absolute top if higher-scored posts exist.
       navigate("/")
     } catch (err) {
       setError(String(err))
