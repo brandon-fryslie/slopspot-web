@@ -61,7 +61,12 @@ export async function action({ request, context }: Route.ActionArgs) {
     }
     return Response.json({ error: "challenge service unavailable" }, { status: 503 })
   }
-  if (vr.kind !== "verified") return outcomeToResponse(vr)
+  if (vr.kind !== "verified") {
+    // Log before stripping mechanism-identifying fields from the HTTP response.
+    // bank_entry_missing.entryId and secret_gate_failed.gate are ops signals only.
+    console.error("[challenge] gate failure", JSON.stringify(vr))
+    return outcomeToResponse(vr)
+  }
 
   // [LAW:single-enforcer] Dollar budget guard runs after challenge verification so
   // callers who fail the gate don't get to probe the spend state.
