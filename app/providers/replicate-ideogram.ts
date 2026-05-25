@@ -116,6 +116,7 @@ export const replicateIdeogram: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.025 },
   supportedAspectRatios: ASPECT_RATIOS,
+  promptMaxLength: 1000,
   defaultParamsForRecipe({ prompt, styleFamily, seed }): Params {
     return {
       prompt,

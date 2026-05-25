@@ -84,6 +84,14 @@ export interface GenerationProvider<P> {
   readonly paramsSchema: z.ZodType<P>
   readonly capabilities: GenerationCapabilities
   readonly supportedAspectRatios: readonly AspectRatio[]
+  // [LAW:one-source-of-truth] The provider's authoritative upper bound on
+  // prompt length. paramsSchema enforces this at the trust boundary; this
+  // field exposes it for UI affordances that need to know the bound *before*
+  // a submission round-trip (e.g. the fork form's textarea maxLength). Drift
+  // between this number and paramsSchema's max would mean the form lets
+  // users type something the schema then rejects — keep them aligned at the
+  // declaration site.
+  readonly promptMaxLength: number
   defaultParamsForRecipe(input: RecipeBuilderInput): P
   generate(input: GenerationInput<P>, context: GenerationContext): Promise<Media>
 }

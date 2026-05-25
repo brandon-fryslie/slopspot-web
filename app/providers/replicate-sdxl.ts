@@ -67,6 +67,7 @@ export const replicateSdxl: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.0035 },
   supportedAspectRatios: ASPECT_RATIOS,
+  promptMaxLength: 1000,
   defaultParamsForRecipe({ prompt, seed }): Params {
     return { prompt, guidanceScale: SDXL_DEFAULT_GUIDANCE, seed }
   },

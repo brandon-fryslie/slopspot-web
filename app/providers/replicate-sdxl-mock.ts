@@ -33,6 +33,7 @@ export const replicateSdxlMock: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
+  promptMaxLength: 1000,
   defaultParamsForRecipe({ prompt, seed }): Params {
     return { prompt, guidanceScale: 7.5, seed }
   },
