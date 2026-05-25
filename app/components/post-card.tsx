@@ -1,11 +1,20 @@
-import type { Post, Media, Origin, Actor, Content, GenerationStatus } from "~/lib/domain"
+import { useState } from "react"
+import type { Post, Media, Origin, Actor, Content, GenerationStatus, VoteValue } from "~/lib/domain"
 
-export function PostCard({ post, score }: { post: Post; score: number }) {
+export function PostCard({
+  post,
+  score,
+  myVote,
+}: {
+  post: Post
+  score: number
+  myVote: VoteValue | null
+}) {
   return (
     <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
       <ContentView content={post.content} />
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
-        <Score n={score} />
+        <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
         <OriginBadge origin={post.origin} />
         {post.content.kind === "generation" && (
           <>
@@ -24,6 +33,94 @@ export function PostCard({ post, score }: { post: Post; score: number }) {
         </details>
       )}
     </article>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] One submit path. Clicking ▲ or ▼ computes the
+// next (score, myVote) from the discriminator (+1 / -1) and the current myVote,
+// applies it optimistically, posts to the server, and either confirms or rolls
+// back from the same code. The "skip if already-voted" case is data: when the
+// click's value equals current myVote, the swing is zero and the request is
+// trivially idempotent — we still send it (the server treats it as a no-op
+// upsert), keeping the path uniform rather than branching on a "no-op" guard.
+//
+// [LAW:single-enforcer] The fetch shape is documented at the route boundary
+// (POST /api/posts/:id/vote, body { value: 1 | -1 | 0 }, returns { score,
+// value }). This component is the sole consumer; the server is the source of
+// truth on the confirmed score after the write.
+function VoteControls({
+  postId,
+  initialScore,
+  initialMyVote,
+}: {
+  postId: string
+  initialScore: number
+  initialMyVote: VoteValue | null
+}) {
+  const [score, setScore] = useState(initialScore)
+  const [myVote, setMyVote] = useState<VoteValue | null>(initialMyVote)
+  const [pending, setPending] = useState(false)
+
+  async function castVote(direction: VoteValue) {
+    const prev = { score, myVote }
+    const oldValue = myVote ?? 0
+    // Optimistic: the local score moves by (newVote - oldVote). When direction
+    // matches current myVote, the swing is zero — UI unchanged, idempotent
+    // request still flies for symmetry.
+    setScore(score + (direction - oldValue))
+    setMyVote(direction)
+    setPending(true)
+    try {
+      const res = await fetch(`/api/posts/${postId}/vote`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ value: direction }),
+      })
+      if (!res.ok) throw new Error(`vote failed: ${res.status}`)
+      const confirmed = (await res.json()) as { score: number; value: VoteValue | null }
+      setScore(confirmed.score)
+      setMyVote(confirmed.value)
+    } catch {
+      setScore(prev.score)
+      setMyVote(prev.myVote)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const upTone = myVote === 1
+    ? "bg-emerald-400/20 text-emerald-300"
+    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+  const downTone = myVote === -1
+    ? "bg-rose-400/20 text-rose-300"
+    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        aria-label="upvote"
+        aria-pressed={myVote === 1}
+        disabled={pending}
+        onClick={() => castVote(1)}
+        className={`rounded px-1.5 py-0.5 font-mono transition disabled:opacity-50 ${upTone}`}
+      >
+        ▲
+      </button>
+      <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 font-mono text-emerald-300/90">
+        {score}
+      </span>
+      <button
+        type="button"
+        aria-label="downvote"
+        aria-pressed={myVote === -1}
+        disabled={pending}
+        onClick={() => castVote(-1)}
+        className={`rounded px-1.5 py-0.5 font-mono transition disabled:opacity-50 ${downTone}`}
+      >
+        ▼
+      </button>
+    </span>
   )
 }
 
@@ -80,14 +177,6 @@ function StatusPlaceholder({ tone, label }: { tone: "queued" | "working" | "erro
     <div className={`flex aspect-video items-center justify-center font-mono text-xs uppercase tracking-[0.2em] ${toneClass}`}>
       {label}
     </div>
-  )
-}
-
-function Score({ n }: { n: number }) {
-  return (
-    <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 font-mono text-emerald-300/90">
-      ▲ {n}
-    </span>
   )
 }
 
