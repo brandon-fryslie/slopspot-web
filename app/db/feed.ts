@@ -191,9 +191,9 @@ function toContent(row: FeedRow): Content {
 // boundary keeps the domain pure — callers never see the legacy shape.
 //
 // The predicate matches exactly the output of authorLabel(uuid): 'anon-' + the
-// first 6 chars of a UUID, which are always lowercase hex digits (no hyphen at
-// those positions). Tighter than startsWith('anon-') alone to avoid
-// misclassifying a self-reported agentId like 'anon-anything-else'.
+// first 6 chars of a UUID (hex digits; case-insensitive because voter IDs may
+// originate from any UUID source, not just crypto.randomUUID()). Tighter than
+// startsWith('anon-') alone to avoid misclassifying a self-reported agentId.
 const LEGACY_ANON_RE = /^anon-[0-9a-f]{6}$/i
 function normalizeActor(raw: Actor): Actor {
   if (raw.kind === 'agent' && LEGACY_ANON_RE.test(raw.agentId)) {
@@ -205,7 +205,7 @@ function normalizeActor(raw: Actor): Actor {
 function normalizeOrigin(raw: Origin): Origin {
   return {
     actor: normalizeActor(raw.actor),
-    ...(raw.onBehalfOf !== undefined && { onBehalfOf: normalizeActor(raw.onBehalfOf) }),
+    ...(raw.onBehalfOf !== undefined ? { onBehalfOf: normalizeActor(raw.onBehalfOf) } : {}),
   }
 }
 
