@@ -55,7 +55,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   const internalToken = request.headers.get("X-Internal-Token") ?? undefined
   let vr
   try {
-    vr = await verifyChallenge(parsed.challengeId, parsed.params.prompt, context.cloudflare.env, Date.now(), internalToken)
+    vr = await verifyChallenge(parsed.challengeId, parsed.params.prompt, context.cloudflare.env, { internalToken })
   } catch (e) {
     if (e instanceof ChallengeConfigError) {
       return Response.json({ error: "challenge verifier misconfigured" }, { status: 500 })

@@ -157,19 +157,19 @@ export type ChallengeVerifyResult =
 // each failure exits immediately. prompt is params.prompt — the creative submission
 // IS the challenge response; there is no separate acknowledgement field.
 //
-// internalToken: when non-null and matches SLOPSPOT_INTERNAL_SEED_TOKEN, all gate
-// checks are bypassed. [LAW:no-mode-explosion] one documented bypass path, one
-// owner (SLOPSPOT_INTERNAL_SEED_TOKEN), exclusively for bootstrap/internal tooling.
+// opts.internalToken: when present and matching SLOPSPOT_INTERNAL_SEED_TOKEN, all
+// gate checks are bypassed. [LAW:no-mode-explosion] one documented bypass path,
+// one owner (SLOPSPOT_INTERNAL_SEED_TOKEN), exclusively for bootstrap/internal tooling.
 export async function verifyChallenge(
   challengeId: string,
   prompt: string,
   env: Env,
-  now = Date.now(),
-  internalToken?: string,
+  opts: { now?: number; internalToken?: string } = {},
 ): Promise<ChallengeVerifyResult> {
+  const now = opts.now ?? Date.now()
   // Internal bypass: precedes secret check so bootstrap works in any env config.
   const internalSeedToken = env.SLOPSPOT_INTERNAL_SEED_TOKEN as string | undefined
-  if (internalSeedToken && internalToken === internalSeedToken) {
+  if (internalSeedToken && opts.internalToken === internalSeedToken) {
     console.log('[challenge] internal bypass accepted; gate pipeline skipped')
     return { kind: 'verified', entryId: 'internal' }
   }

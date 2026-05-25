@@ -114,9 +114,8 @@ async function main(): Promise<void> {
 
   const internalToken = process.env.SLOPSPOT_INTERNAL_SEED_TOKEN
   if (!internalToken) {
-    console.error('error: SLOPSPOT_INTERNAL_SEED_TOKEN is not set in the environment.')
-    console.error('  Set it to the same value configured as the Workers secret.')
-    process.exit(1)
+    console.warn('warning: SLOPSPOT_INTERNAL_SEED_TOKEN is not set — generate requests will hit the challenge gate directly.')
+    console.warn('  If the bank is empty or your prompt is not form-valid, requests will fail with 4xx.')
   }
 
   const baseUrl = isRemote ? 'https://slopspot.ai' : 'http://localhost:8787'
@@ -150,12 +149,11 @@ async function main(): Promise<void> {
 
     let response: Response
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (internalToken) headers['X-Internal-Token'] = internalToken
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Internal-Token': internalToken,
-        },
+        headers,
         body: JSON.stringify({
           challengeId: 'internal',
           agentId: 'bootstrap-seed',
