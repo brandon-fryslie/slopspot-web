@@ -76,10 +76,12 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
   }
   if (ids.length === 0) throw new ChallengeBankEmptyError()
 
+  // Shuffle once so retries cover distinct candidates — no repeated picks on the same bad ID
+  const candidates = [...ids].sort(() => Math.random() - 0.5).slice(0, 3)
   let briefingText: string | null = null
   let entryId: string | null = null
-  for (let attempt = 0; attempt < 3 && briefingText === null; attempt++) {
-    const candidate = ids[Math.floor(Math.random() * ids.length)]
+  for (const candidate of candidates) {
+    if (briefingText !== null) break
     const entryJson = await env.CHALLENGE_BANK.get(candidate)
     if (!entryJson) continue
     try {
@@ -89,7 +91,7 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
         entryId = candidate
       }
     } catch {
-      // malformed KV entry — skip and retry with a different id
+      // malformed KV entry — skip and try next candidate
     }
   }
   if (briefingText === null || entryId === null) throw new ChallengeBankEmptyError()

@@ -56,7 +56,7 @@ describe('issueChallenge', () => {
     )
   })
 
-  it('retries when first random pick is an expired entry', async () => {
+  it('retries when manifest contains an expired entry — shuffle guarantees distinct picks', async () => {
     const GOOD_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
     const store = new Map<string, string>([
       ['manifest', JSON.stringify({ ids: [FAKE_ENTRY_ID, GOOD_ID] })],
@@ -71,16 +71,9 @@ describe('issueChallenge', () => {
       } as unknown as KVNamespace,
     } as unknown as Env
 
-    // Force: first pick = index 0 (FAKE_ENTRY_ID, expired), second pick = index 1 (GOOD_ID, valid)
-    const randomSpy = vi.spyOn(Math, 'random')
-      .mockReturnValueOnce(0)      // → Math.floor(0 * 2) = 0 → ids[0] = FAKE_ENTRY_ID
-      .mockReturnValueOnce(0.999)  // → Math.floor(0.999 * 2) = 1 → ids[1] = GOOD_ID
-    try {
-      const result = await issueChallenge(env)
-      expect(result.text).toBe('good briefing')
-    } finally {
-      randomSpy.mockRestore()
-    }
+    // Shuffle guarantees both IDs are tried; regardless of order, GOOD_ID is found
+    const result = await issueChallenge(env)
+    expect(result.text).toBe('good briefing')
   })
 })
 
