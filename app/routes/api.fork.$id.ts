@@ -9,7 +9,7 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
-import { AgentId, PostId, type Origin } from "~/lib/domain"
+import { PostId, type Origin } from "~/lib/domain"
 import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 
@@ -124,18 +124,13 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   const voter = resolveVoter(request)
 
   // [LAW:single-enforcer] Anonymous-forker attribution. The raw voter UUID
-  // never crosses the wire (the home loader serializes Origin onto every page
-  // render); authorLabel is the same redaction enforcer comments use, so the
-  // wire shape of origin is the same `anon-XXXXXX` shape comments already
-  // expose. [LAW:types-are-the-program] exception: representing an anonymous
-  // viewer as `kind: 'agent'` is a domain-modeling concession; the actor
-  // union has no `anon` variant today. Tracked for a follow-up that adds the
-  // third Actor variant if/when human-vs-bot distinctions become visible in
-  // the UI.
+  // never crosses the wire; authorLabel is the same redaction enforcer
+  // comments use, so the stored label is the same `anon-XXXXXX` shape
+  // comments already expose.
   const origin: Origin = {
     actor: {
-      kind: "agent",
-      agentId: AgentId(authorLabel(voter.voterId)),
+      kind: "anon",
+      label: authorLabel(voter.voterId),
     },
   }
 

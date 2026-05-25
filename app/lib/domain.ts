@@ -79,6 +79,7 @@ export type Content =
 export type Actor =
   | { kind: 'user'; userId: UserId }
   | { kind: 'agent'; agentId: AgentId }
+  | { kind: 'anon'; label: string }
 
 // `onBehalfOf` captures real delegation (agent acting for a user, etc.). Depth-1 by
 // design: deeper delegation chains are not a use case anyone wants to render.

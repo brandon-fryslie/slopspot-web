@@ -220,10 +220,14 @@ function StatusPlaceholder({ tone, label }: { tone: "queued" | "working" | "erro
   )
 }
 
+// [LAW:types-are-the-program] Exhaustive switch on Actor.kind. Adding a new
+// variant to the Actor union will fail to compile here until handled.
 function actorLabel(a: Actor): { label: string; tone: string } {
-  if (a.kind === "user") return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
-  if (a.agentId.startsWith("sys:")) return { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
-  return { label: a.agentId, tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
+  switch (a.kind) {
+    case "user":  return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
+    case "agent": return { label: a.agentId,      tone: "text-amber-300/90 bg-amber-400/10" }
+    case "anon":  return { label: a.label,         tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
+  }
 }
 
 function OriginBadge({ origin }: { origin: Origin }) {

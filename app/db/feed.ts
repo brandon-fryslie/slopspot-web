@@ -32,6 +32,7 @@ import {
 import {
   PostId,
   ProviderId,
+  type Actor,
   type Content,
   type FeedItem,
   type GenerationStatus,
@@ -184,11 +185,29 @@ function toContent(row: FeedRow): Content {
   }
 }
 
+// [LAW:types-are-the-program] Anti-corruption layer for legacy rows written before
+// the Actor union gained the 'anon' variant. Fork submissions prior to this change
+// stored { kind: 'agent', agentId: 'anon-XXXXXX' }. Normalizing at the read
+// boundary keeps the domain pure — callers never see the legacy shape.
+function normalizeActor(raw: Actor): Actor {
+  if (raw.kind === 'agent' && raw.agentId.startsWith('anon-')) {
+    return { kind: 'anon', label: raw.agentId }
+  }
+  return raw
+}
+
+function normalizeOrigin(raw: Origin): Origin {
+  return {
+    actor: normalizeActor(raw.actor),
+    ...(raw.onBehalfOf !== undefined && { onBehalfOf: normalizeActor(raw.onBehalfOf) }),
+  }
+}
+
 function toPost(row: FeedRow): Post {
   return {
     id: PostId(row.post.id),
     createdAt: row.post.createdAt,
-    origin: parseJson<Origin>(row.post.originJson, `origin_json for post ${row.post.id}`),
+    origin: normalizeOrigin(parseJson<Origin>(row.post.originJson, `origin_json for post ${row.post.id}`)),
     content: toContent(row),
   }
 }
