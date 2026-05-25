@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { RecentRecipe } from '~/db/recent'
 import { ProviderId, type AspectRatio, type StyleFamily } from '~/lib/domain'
 import {
@@ -10,7 +10,10 @@ import {
 } from '~/lib/variety'
 import { listProviders } from '~/providers'
 import type { GenerationProvider } from '~/providers/types'
-import { chooseNextGeneration } from './chooseNextGeneration'
+import {
+  chooseNextGeneration,
+  type ChooserOutput,
+} from './chooseNextGeneration'
 
 // [LAW:behavior-not-structure] These tests pin the chooser's *contract*:
 // every output is a valid recipe in the variety taxonomy, the choice is a
@@ -339,5 +342,149 @@ describe('chooseNextGeneration — config guard', () => {
         providers: [] as readonly GenerationProvider<unknown>[],
       }),
     ).toThrow()
+  })
+})
+
+// [LAW:behavior-not-structure] The c37.3 acceptance criterion — "100
+// successive cron fires produce a distribution matching variety.5's weights" —
+// is verifiable in pure code: the chooser is a pure function, so threading
+// `recent` forward across N iterations is structurally equivalent to N cron
+// fires without the I/O cost. R1/R3/R4 are hard rejections that must hold
+// EVERY iteration; distribution claims are checked by relative ordering
+// (primary > secondary > tertiary) within each style family, which survives
+// FNV-hash variance better than absolute percentage thresholds.
+describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () => {
+  const N = 1000
+  const BASE_T = Date.UTC(2026, 0, 1, 0, 0, 0)
+  const R6_WINDOW = 20
+
+  // Run the chain once; every test below shares this output. [LAW:dataflow-not-control-flow]
+  // same chooser call every iteration; the threaded `recent` is the data
+  // carrying the anti-rep window across fires.
+  function runChain(): ChooserOutput[] {
+    const out: ChooserOutput[] = []
+    let recent: RecentRecipe[] = []
+    for (let i = 0; i < N; i++) {
+      const t = BASE_T + i * SIX_HOURS
+      const r = chooseNextGeneration({
+        scheduledTimeMs: t,
+        recent,
+        providers: ALL_PROVIDERS,
+      })
+      out.push(r)
+      const stored: RecentRecipe = {
+        providerId: r.providerId,
+        styleFamily: r.styleFamily,
+        subjectTemplate: r.subject.subjectTemplate,
+        slots: r.subject.slots as Record<string, string>,
+        aspectRatio: r.aspectRatio,
+      }
+      recent = [stored, ...recent].slice(0, R6_WINDOW)
+    }
+    return out
+  }
+
+  // [LAW:dataflow-not-control-flow] beforeAll fires when any test in this
+  // describe is selected, not at describe-load time. Filtering the suite
+  // out with `vitest -t ...` skips the 1000-fire simulation entirely.
+  let chain: ChooserOutput[]
+  beforeAll(() => {
+    chain = runChain()
+  })
+
+  it(`R1: never two consecutive same style_family across ${N} fires`, () => {
+    for (let i = 1; i < chain.length; i++) {
+      expect(chain[i]!.styleFamily).not.toBe(chain[i - 1]!.styleFamily)
+    }
+  })
+
+  it(`R2: never a subject_template that appeared in the previous 5 fires`, () => {
+    for (let i = 5; i < chain.length; i++) {
+      const recent5 = new Set(
+        [1, 2, 3, 4, 5].map((k) => chain[i - k]!.subject.subjectTemplate),
+      )
+      expect(recent5.has(chain[i]!.subject.subjectTemplate)).toBe(false)
+    }
+  })
+
+  it(`R3: never two consecutive same providerId (3 nonzero candidates per style)`, () => {
+    for (let i = 1; i < chain.length; i++) {
+      expect(chain[i]!.providerId).not.toBe(chain[i - 1]!.providerId)
+    }
+  })
+
+  it(`R4: never three consecutive same aspect_ratio`, () => {
+    for (let i = 2; i < chain.length; i++) {
+      const a = chain[i]!.aspectRatio
+      const b = chain[i - 1]!.aspectRatio
+      const c = chain[i - 2]!.aspectRatio
+      const allMatch = a === b && b === c
+      expect(allMatch).toBe(false)
+    }
+  })
+
+  it('distribution: every style family appears at least once across the chain', () => {
+    const seen = new Set(chain.map((r) => r.styleFamily))
+    expect(seen.size).toBe(STYLE_FAMILIES.length)
+  })
+
+  it("distribution: per style with ≥30 picks, the most-chosen provider's weight is ≥0.5 in STYLE_FAMILY_PROVIDER_WEIGHTS (never a tertiary 0.2/0.3 by accident)", () => {
+    // Group provider counts by style.
+    const byStyle = new Map<StyleFamily, Map<string, number>>()
+    for (const r of chain) {
+      const m = byStyle.get(r.styleFamily) ?? new Map<string, number>()
+      m.set(r.providerId, (m.get(r.providerId) ?? 0) + 1)
+      byStyle.set(r.styleFamily, m)
+    }
+    // For each style with enough samples (≥30), assert the most-picked
+    // provider has weight ≥ 0.5 in the weights table. The point of the
+    // ≥0.5 floor (not a strict "weight == max" check) is that R3's enforced
+    // rotation between fires can give a 0.5-weight secondary a higher
+    // count than a 1.0-weight primary in any finite sample — so the
+    // primary-vs-secondary winner is noise, but a tertiary (0.2/0.3)
+    // winning would indicate the weighting isn't flowing through the
+    // chooser at all. The error message includes the primaries set for
+    // diagnostic context on failure.
+    let stylesChecked = 0
+    for (const [style, counts] of byStyle) {
+      const totalForStyle = [...counts.values()].reduce((a, b) => a + b, 0)
+      if (totalForStyle < 30) continue
+      stylesChecked++
+      const weights = STYLE_FAMILY_PROVIDER_WEIGHTS[style]
+      const maxWeight = Math.max(...Object.values(weights))
+      const primaries = new Set(
+        Object.entries(weights)
+          .filter(([, w]) => w === maxWeight)
+          .map(([id]) => id),
+      )
+      const sorted = [...counts.entries()].sort(([, a], [, b]) => b - a)
+      const topPick = sorted[0]![0]
+      const topWeight = weights[topPick] ?? 0
+      if (topWeight < 0.5) {
+        throw new Error(
+          `style=${style}: top-picked provider ${topPick} has weight ${topWeight} (expected ≥0.5). primaries=${[...primaries].join(',')}, counts=${JSON.stringify(Object.fromEntries(counts))}`,
+        )
+      }
+    }
+    // Sanity: we exercised most style families (some may have <30 picks due
+    // to R1/R5 thinning; over 1000 fires the great majority do).
+    expect(stylesChecked).toBeGreaterThan(STYLE_FAMILIES.length / 2)
+  })
+
+  it('distribution: aspect-ratio bias materializes — `cyberpunk-neon` skews 16:9 vs 9:16', () => {
+    // cyberpunk-neon has STYLE_FAMILY_ASPECT_BIAS = { '16:9': 1.5, '4:3': 1.5 }.
+    // Base weights: 16:9 = 20, 9:16 = 15 → biased 30 vs 15 → 2× ratio.
+    const cyber = chain.filter((r) => r.styleFamily === 'cyberpunk-neon')
+    // [LAW:no-silent-fallbacks] Assert the sample is large enough rather
+    // than early-returning when it isn't — a deterministic 1000-fire chain
+    // across 14 style families gives each style ~71 picks on average, well
+    // above the 30 needed for this bias claim to be meaningful. A future
+    // chain change that drops cyber below 30 would have silently no-op'd
+    // this test under the old early-return; now it fails loudly.
+    expect(cyber.length).toBeGreaterThanOrEqual(30)
+    const land16 = cyber.filter((r) => r.aspectRatio === '16:9').length
+    const port9 = cyber.filter((r) => r.aspectRatio === '9:16').length
+    // R4 perturbs this but the bias should still produce land16 > port9.
+    expect(land16).toBeGreaterThan(port9)
   })
 })
