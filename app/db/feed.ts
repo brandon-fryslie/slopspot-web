@@ -1,7 +1,14 @@
-// [LAW:single-enforcer] The one place the homepage feed comes out of D1. The
-// read-side inverse of createPost (app/db/posts.ts): createPost switches on the
-// status it writes and sets that arm's columns; this reader switches on the status
-// it reads and pulls that arm's columns. Same discriminators, opposite direction.
+// [LAW:single-enforcer] The read side of D1 for posts. The inverse of
+// createPost (app/db/posts.ts): createPost switches on the status it writes and
+// sets that arm's columns; this module switches on the status it reads and
+// pulls that arm's columns. Same discriminators, opposite direction.
+//
+// Two readers live here because they share the same row→Post mapping
+// (toPost/toContent/toStatus): getFeed for the homepage list (with score,
+// commentCount, myVote aggregates), and getPostById for single-post lookup
+// (parent-recipe fetch on /fork/:id). Splitting them into separate files would
+// duplicate the mapping or force an export-just-for-share — instead they share
+// the helpers in-module.
 //
 // [LAW:types-are-the-program] FeedItem is the smooth seam between storage and
 // rendering (app/lib/domain.ts). This module's whole job is to absorb the
@@ -269,4 +276,34 @@ export async function getFeed(
     myVote: toMyVote(row.myVote, row.post.id),
     commentCount: row.commentCount,
   }))
+}
+
+// [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
+// through here. Returns null on miss (the wire decides the 404 status; the
+// reader does not throw on absence, only on shape violations). Same toPost
+// helpers as getFeed, so a generation post's recipe parses identically whether
+// it arrives via the feed or via this lookup — the wire shape (Content, Status,
+// RecipeSubject) is one boundary translation, not two.
+//
+// [LAW:dataflow-not-control-flow] Same query shape as getFeed minus the
+// aggregates: posts + LEFT JOIN generations + LEFT JOIN uploads. No per-post
+// score/commentCount/myVote because fork's loader does not render those — it
+// renders the recipe form.
+export async function getPostById(env: Env, id: PostId): Promise<Post | null> {
+  const database = db(env)
+
+  const rows = await database
+    .select({
+      post: posts,
+      generation: generations,
+      upload: uploads,
+    })
+    .from(posts)
+    .leftJoin(generations, eq(generations.postId, posts.id))
+    .leftJoin(uploads, eq(uploads.postId, posts.id))
+    .where(eq(posts.id, id))
+    .limit(1)
+
+  if (rows.length === 0) return null
+  return toPost(rows[0])
 }
