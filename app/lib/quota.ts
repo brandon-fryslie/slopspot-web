@@ -15,7 +15,7 @@
 // executing them outside the atomic batch. The quota table is outside the app
 // domain schema (posts/generations) and warrants this targeted exception.
 
-const DAILY_QUOTA = 20
+export const DAILY_QUOTA = 20
 
 export type ReserveResult =
   | { kind: 'reserved'; remaining: number }

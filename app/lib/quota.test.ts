@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { tryReserve } from './quota'
+import { describe, expect, it } from 'vitest'
+import { tryReserve, DAILY_QUOTA } from './quota'
 
 // ─── Mock D1 ──────────────────────────────────────────────────────────────────
 //
@@ -20,7 +20,7 @@ function makeD1Mock(initial = 0) {
       const r1 = { results: [] } as unknown as D1Result
 
       let r2: D1Result
-      if (count < 20) {
+      if (count < DAILY_QUOTA) {
         count += 1
         r2 = { results: [{ count }] } as unknown as D1Result
       } else {
@@ -44,23 +44,23 @@ describe('tryReserve', () => {
   it('returns reserved with remaining=19 on a fresh day (count=0)', async () => {
     const env = makeEnv(makeD1Mock(0))
     const result = await tryReserve(env)
-    expect(result).toEqual({ kind: 'reserved', remaining: 19 })
+    expect(result).toEqual({ kind: 'reserved', remaining: DAILY_QUOTA - 1 })
   })
 
   it('returns reserved with remaining=0 on the 20th call (count=19→20)', async () => {
-    const env = makeEnv(makeD1Mock(19))
+    const env = makeEnv(makeD1Mock(DAILY_QUOTA - 1))
     const result = await tryReserve(env)
     expect(result).toEqual({ kind: 'reserved', remaining: 0 })
   })
 
   it('returns exhausted when count is already at cap (count=20)', async () => {
-    const env = makeEnv(makeD1Mock(20))
+    const env = makeEnv(makeD1Mock(DAILY_QUOTA))
     const result = await tryReserve(env)
     expect(result.kind).toBe('exhausted')
   })
 
   it('exhausted includes a retryAfter ISO string at UTC midnight', async () => {
-    const env = makeEnv(makeD1Mock(20))
+    const env = makeEnv(makeD1Mock(DAILY_QUOTA))
     const before = Date.now()
     const result = await tryReserve(env)
     const after = Date.now()
@@ -81,14 +81,16 @@ describe('tryReserve', () => {
   })
 
   it('does not exhaust on the 19th call (remaining=1)', async () => {
-    const env = makeEnv(makeD1Mock(18))
+    const env = makeEnv(makeD1Mock(DAILY_QUOTA - 2))
     const result = await tryReserve(env)
     expect(result).toEqual({ kind: 'reserved', remaining: 1 })
   })
 
-  // Sequential concurrency: Promise.all in Node resolves in series (single-threaded
-  // event loop, synchronous mock). Validates that the counter logic is correct.
-  // Real D1 atomicity is covered by the pool-workers integration test (bux.3.1).
+  // The mock's `batch` is synchronous inside an async wrapper. Because it
+  // never yields (no real awaits inside the function body), all 30 Promises
+  // created by Promise.all run-to-completion in the order they were queued —
+  // making the counter increments deterministic. Real D1 atomicity (concurrent
+  // network calls) is covered by the pool-workers integration test (bux.3.1).
   it('exactly 20 out of 30 concurrent reserves succeed', async () => {
     const mock = makeD1Mock(0)
     const env = makeEnv(mock)
@@ -97,8 +99,8 @@ describe('tryReserve', () => {
     )
     const reserved = results.filter((r) => r.kind === 'reserved')
     const exhausted = results.filter((r) => r.kind === 'exhausted')
-    expect(reserved.length).toBe(20)
-    expect(exhausted.length).toBe(10)
+    expect(reserved.length).toBe(DAILY_QUOTA)
+    expect(exhausted.length).toBe(30 - DAILY_QUOTA)
   })
 
   it('UTC midnight rollover: a new date produces a fresh reserved result', async () => {
@@ -107,7 +109,7 @@ describe('tryReserve', () => {
     // starts reserved again — the real rollover happens via a new D1 row key.
     const fresh = makeEnv(makeD1Mock(0))
     const result = await tryReserve(fresh)
-    expect(result).toEqual({ kind: 'reserved', remaining: 19 })
+    expect(result).toEqual({ kind: 'reserved', remaining: DAILY_QUOTA - 1 })
   })
 
   it('remaining decrements correctly across multiple calls', async () => {
@@ -118,9 +120,9 @@ describe('tryReserve', () => {
     const r2 = await tryReserve(env)
     const r3 = await tryReserve(env)
 
-    expect(r1).toEqual({ kind: 'reserved', remaining: 19 })
-    expect(r2).toEqual({ kind: 'reserved', remaining: 18 })
-    expect(r3).toEqual({ kind: 'reserved', remaining: 17 })
+    expect(r1).toEqual({ kind: 'reserved', remaining: DAILY_QUOTA - 1 })
+    expect(r2).toEqual({ kind: 'reserved', remaining: DAILY_QUOTA - 2 })
+    expect(r3).toEqual({ kind: 'reserved', remaining: DAILY_QUOTA - 3 })
   })
 })
 
