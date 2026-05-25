@@ -14,12 +14,21 @@ import { tryReserve } from '~/lib/quota'
 
 export type ChallengeToken = string & { readonly __brand: 'ChallengeToken' }
 
-// [LAW:types-are-the-program] Typed error lets the route distinguish empty-bank
-// (503) from misconfiguration (500) via instanceof — not fragile string matching.
+// [LAW:types-are-the-program] Typed errors let callers distinguish failure modes
+// via instanceof — not fragile string matching. ChallengeConfigError is the only
+// synchronous throw from verifyChallenge; any other throw is a storage/service
+// failure. The route maps ChallengeConfigError → 500, anything else → 503.
 export class ChallengeBankEmptyError extends Error {
   constructor() {
     super('challenge bank is empty')
     this.name = 'ChallengeBankEmptyError'
+  }
+}
+
+export class ChallengeConfigError extends Error {
+  constructor(msg: string) {
+    super(msg)
+    this.name = 'ChallengeConfigError'
   }
 }
 
@@ -72,7 +81,7 @@ export type IssuedChallenge = {
 // times before giving up. Both bindings are required; missing secret throws synchronously.
 export async function issueChallenge(env: Env, now = Date.now()): Promise<IssuedChallenge> {
   const secret = env.SLOPSPOT_CHALLENGE_SECRET
-  if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
+  if (!secret) throw new ChallengeConfigError('SLOPSPOT_CHALLENGE_SECRET is not configured')
 
   const manifestJson = await env.CHALLENGE_BANK.get('manifest')
   if (manifestJson === null) throw new ChallengeBankEmptyError()
@@ -103,8 +112,12 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
     const entryJson = await env.CHALLENGE_BANK.get(candidate)
     if (!entryJson) continue
     try {
-      const entry = JSON.parse(entryJson) as { briefingText?: unknown }
-      if (typeof entry.briefingText === 'string' && entry.briefingText.trim().length > 0) {
+      const entry = JSON.parse(entryJson) as { briefingText?: unknown; easyForm?: unknown; hardForm?: unknown }
+      if (
+        typeof entry.briefingText === 'string' && entry.briefingText.trim().length > 0 &&
+        entry.easyForm !== null && typeof entry.easyForm === 'object' &&
+        entry.hardForm !== null && typeof entry.hardForm === 'object'
+      ) {
         briefingText = entry.briefingText
         entryId = candidate
       }
@@ -150,7 +163,7 @@ export async function verifyChallenge(
   now = Date.now(),
 ): Promise<ChallengeVerifyResult> {
   const secret = env.SLOPSPOT_CHALLENGE_SECRET
-  if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
+  if (!secret) throw new ChallengeConfigError('SLOPSPOT_CHALLENGE_SECRET is not configured')
 
   // Step 1: HMAC + TTL
   const dot = challengeId.lastIndexOf('.')

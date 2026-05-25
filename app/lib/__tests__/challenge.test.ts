@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { issueChallenge, verifyChallenge, CHALLENGE_TTL_MS, ChallengeBankEmptyError } from '~/lib/challenge'
+import { issueChallenge, verifyChallenge, CHALLENGE_TTL_MS, ChallengeBankEmptyError, ChallengeConfigError } from '~/lib/challenge'
 import { DAILY_QUOTA } from '~/lib/quota'
 
 const SECRET = 'test-secret-for-unit-tests'
@@ -118,7 +118,7 @@ describe('issueChallenge', () => {
     const store = new Map<string, string>([
       ['manifest', JSON.stringify({ ids: [FAKE_ENTRY_ID, GOOD_ID] })],
       [FAKE_ENTRY_ID, '{{{not valid json'],
-      [GOOD_ID, JSON.stringify({ id: GOOD_ID, briefingText: 'good briefing from valid entry', generatedAt: 1 })],
+      [GOOD_ID, JSON.stringify({ id: GOOD_ID, briefingText: 'good briefing from valid entry', easyForm: { kind: 'word_count_modulo', divisor: 5, residue: 2 }, hardForm: { kind: 'lipogram', forbidden: 'e' }, generatedAt: 1 })],
     ])
     const env = {
       SLOPSPOT_CHALLENGE_SECRET: SECRET,
@@ -139,12 +139,43 @@ describe('issueChallenge', () => {
     }
   })
 
+  it('skips entries missing easyForm or hardForm — issues from the next valid candidate', async () => {
+    const GOOD_ID = 'ffffffff-eeee-dddd-cccc-bbbbbbbbbbbb'
+    const store = new Map<string, string>([
+      ['manifest', JSON.stringify({ ids: [FAKE_ENTRY_ID, GOOD_ID] })],
+      // FAKE_ENTRY_ID has briefingText but no forms — should be skipped
+      [FAKE_ENTRY_ID, JSON.stringify({ id: FAKE_ENTRY_ID, briefingText: 'text without forms', generatedAt: 1 })],
+      [GOOD_ID, JSON.stringify({
+        id: GOOD_ID,
+        briefingText: 'good briefing with forms',
+        easyForm: { kind: 'word_count_modulo', divisor: 5, residue: 2 },
+        hardForm: { kind: 'lipogram', forbidden: 'e' },
+        generatedAt: 1,
+      })],
+    ])
+    const env = {
+      SLOPSPOT_CHALLENGE_SECRET: SECRET,
+      CHALLENGE_BANK: {
+        get: vi.fn(async (key: string) => store.get(key) ?? null),
+        put: vi.fn(),
+      } as unknown as KVNamespace,
+    } as unknown as Env
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    try {
+      const result = await issueChallenge(env)
+      expect(result.text).toBe('good briefing with forms')
+      expect(env.CHALLENGE_BANK.get).toHaveBeenCalledWith(FAKE_ENTRY_ID)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('retries when manifest contains an expired entry — missing entry is skipped', async () => {
     const GOOD_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
     const store = new Map<string, string>([
       ['manifest', JSON.stringify({ ids: [FAKE_ENTRY_ID, GOOD_ID] })],
       // FAKE_ENTRY_ID deliberately absent — simulates a KV entry that expired
-      [GOOD_ID, JSON.stringify({ id: GOOD_ID, briefingText: 'good briefing', generatedAt: 1 })],
+      [GOOD_ID, JSON.stringify({ id: GOOD_ID, briefingText: 'good briefing', easyForm: { kind: 'word_count_modulo', divisor: 5, residue: 2 }, hardForm: { kind: 'lipogram', forbidden: 'e' }, generatedAt: 1 })],
     ])
     const env = {
       SLOPSPOT_CHALLENGE_SECRET: SECRET,
@@ -354,11 +385,11 @@ describe('verifyChallenge', () => {
     expect(env.DB.batch).not.toHaveBeenCalled()
   })
 
-  it('throws when secret is empty', async () => {
+  it('throws ChallengeConfigError when secret is empty', async () => {
     const env = makeEnv({ secret: '' })
     const { challengeId } = await issueChallenge(makeEnv())
     await expect(verifyChallenge(challengeId, VALID_PROMPT, env)).rejects.toThrow(
-      'SLOPSPOT_CHALLENGE_SECRET is not configured',
+      ChallengeConfigError,
     )
   })
 

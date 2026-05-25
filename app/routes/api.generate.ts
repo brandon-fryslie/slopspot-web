@@ -4,7 +4,7 @@ import { ApiError } from "@fal-ai/client"
 import { AgentId, ProviderId, type Origin } from "~/lib/domain"
 import { UnknownProviderError } from "~/providers"
 import { createPost, InvalidParamsError } from "~/db/posts"
-import { verifyChallenge } from "~/lib/challenge"
+import { verifyChallenge, ChallengeConfigError } from "~/lib/challenge"
 import { outcomeToResponse } from "~/lib/challenge-outcome"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { checkBudget } from "~/firehose/budget"
@@ -55,8 +55,11 @@ export async function action({ request, context }: Route.ActionArgs) {
   let vr
   try {
     vr = await verifyChallenge(parsed.challengeId, parsed.params.prompt, context.cloudflare.env)
-  } catch {
-    return Response.json({ error: "challenge verifier misconfigured" }, { status: 500 })
+  } catch (e) {
+    if (e instanceof ChallengeConfigError) {
+      return Response.json({ error: "challenge verifier misconfigured" }, { status: 500 })
+    }
+    return Response.json({ error: "challenge service unavailable" }, { status: 503 })
   }
   if (vr.kind !== "verified") return outcomeToResponse(vr)
 
