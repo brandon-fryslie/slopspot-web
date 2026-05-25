@@ -189,8 +189,14 @@ function toContent(row: FeedRow): Content {
 // the Actor union gained the 'anon' variant. Fork submissions prior to this change
 // stored { kind: 'agent', agentId: 'anon-XXXXXX' }. Normalizing at the read
 // boundary keeps the domain pure — callers never see the legacy shape.
+//
+// The predicate matches exactly the output of authorLabel(uuid): 'anon-' + the
+// first 6 chars of a UUID, which are always lowercase hex digits (no hyphen at
+// those positions). Tighter than startsWith('anon-') alone to avoid
+// misclassifying a self-reported agentId like 'anon-anything-else'.
+const LEGACY_ANON_RE = /^anon-[0-9a-f]{6}$/i
 function normalizeActor(raw: Actor): Actor {
-  if (raw.kind === 'agent' && raw.agentId.startsWith('anon-')) {
+  if (raw.kind === 'agent' && LEGACY_ANON_RE.test(raw.agentId)) {
     return { kind: 'anon', label: raw.agentId }
   }
   return raw
