@@ -213,17 +213,25 @@ describe('runBankGen', () => {
 
     await runBankGen(env, { batchSize: 5 })
 
-    expect(fakeKv.put).toHaveBeenCalledTimes(5)
-    const firstCall = fakeKv.put.mock.calls[0]
-    const key = firstCall[0] as string
-    const value = JSON.parse(firstCall[1] as string) as BankEntry
-    expect(key).toMatch(/^[0-9a-f-]{36}$/)
+    const allCalls = fakeKv.put.mock.calls as [string, string, { expirationTtl: number }][]
+    const entryCalls = allCalls.filter(([key]) => key !== 'manifest')
+    const manifestCalls = allCalls.filter(([key]) => key === 'manifest')
+
+    expect(entryCalls).toHaveLength(5)
+    expect(manifestCalls).toHaveLength(1)
+
+    const [firstKey, firstValue, firstTtl] = entryCalls[0]
+    const value = JSON.parse(firstValue) as BankEntry
+    expect(firstKey).toMatch(/^[0-9a-f-]{36}$/)
     expect(value.briefingText).toBe('A SlopSpot briefing.')
     expect(value.easyForm.kind).toBeTruthy()
     expect(value.hardForm.kind).toBeTruthy()
     // TTL is critical to bank rotation — a regression that drops it makes entries permanent
-    const [, , ttlOpts] = firstCall as [string, string, { expirationTtl: number }]
-    expect(ttlOpts).toEqual({ expirationTtl: 48 * 60 * 60 })
+    expect(firstTtl).toEqual({ expirationTtl: 48 * 60 * 60 })
+
+    const manifestValue = JSON.parse(manifestCalls[0][1]) as { ids: string[] }
+    expect(manifestValue.ids).toHaveLength(5)
+    expect(manifestValue.ids.every((id: string) => /^[0-9a-f-]{36}$/.test(id))).toBe(true)
   })
 
   it('counts failures when Claude calls fail', async () => {
@@ -264,8 +272,12 @@ describe('runBankGen', () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     await runBankGen(env, { batchSize: 3, concurrency: 1 })
 
-    // One failure (first entry KV put threw), two successes
-    expect(fakeKv.put).toHaveBeenCalledTimes(3)
+    // One failure (first entry KV put threw), two successes — plus one manifest write = 4 total
+    const allCalls = fakeKv.put.mock.calls as [string, string, unknown][]
+    const entryCalls = allCalls.filter(([key]) => key !== 'manifest')
+    const manifestCalls = allCalls.filter(([key]) => key === 'manifest')
+    expect(entryCalls).toHaveLength(3) // 1 threw + 2 succeeded
+    expect(manifestCalls).toHaveLength(1)
     expect(consoleSpy).toHaveBeenCalledWith(
       'bank-gen: KV put failed',
       expect.objectContaining({ err: expect.any(Error) }),

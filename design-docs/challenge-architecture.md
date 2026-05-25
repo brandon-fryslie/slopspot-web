@@ -165,15 +165,13 @@ the test suite has to catch.
 `GET /api/challenge`:
 
 ```
-1. Random entry from bank (today's + yesterday's, 48h overlap)
-   — KV key scheme: bank-gen writes entries under sequentially-numbered keys
-     per day (e.g. "YYYY-MM-DD:0001" ... "YYYY-MM-DD:N") and writes a
-     small per-day "manifest" key recording N. Issuance reads the
-     manifest for today and yesterday, picks one of the dates at random,
-     picks an index in [1, N] at random, and does a single get-by-key.
-     This keeps selection O(1) — no `kv.list()` on the hot path. The
-     manifest is the canonical record of "how many entries exist for
-     day D"; [LAW:one-source-of-truth] no separate index to drift.
+1. Random entry from bank (current + previous day, 48h overlap)
+   — KV key scheme: bank-gen writes entries under UUID keys and writes a
+     single `"manifest"` key → `{ ids: string[] }` with the same 48h TTL.
+     Issuance reads the manifest, picks a random id, does one direct get-by-key.
+     Selection is O(1) — no `kv.list()` on the hot path. [LAW:one-source-of-truth]
+     the manifest is the single index of live entry ids; no drift is possible
+     because bank-gen writes entries and the manifest atomically in one run.
 2. Encode + sign the payload (matching shipped v1):
      payloadB64  = base64url(JSON.stringify({ entryId, nonce, issuedAt: now }))
      sigBytes    = HMAC-SHA256(key = SLOPSPOT_CHALLENGE_SECRET, message = payloadB64)
@@ -386,7 +384,7 @@ type BankEntry = {
 
 | Store                 | Shape                                              | Lifetime |
 | --------------------- | -------------------------------------------------- | -------- |
-| KV `CHALLENGE_BANK`   | per-entry: `uuid → BankEntry (JSON)`; GET /api/challenge picks a random key | 48h auto-expire |
+| KV `CHALLENGE_BANK`   | per-entry: `uuid → BankEntry (JSON)`; `"manifest" → { ids: string[] }` for O(1) random selection | 48h auto-expire |
 | D1 `challenge_quota`  | `date TEXT PRIMARY KEY, count INTEGER NOT NULL`    | 7d retention (cleaned by cron) |
 
 The bank lives in KV — write-once-daily, read-many, no atomicity needed,

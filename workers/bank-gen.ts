@@ -194,15 +194,15 @@ export async function callClaudeApi(prompt: string, apiKey: string): Promise<str
   }
 
   const data = (await resp.json()) as AnthropicMessage
-  const textBlock = data.content.find((b) => b.type === 'text')
-  if (!textBlock?.text) throw new Error('No text block in Anthropic response')
+  const textParts = data.content.filter((b) => b.type === 'text' && b.text).map((b) => b.text!)
+  if (textParts.length === 0) throw new Error('No text block in Anthropic response')
 
-  return textBlock.text.trim()
+  return textParts.join('').trim()
 }
 
 // ─── Entry processor ──────────────────────────────────────────────────────────
 
-type EntryResult = { ok: true } | { ok: false; easyKind: string; hardKind: string }
+type EntryResult = { ok: true; id: string } | { ok: false; easyKind: string; hardKind: string }
 
 async function processEntry(apiKey: string, kv: KVNamespace): Promise<EntryResult> {
   const easy = randomEasyForm()
@@ -237,11 +237,16 @@ async function processEntry(apiKey: string, kv: KVNamespace): Promise<EntryResul
   try {
     await kv.put(entry.id, JSON.stringify(entry), { expirationTtl: BANK_TTL_SECONDS })
   } catch (kvErr) {
-    console.error('bank-gen: KV put failed', { id: entry.id, easyKind: easy.kind, err: kvErr })
+    console.error('bank-gen: KV put failed', {
+      id: entry.id,
+      easyKind: easy.kind,
+      hardKind: hard.kind,
+      err: kvErr,
+    })
     return { ok: false, easyKind: easy.kind, hardKind: hard.kind }
   }
 
-  return { ok: true }
+  return { ok: true, id: entry.id }
 }
 
 // ─── Main entrypoint ──────────────────────────────────────────────────────────
@@ -263,6 +268,7 @@ export async function runBankGen(env: Env, opts: RunOpts = {}): Promise<void> {
 
   let successes = 0
   let failures = 0
+  const successIds: string[] = []
   const startMs = Date.now()
 
   for (let offset = 0; offset < batchSize; offset += concurrency) {
@@ -271,15 +277,29 @@ export async function runBankGen(env: Env, opts: RunOpts = {}): Promise<void> {
       Array.from({ length: slotCount }, () => processEntry(apiKey, env.CHALLENGE_BANK)),
     )
     for (const r of results) {
-      if (r.ok) successes++
-      else failures++
+      if (r.ok) {
+        successes++
+        successIds.push(r.id)
+      } else {
+        failures++
+      }
     }
+  }
+
+  // Write a manifest so GET /api/challenge can pick a random entry via one direct
+  // key lookup (get manifest → pick id → get entry) without calling kv.list().
+  // [LAW:one-source-of-truth] manifest is the single index of live entry IDs.
+  if (successIds.length > 0) {
+    await env.CHALLENGE_BANK.put('manifest', JSON.stringify({ ids: successIds }), {
+      expirationTtl: BANK_TTL_SECONDS,
+    })
   }
 
   console.log('bank-gen: batch complete', {
     successes,
     failures,
     total: batchSize,
+    manifestWritten: successIds.length > 0,
     durationMs: Date.now() - startMs,
   })
 }
