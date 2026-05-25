@@ -114,8 +114,8 @@ async function main(): Promise<void> {
 
   const internalToken = process.env.SLOPSPOT_INTERNAL_SEED_TOKEN
   if (!internalToken) {
-    console.warn('warning: SLOPSPOT_INTERNAL_SEED_TOKEN is not set — generate requests will hit the challenge gate directly.')
-    console.warn('  If the bank is empty or your prompt is not form-valid, requests will fail with 4xx.')
+    console.warn('warning: SLOPSPOT_INTERNAL_SEED_TOKEN is not set — all generate requests will fail with 401.')
+    console.warn('  Set it to the same value configured as the Workers secret before running.')
   }
 
   const baseUrl = isRemote ? 'https://slopspot.ai' : 'http://localhost:8787'
