@@ -6,6 +6,7 @@ import { UnknownProviderError } from "~/providers"
 import { createPost, InvalidParamsError } from "~/db/posts"
 import { verifyChallenge } from "~/lib/challenge"
 import { outcomeToResponse } from "~/lib/challenge-outcome"
+import { invalidBodyResponse } from "~/lib/api-errors"
 import { checkBudget } from "~/firehose/budget"
 import {
   aspectRatioSchema,
@@ -43,9 +44,9 @@ export async function action({ request, context }: Route.ActionArgs) {
   try {
     parsed = bodySchema.parse(await request.json())
   } catch (e) {
-    return Response.json(
-      { error: "invalid body", detail: String(e) },
-      { status: 400 },
+    return invalidBodyResponse(
+      e,
+      "GET /api/challenge first, then POST { challengeId, agentId, providerId, params: { prompt, ... }, styleFamily, subject, aspectRatio }",
     )
   }
 

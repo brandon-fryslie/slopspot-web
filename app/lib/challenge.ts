@@ -196,13 +196,26 @@ export async function verifyChallenge(
   }
 
   // Step 3: easy form verification
-  const easyResult = verifyEasy(prompt, entry.easyForm)
+  // Catch assertNever throws — unknown form kind in a bank entry is a malformed
+  // entry condition, not a verifier bug; map to bank_entry_missing so the caller
+  // retries rather than seeing a 500. [LAW:types-are-the-program]
+  let easyResult
+  try {
+    easyResult = verifyEasy(prompt, entry.easyForm)
+  } catch {
+    return { kind: 'bank_entry_missing', entryId: payload.entryId }
+  }
   if (!easyResult.ok) {
     return { kind: 'form_violation', which: 'easy', detail: easyResult.detail }
   }
 
   // Step 4: hard form verification
-  const hardResult = verifyHard(prompt, entry.hardForm)
+  let hardResult
+  try {
+    hardResult = verifyHard(prompt, entry.hardForm)
+  } catch {
+    return { kind: 'bank_entry_missing', entryId: payload.entryId }
+  }
   if (!hardResult.ok) {
     return { kind: 'form_violation', which: 'hard', detail: hardResult.detail }
   }

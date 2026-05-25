@@ -266,6 +266,52 @@ describe('verifyChallenge', () => {
     expect(result.kind).toBe('bank_entry_missing')
   })
 
+  it('returns bank_entry_missing when bank entry has an unknown easyForm kind', async () => {
+    const goodEnv = makeEnv()
+    const { challengeId } = await issueChallenge(goodEnv)
+    const unknownFormEnv = {
+      ...goodEnv,
+      CHALLENGE_BANK: {
+        get: vi.fn(async (key: string) => {
+          if (key === 'manifest') return JSON.stringify({ ids: [FAKE_ENTRY_ID] })
+          return JSON.stringify({
+            id: FAKE_ENTRY_ID,
+            briefingText: FAKE_BRIEFING,
+            easyForm: { kind: 'not_a_real_variant', foo: 'bar' },
+            hardForm: { kind: 'lipogram', forbidden: 'e' },
+            generatedAt: Date.now(),
+          })
+        }),
+        put: vi.fn(),
+      } as unknown as KVNamespace,
+    }
+    const result = await verifyChallenge(challengeId, VALID_PROMPT, unknownFormEnv as unknown as Env)
+    expect(result.kind).toBe('bank_entry_missing')
+  })
+
+  it('returns bank_entry_missing when bank entry has an unknown hardForm kind', async () => {
+    const goodEnv = makeEnv()
+    const { challengeId } = await issueChallenge(goodEnv)
+    const unknownFormEnv = {
+      ...goodEnv,
+      CHALLENGE_BANK: {
+        get: vi.fn(async (key: string) => {
+          if (key === 'manifest') return JSON.stringify({ ids: [FAKE_ENTRY_ID] })
+          return JSON.stringify({
+            id: FAKE_ENTRY_ID,
+            briefingText: FAKE_BRIEFING,
+            easyForm: { kind: 'word_count_modulo', divisor: 5, residue: 2 },
+            hardForm: { kind: 'not_a_real_variant', foo: 'bar' },
+            generatedAt: Date.now(),
+          })
+        }),
+        put: vi.fn(),
+      } as unknown as KVNamespace,
+    }
+    const result = await verifyChallenge(challengeId, VALID_PROMPT, unknownFormEnv as unknown as Env)
+    expect(result.kind).toBe('bank_entry_missing')
+  })
+
   it('returns form_violation{which:easy} when easy form is not satisfied', async () => {
     const env = makeEnv()
     const { challengeId } = await issueChallenge(env)
