@@ -5,10 +5,12 @@ export function PostCard({
   post,
   score,
   myVote,
+  commentCount,
 }: {
   post: Post
   score: number
   myVote: VoteValue | null
+  commentCount: number
 }) {
   return (
     <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
@@ -32,6 +34,7 @@ export function PostCard({
           </pre>
         </details>
       )}
+      <CommentSection postId={post.id} initialCount={commentCount} />
     </article>
   )
 }
@@ -243,6 +246,218 @@ function StatusBadge({ status }: { status: GenerationStatus }) {
                                 "bg-rose-400/10 text-rose-300/90"
   return (
     <span className={`rounded px-1.5 py-0.5 font-mono ${tone}`}>{status.kind}</span>
+  )
+}
+
+// [LAW:types-are-the-program] Wire shape for a comment as it arrives from the
+// /api/posts/:id/comments loader. createdAt is an ISO string on the wire; the
+// component parses it to Date once at the JSON boundary. authorLabel is the
+// already-redacted display string (server-side single-enforcer in
+// app/lib/author-label) — the raw voter UUID never crosses this boundary, so
+// the client cannot leak it back into the page even by accident.
+type ClientComment = {
+  id: string
+  authorLabel: string
+  body: string
+  createdAt: string
+}
+
+// [LAW:types-are-the-program] The thread's state is a closed discriminated
+// union. "Cached list but currently hidden" is `ready { expanded: false }`,
+// distinct from "never loaded" (`unloaded`). One discriminator carries every
+// legal state; no parallel booleans for `loading` / `hasData` / `expanded` that
+// could fall into illegal combinations.
+type ThreadState =
+  | { kind: "unloaded" }
+  | { kind: "loading" }
+  | { kind: "error"; reason: string }
+  | { kind: "ready"; expanded: boolean; comments: ClientComment[] }
+
+function CommentSection({
+  postId,
+  initialCount,
+}: {
+  postId: string
+  initialCount: number
+}) {
+  const [thread, setThread] = useState<ThreadState>({ kind: "unloaded" })
+  // localCount lives outside the thread discriminator because every arm (even
+  // unloaded) shows the count in the collapsed header. Bumped on successful
+  // post so the user sees their own comment counted without a refetch.
+  const [localCount, setLocalCount] = useState(initialCount)
+  const [composeBody, setComposeBody] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  // [LAW:single-enforcer] Synchronous re-entrancy guard, same shape as the
+  // vote endpoint's inFlight ref. Rapid double-submit inside one microtask
+  // would see the same stale `submitting === false` from React state.
+  const inFlight = useRef(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // [LAW:one-source-of-truth] Loader is the truth on initial count; pull back
+  // in on revalidation, mirroring VoteControls' useEffect. Skipped while a
+  // submit is in flight so the optimistic bump isn't yanked out.
+  useEffect(() => {
+    if (!inFlight.current) setLocalCount(initialCount)
+  }, [initialCount])
+
+  async function loadThread() {
+    setThread({ kind: "loading" })
+    try {
+      const res = await fetch(`/api/posts/${postId}/comments`)
+      if (!res.ok) throw new Error(`status ${res.status}`)
+      const data = (await res.json()) as { comments: ClientComment[] }
+      setThread({ kind: "ready", expanded: true, comments: data.comments })
+    } catch (err) {
+      setThread({ kind: "error", reason: String(err) })
+    }
+  }
+
+  // [LAW:dataflow-not-control-flow] Toggle is one path. The discriminator on
+  // `thread.kind` selects which transition fires: an unloaded thread fetches;
+  // a loaded thread flips `expanded`; an error retries. No bag-of-flags that
+  // could combine into illegal states (loading-but-collapsed, etc.).
+  function onToggle() {
+    if (thread.kind === "unloaded") {
+      void loadThread()
+      return
+    }
+    if (thread.kind === "ready") {
+      setThread({ ...thread, expanded: !thread.expanded })
+      return
+    }
+    if (thread.kind === "error") {
+      void loadThread()
+      return
+    }
+    // loading: ignore additional clicks until the fetch resolves
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (inFlight.current) return
+    const body = composeBody.trim()
+    if (body.length === 0) {
+      setSubmitError("comment cannot be empty")
+      return
+    }
+    if (body.length > 2000) {
+      setSubmitError("comment must be 2000 characters or fewer")
+      return
+    }
+    inFlight.current = true
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const res = await fetch(`/api/posts/${postId}/comments`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ body }),
+      })
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "")
+        throw new Error(`comment failed: ${res.status} ${detail}`.trim())
+      }
+      const created = (await res.json()) as ClientComment
+      // Prepend the server-confirmed comment to the cached list (newest-first
+      // is the canonical thread order — matches listComments' orderBy).
+      setThread((prev) =>
+        prev.kind === "ready"
+          ? { ...prev, comments: [created, ...prev.comments] }
+          : { kind: "ready", expanded: true, comments: [created] },
+      )
+      setLocalCount((n) => n + 1)
+      setComposeBody("")
+    } catch (err) {
+      setSubmitError(String(err))
+    } finally {
+      setSubmitting(false)
+      inFlight.current = false
+    }
+  }
+
+  const isExpanded = thread.kind === "ready" && thread.expanded
+  const isLoading = thread.kind === "loading"
+
+  return (
+    <section className="border-t border-white/10">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+        className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-xs text-white/55 transition hover:bg-white/[0.03] hover:text-white/80"
+      >
+        <span>
+          {localCount === 0
+            ? "no comments yet"
+            : localCount === 1
+            ? "1 comment"
+            : `${localCount} comments`}
+        </span>
+        <span aria-hidden className="font-mono text-white/30">
+          {isLoading ? "…" : isExpanded ? "▾" : "▸"}
+        </span>
+      </button>
+
+      {thread.kind === "error" && (
+        <div className="border-t border-white/10 px-3 py-3 font-mono text-[11px] text-rose-300/90">
+          failed to load: {thread.reason} — click to retry
+        </div>
+      )}
+
+      {isExpanded && thread.kind === "ready" && (
+        <div className="border-t border-white/10">
+          <ul className="flex flex-col divide-y divide-white/5">
+            {thread.comments.length === 0 ? (
+              <li className="px-3 py-4 font-mono text-[11px] text-white/40">
+                be the first to slop on this slop
+              </li>
+            ) : (
+              thread.comments.map((c) => <CommentRow key={c.id} comment={c} />)
+            )}
+          </ul>
+          <form onSubmit={onSubmit} className="border-t border-white/10 px-3 py-3">
+            <textarea
+              value={composeBody}
+              onChange={(e) => setComposeBody(e.target.value)}
+              placeholder="leave a comment…"
+              maxLength={2000}
+              rows={2}
+              disabled={submitting}
+              className="block w-full resize-y rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-white/85 placeholder:text-white/30 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
+            />
+            <div className="mt-2 flex items-center justify-between">
+              <span className="font-mono text-[10px] text-white/35">
+                {composeBody.trim().length}/2000
+              </span>
+              <button
+                type="submit"
+                disabled={submitting || composeBody.trim().length === 0}
+                className="rounded bg-emerald-400/20 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-400/30 disabled:opacity-40"
+              >
+                {submitting ? "posting…" : "post"}
+              </button>
+            </div>
+            {submitError !== null && (
+              <p className="mt-2 font-mono text-[11px] text-rose-300/90">{submitError}</p>
+            )}
+          </form>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CommentRow({ comment }: { comment: ClientComment }) {
+  return (
+    <li className="px-3 py-2">
+      <div className="flex items-center gap-2 font-mono text-[10px] text-white/45">
+        <span className="rounded bg-white/5 px-1.5 py-0.5 text-white/65">{comment.authorLabel}</span>
+        <span>{relativeTime(new Date(comment.createdAt))}</span>
+      </div>
+      <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-white/85">
+        {comment.body}
+      </p>
+    </li>
   )
 }
 

@@ -13,6 +13,7 @@ import { and, desc, eq, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
+  comments,
   generations,
   posts,
   uploads,
@@ -217,6 +218,21 @@ export async function getFeed(
 
   const score = sql<number>`coalesce(${voteScore.score}, 0)`
 
+  // [LAW:one-source-of-truth] commentCount is COUNT(comments) per post, derived
+  // the same way score is — never a denormalized column. Same LEFT JOIN +
+  // COALESCE shape: a post with zero comments still appears with count 0,
+  // rather than dropping out of the feed or yielding NULL downstream.
+  const commentCount = database
+    .select({
+      postId: comments.postId,
+      count: sql<number>`count(*)`.as('count'),
+    })
+    .from(comments)
+    .groupBy(comments.postId)
+    .as('comment_count')
+
+  const cCount = sql<number>`coalesce(${commentCount.count}, 0)`
+
   // [LAW:dataflow-not-control-flow] The JOIN to the viewer's own vote runs every
   // call, regardless of whether a voter id is known. The sentinel when voterId
   // is absent ('') cannot match any real UUID, so the LEFT JOIN simply yields
@@ -231,11 +247,13 @@ export async function getFeed(
       upload: uploads,
       score,
       myVote: myVote.value,
+      commentCount: cCount,
     })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .leftJoin(uploads, eq(uploads.postId, posts.id))
     .leftJoin(voteScore, eq(voteScore.postId, posts.id))
+    .leftJoin(commentCount, eq(commentCount.postId, posts.id))
     .leftJoin(
       myVote,
       and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)),
@@ -249,5 +267,6 @@ export async function getFeed(
     score: row.score,
     rank: i + 1,
     myVote: toMyVote(row.myVote, row.post.id),
+    commentCount: row.commentCount,
   }))
 }
