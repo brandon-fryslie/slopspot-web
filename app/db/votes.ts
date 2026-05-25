@@ -17,7 +17,7 @@
 
 import { and, eq, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
-import { votes } from '~/db/schema'
+import { posts, votes } from '~/db/schema'
 import type { PostId, VoteIntent, VoteValue } from '~/lib/domain'
 
 export type SetVoteInput = {
@@ -26,17 +26,41 @@ export type SetVoteInput = {
   value: VoteIntent
 }
 
-// [LAW:dataflow-not-control-flow] Same shape every call: write (or remove) the
-// vote row, then read the new score. The discriminator on `value` decides which
-// SQL statement runs; both arms terminate at the same "select the new score"
-// step. The "skip the write" anti-pattern would be an if that returns early —
-// here every call to setVote mutates the votes table and returns the new score.
+// [LAW:types-are-the-program] setVote has two real outcomes — the vote applied,
+// or the post does not exist. The "post not found" arm used to be encoded as a
+// thrown FK-constraint error that the route then mis-mapped to 500. Lifting it
+// into a discriminated return makes the route's HTTP mapping mechanical: 200
+// on `ok`, 404 on `post_not_found`. Real I/O failures still throw — the route
+// still 500s on those, which is the correct shape.
+export type SetVoteResult =
+  | { ok: true; score: number; value: VoteValue | null }
+  | { ok: false; reason: 'post_not_found' }
+
+// [LAW:dataflow-not-control-flow] Same shape every call: confirm the post
+// exists, then write (or remove) the vote row, then read the new score. The
+// discriminator on `value` decides which SQL statement runs; both arms
+// terminate at the same "select the new score" step.
 export async function setVote(
   input: SetVoteInput,
   ctx: { env: Env },
-): Promise<{ score: number; value: VoteValue | null }> {
+): Promise<SetVoteResult> {
   const { postId, voterId, value } = input
   const database = db(ctx.env)
+
+  // [LAW:single-enforcer] The post-existence check is the writer's
+  // responsibility; the route is HTTP-shape only. A pre-check is symmetric
+  // across insert and delete (DELETE on a non-existent row is silently a
+  // no-op, so an FK-catch on the insert arm wouldn't cover the retract
+  // case). The TOCTOU race (post deleted between this check and the write)
+  // surfaces as an FK violation — that's a legitimate 5xx, not a 404.
+  const exists = await database
+    .select({ id: posts.id })
+    .from(posts)
+    .where(eq(posts.id, postId))
+    .limit(1)
+  if (exists.length === 0) {
+    return { ok: false, reason: 'post_not_found' }
+  }
 
   if (value === 0) {
     await database
@@ -62,6 +86,7 @@ export async function setVote(
   }
 
   return {
+    ok: true,
     score: await scoreFor(database, postId),
     value: value === 0 ? null : value,
   }

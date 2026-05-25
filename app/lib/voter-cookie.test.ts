@@ -11,6 +11,7 @@ function makeRequest(opts: { url?: string; cookie?: string } = {}): Request {
 // works; the validator does not care about version bits, only the hex/dash shape.
 const UUID_A = '11111111-2222-3333-4444-555555555555'
 const UUID_B = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+const UUID_C = '0123abcd-4567-89ef-0123-456789abcdef'
 
 describe('readVoterId', () => {
   it('returns undefined when no Cookie header is present', () => {
@@ -29,6 +30,12 @@ describe('readVoterId', () => {
     expect(
       readVoterId(makeRequest({ cookie: `foo=bar; slopspot_voter=${UUID_B}; baz=qux` })),
     ).toBe(UUID_B)
+  })
+
+  it('reads slopspot_voter regardless of cookie order', () => {
+    expect(
+      readVoterId(makeRequest({ cookie: `slopspot_voter=${UUID_C}; trailing=x` })),
+    ).toBe(UUID_C)
   })
 
   it('rejects an empty slopspot_voter value as if no cookie were present', () => {

@@ -38,7 +38,16 @@ const bodySchema = z.object({
 function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin")
   if (origin === null) return true
-  return new URL(origin).host === new URL(request.url).host
+  // `Origin: null` (literal string) is what browsers send from sandboxed
+  // iframes / opaque origins (RFC 6454). `new URL("null")` throws — so a
+  // try/catch is the discriminator: any parse failure is treated as
+  // "definitely not our origin." Fail closed; the gate exists to reject the
+  // untrusted case, and an unparseable origin is untrusted by definition.
+  try {
+    return new URL(origin).host === new URL(request.url).host
+  } catch {
+    return false
+  }
 }
 
 export async function action({ request, params, context }: Route.ActionArgs) {
@@ -71,9 +80,22 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     { env: context.cloudflare.env },
   )
 
+  if (!result.ok) {
+    // [LAW:types-are-the-program] Exhaustive switch on the closed reason
+    // union — adding a new failure mode in setVote stops compilation here
+    // until a status code is chosen.
+    switch (result.reason) {
+      case "post_not_found":
+        return Response.json({ error: "post not found", postId: params.id }, { status: 404 })
+    }
+  }
+
   const headers = new Headers({ "content-type": "application/json" })
   if (voter.setCookieHeader !== null) {
     headers.set("set-cookie", voter.setCookieHeader)
   }
-  return new Response(JSON.stringify(result), { headers })
+  return new Response(
+    JSON.stringify({ score: result.score, value: result.value }),
+    { headers },
+  )
 }
