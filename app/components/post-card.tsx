@@ -18,10 +18,21 @@ export function PostCard({
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
         <OriginBadge origin={post.origin} />
+        {/* [LAW:types-are-the-program] Fork button gated on the content
+            discriminator at compile time — uploads carry no recipe and
+            therefore cannot be forked, by construction. No runtime check,
+            no fallback branch. */}
         {post.content.kind === "generation" && (
           <>
+            <ForkLink postId={post.id} />
             <ProviderBadge providerId={post.content.recipe.providerId} />
             <StatusBadge status={post.content.status} />
+            {/* [LAW:types-are-the-program] parentId is optional in the recipe;
+                a present value means this post is itself a fork. Lineage is
+                opt-in by data — the badge renders or not, no flag needed. */}
+            {post.content.recipe.parentId !== undefined && (
+              <ForkedFromBadge parentId={post.content.recipe.parentId} />
+            )}
           </>
         )}
         <span className="ml-auto font-mono text-white/40">{relativeTime(post.createdAt)}</span>
@@ -234,6 +245,36 @@ function ProviderBadge({ providerId }: { providerId: string }) {
   return (
     <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-white/60">
       {providerId}
+    </span>
+  )
+}
+
+// [LAW:single-enforcer] The Fork link only exists in PostCard. The button-vs-
+// link choice is deliberate: forking navigates to a form page (recipe editing
+// is not a one-click action), so an <a> with a meaningful href is the right
+// affordance — middle-click opens the form in a new tab, no JS needed for
+// discoverability.
+function ForkLink({ postId }: { postId: string }) {
+  return (
+    <a
+      href={`/fork/${postId}`}
+      className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-white/60 transition hover:bg-emerald-400/15 hover:text-emerald-300"
+    >
+      fork
+    </a>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The lineage badge is a pure function of
+// recipe.parentId — it renders when the data says so. No "is this a fork"
+// flag, no parallel boolean; the optional id is the discriminator.
+function ForkedFromBadge({ parentId }: { parentId: string }) {
+  return (
+    <span
+      className="rounded bg-fuchsia-400/10 px-1.5 py-0.5 font-mono text-fuchsia-300/90"
+      title={`forked from ${parentId}`}
+    >
+      forked from p:{parentId.slice(0, 8)}
     </span>
   )
 }

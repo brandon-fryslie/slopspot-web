@@ -36,6 +36,7 @@ export const replicateIdeogramMock: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
+  promptMaxLength: 1000,
   defaultParamsForRecipe({ prompt, seed }): Params {
     return {
       prompt,

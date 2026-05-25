@@ -29,6 +29,7 @@ export const falFluxMock: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
+  promptMaxLength: 500,
   defaultParamsForRecipe({ prompt }): Params {
     return { prompt, steps: 4 }
   },
