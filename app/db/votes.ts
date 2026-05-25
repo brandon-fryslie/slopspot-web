@@ -18,7 +18,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { votes } from '~/db/schema'
-import type { PostId, VoteIntent } from '~/lib/domain'
+import type { PostId, VoteIntent, VoteValue } from '~/lib/domain'
 
 export type SetVoteInput = {
   postId: PostId
@@ -34,7 +34,7 @@ export type SetVoteInput = {
 export async function setVote(
   input: SetVoteInput,
   ctx: { env: Env },
-): Promise<{ score: number; value: -1 | 1 | null }> {
+): Promise<{ score: number; value: VoteValue | null }> {
   const { postId, voterId, value } = input
   const database = db(ctx.env)
 

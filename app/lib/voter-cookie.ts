@@ -20,18 +20,34 @@ const COOKIE_NAME = 'slopspot_voter'
 // a fresh identity — votes from the old id remain, the new id starts at zero.
 const COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60
 
+// [LAW:types-are-the-program] The cookie is the trust boundary; whatever the
+// client sends arrives as an arbitrary string. The only shape `crypto.randomUUID`
+// emits is RFC-4122 hex-dash UUIDs, so that IS the legitimate shape — anything
+// else is forged or stale and must be rejected at parse, not papered over later
+// (e.g. with an empty-string sentinel collision in the feed reader's LEFT JOIN).
+// [LAW:single-enforcer] one validator at one boundary; downstream code can trust
+// every voter id is a UUID by construction.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export type VoterResolution = {
   voterId: string
   setCookieHeader: string | null
 }
 
+// [LAW:types-are-the-program] The return discriminator (string | undefined)
+// absorbs both legitimate "no cookie" and "cookie present but malformed" into
+// the same arm. Downstream code does not need to know which fired — it just
+// gets a valid UUID or nothing. An attacker setting `slopspot_voter=` cannot
+// inject the empty-string sentinel that feed.ts uses for its LEFT JOIN, nor
+// can a stale/forged value be propagated into a stored vote row.
 function readCookie(request: Request): string | undefined {
   const header = request.headers.get('Cookie')
   if (header === null) return undefined
   for (const part of header.split(';')) {
     const trimmed = part.trim()
     if (trimmed.startsWith(`${COOKIE_NAME}=`)) {
-      return trimmed.slice(COOKIE_NAME.length + 1)
+      const value = trimmed.slice(COOKIE_NAME.length + 1)
+      return UUID_RE.test(value) ? value : undefined
     }
   }
   return undefined
