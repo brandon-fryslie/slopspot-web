@@ -56,6 +56,18 @@ describe('issueChallenge', () => {
     )
   })
 
+  it('throws malformed error when manifest value is empty string (not null)', async () => {
+    const store = new Map<string, string>([['manifest', '']])
+    const env = {
+      SLOPSPOT_CHALLENGE_SECRET: SECRET,
+      CHALLENGE_BANK: {
+        get: vi.fn(async (key: string) => store.get(key) ?? null),
+        put: vi.fn(),
+      } as unknown as KVNamespace,
+    } as unknown as Env
+    await expect(issueChallenge(env)).rejects.toThrow('challenge manifest is malformed')
+  })
+
   it('throws malformed error when manifest contains whitespace-only IDs', async () => {
     const store = new Map<string, string>([
       ['manifest', JSON.stringify({ ids: ['   '] })],

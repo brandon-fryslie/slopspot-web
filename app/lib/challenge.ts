@@ -62,7 +62,7 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
   if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
 
   const manifestJson = await env.CHALLENGE_BANK.get('manifest')
-  if (!manifestJson) throw new ChallengeBankEmptyError()
+  if (manifestJson === null) throw new ChallengeBankEmptyError()
 
   let ids: string[]
   try {
