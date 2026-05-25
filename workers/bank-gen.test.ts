@@ -151,16 +151,16 @@ describe('BankEntry shape', () => {
     const hard = randomHardForm()
     const entry: BankEntry = {
       id: crypto.randomUUID(),
-      briefing_text: buildMetaPrompt(easy, hard),
-      easy_form: easy,
-      hard_form: hard,
-      generated_at: Date.now(),
+      briefingText: buildMetaPrompt(easy, hard),
+      easyForm: easy,
+      hardForm: hard,
+      generatedAt: Date.now(),
     }
     expect(entry.id).toMatch(/^[0-9a-f-]{36}$/)
-    expect(entry.briefing_text.length).toBeGreaterThan(0)
-    expect(entry.easy_form.kind).toBeTruthy()
-    expect(entry.hard_form.kind).toBeTruthy()
-    expect(entry.generated_at).toBeGreaterThan(0)
+    expect(entry.briefingText.length).toBeGreaterThan(0)
+    expect(entry.easyForm.kind).toBeTruthy()
+    expect(entry.hardForm.kind).toBeTruthy()
+    expect(entry.generatedAt).toBeGreaterThan(0)
   })
 })
 
@@ -169,7 +169,9 @@ describe('BankEntry shape', () => {
 function makeFakeKv() {
   const store = new Map<string, string>()
   return {
-    put: vi.fn(async (key: string, value: string) => { store.set(key, value) }),
+    put: vi.fn(async (key: string, value: string, _opts?: { expirationTtl?: number }) => {
+      store.set(key, value)
+    }),
     get: vi.fn(async (key: string) => store.get(key) ?? null),
     store,
   }
@@ -216,9 +218,12 @@ describe('runBankGen', () => {
     const key = firstCall[0] as string
     const value = JSON.parse(firstCall[1] as string) as BankEntry
     expect(key).toMatch(/^[0-9a-f-]{36}$/)
-    expect(value.briefing_text).toBe('A SlopSpot briefing.')
-    expect(value.easy_form.kind).toBeTruthy()
-    expect(value.hard_form.kind).toBeTruthy()
+    expect(value.briefingText).toBe('A SlopSpot briefing.')
+    expect(value.easyForm.kind).toBeTruthy()
+    expect(value.hardForm.kind).toBeTruthy()
+    // TTL is critical to bank rotation — a regression that drops it makes entries permanent
+    const [, , ttlOpts] = firstCall as [string, string, { expirationTtl: number }]
+    expect(ttlOpts).toEqual({ expirationTtl: 48 * 60 * 60 })
   })
 
   it('counts failures when Claude calls fail', async () => {

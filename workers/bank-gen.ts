@@ -15,15 +15,16 @@ import {
 // ─── BankEntry ───────────────────────────────────────────────────────────────
 
 // [LAW:types-are-the-program] BankEntry is the canonical shape written to KV
-// and read by GET /api/challenge. The easy_form and hard_form fields carry the
-// full discriminated-union values — no string encoding — so the reader can
-// verify() without re-parsing.
+// and read by GET /api/challenge. camelCase follows the project-wide convention
+// for TypeScript types (snake_case is reserved for D1 SQL column names).
+// The easyForm and hardForm fields carry the full discriminated-union values —
+// no string encoding — so the reader can verify() without re-parsing.
 export type BankEntry = {
   id: string
-  briefing_text: string
-  easy_form: EasyForm
-  hard_form: HardForm
-  generated_at: number
+  briefingText: string
+  easyForm: EasyForm
+  hardForm: HardForm
+  generatedAt: number
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -227,10 +228,10 @@ async function processEntry(apiKey: string, kv: KVNamespace): Promise<EntryResul
 
   const entry: BankEntry = {
     id: crypto.randomUUID(),
-    briefing_text: briefingText,
-    easy_form: easy,
-    hard_form: hard,
-    generated_at: Date.now(),
+    briefingText,
+    easyForm: easy,
+    hardForm: hard,
+    generatedAt: Date.now(),
   }
 
   try {
@@ -253,7 +254,10 @@ type RunOpts = { batchSize?: number; concurrency?: number }
 // [LAW:dataflow-not-control-flow] Processes batchSize entries across concurrency
 // concurrent slots. Each batch slot always runs; variability is in the entry data,
 // not in whether slots execute.
-export async function runBankGen(env: Env, { batchSize = BATCH_SIZE, concurrency = CONCURRENCY }: RunOpts = {}): Promise<void> {
+export async function runBankGen(env: Env, opts: RunOpts = {}): Promise<void> {
+  const batchSize = Math.max(0, opts.batchSize ?? BATCH_SIZE)
+  const concurrency = Math.max(1, opts.concurrency ?? CONCURRENCY)
+
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('SLOPSPOT_ANTHROPIC_API_KEY is not configured')
 
