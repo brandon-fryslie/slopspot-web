@@ -36,6 +36,14 @@ export const replicateIdeogramMock: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
+  defaultParamsForRecipe({ prompt, seed }): Params {
+    return {
+      prompt,
+      seed: seed & 0x7fffffff,
+      styleType: 'Auto',
+      magicPromptOption: 'Auto',
+    }
+  },
   async generate({ params: p, aspectRatio }): Promise<Media> {
     const { w, h } = IDEOGRAM_DIMS[aspectRatio]
     const seed = p.seed ?? hash(p.prompt)

@@ -1,5 +1,5 @@
 import type { z } from "zod"
-import type { AspectRatio, Media, ProviderId } from "~/lib/domain"
+import type { AspectRatio, Media, ProviderId, StyleFamily } from "~/lib/domain"
 
 export type GenerationCapabilities = {
   producesMedia: Media["kind"][]
@@ -48,6 +48,35 @@ export type GenerationInput<P> = {
 // so a provider can never receive a ratio it doesn't accept. Per [LAW:single-enforcer]
 // this is the authoritative source — `paramsSchema` does not redundantly carry
 // aspect-ratio constraints.
+// [LAW:locality-or-seam] What the chooser hands to a provider to construct
+// sensible default params for a recipe — the *recipe* fields the chooser is
+// committed to, not the provider's already-known concerns.
+//
+// `seed` is a deterministic 32-bit unsigned int derived from the chooser's
+// own hash of (scheduledTime, 'params'). Providers that support seeding
+// (sdxl, ideogram) use it for reproducibility; providers that don't (fal-flux
+// schnell) ignore it.
+export type RecipeBuilderInput = {
+  prompt: string
+  styleFamily: StyleFamily
+  seed: number
+}
+
+// [LAW:locality-or-seam] The plugin contract. Adding a new provider is one new
+// file implementing this interface. Removing one is one deletion. No core code
+// special-cases providers — it asks the registry.
+//
+// `supportedAspectRatios` declares which canonical aspect-ratio tokens this
+// provider can serve. The chooser samples within `provider.supportedAspectRatios`
+// so a provider can never receive a ratio it doesn't accept. Per [LAW:single-enforcer]
+// this is the authoritative source — `paramsSchema` does not redundantly carry
+// aspect-ratio constraints.
+//
+// `defaultParamsForRecipe` builds the provider's own params shape from
+// canonical recipe fields. The chooser knows about style/prompt; the provider
+// knows about its native params — this method is the seam where those meet.
+// [LAW:locality-or-seam] per-provider knowledge stays in the provider file;
+// the chooser is a pure orchestrator with zero switch-on-providerId.
 export interface GenerationProvider<P> {
   readonly id: ProviderId
   readonly version: string
@@ -55,5 +84,6 @@ export interface GenerationProvider<P> {
   readonly paramsSchema: z.ZodType<P>
   readonly capabilities: GenerationCapabilities
   readonly supportedAspectRatios: readonly AspectRatio[]
+  defaultParamsForRecipe(input: RecipeBuilderInput): P
   generate(input: GenerationInput<P>, context: GenerationContext): Promise<Media>
 }

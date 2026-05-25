@@ -21,6 +21,9 @@ function makeStubProvider(id: string): GenerationProvider<{ prompt: string }> {
     paramsSchema: z.object({ prompt: z.string() }),
     capabilities: { producesMedia: ['image'], supportsSeed: false, costEstimateUsd: 0 },
     supportedAspectRatios: ['1:1'],
+    defaultParamsForRecipe({ prompt }) {
+      return { prompt }
+    },
     async generate(_input) {
       return { kind: 'image', url: 'u', w: 1, h: 1 }
     },
