@@ -185,6 +185,35 @@ export const votes = sqliteTable(
   ],
 )
 
+// Comments: flat thread per post. v1 is anonymous-only; author_id is the same
+// opaque voter cookie UUID the votes table uses. No FK to users (mirroring
+// votes) so a future auth surface can move user/agent ids into the same column
+// without a schema rewrite.
+//
+// Index on (post_id, created_at DESC) for thread fetch — the dominant read
+// pattern is "comments for this post, newest first." A WHERE post_id = ? scan
+// without the (post_id, created_at) index would force a sort on every read.
+//
+// No CHECK on body length. Length policy is enforced by Zod at the HTTP trust
+// boundary (1..2000); the DB constraint would lock that policy in two places
+// and force a migration when v2 changes the cap. [LAW:single-enforcer] puts
+// the rule at the boundary, not duplicated downward.
+export const comments = sqliteTable(
+  'comments',
+  {
+    id: text('id').primaryKey(),
+    postId: text('post_id')
+      .notNull()
+      .references(() => posts.id, { onDelete: 'cascade' }),
+    authorId: text('author_id').notNull(),
+    body: text('body').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    index('comments_post_created_idx').on(t.postId, t.createdAt),
+  ],
+)
+
 export type DbUser = typeof users.$inferSelect
 export type NewDbUser = typeof users.$inferInsert
 export type DbPost = typeof posts.$inferSelect
@@ -195,3 +224,5 @@ export type DbUpload = typeof uploads.$inferSelect
 export type NewDbUpload = typeof uploads.$inferInsert
 export type DbVote = typeof votes.$inferSelect
 export type NewDbVote = typeof votes.$inferInsert
+export type DbComment = typeof comments.$inferSelect
+export type NewDbComment = typeof comments.$inferInsert

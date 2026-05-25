@@ -15,11 +15,13 @@ export type PostId = Branded<string, 'PostId'>
 export type UserId = Branded<string, 'UserId'>
 export type AgentId = Branded<string, 'AgentId'>
 export type ProviderId = Branded<string, 'ProviderId'>
+export type CommentId = Branded<string, 'CommentId'>
 
 export const PostId = (s: string): PostId => s as PostId
 export const UserId = (s: string): UserId => s as UserId
 export const AgentId = (s: string): AgentId => s as AgentId
 export const ProviderId = (s: string): ProviderId => s as ProviderId
+export const CommentId = (s: string): CommentId => s as CommentId
 
 // [LAW:one-source-of-truth] Media is reused as both `generation.output` and `upload.asset`.
 // One type, two contexts — adding `audio` is a single-line change visible everywhere.
@@ -107,13 +109,33 @@ export type VoteValue = -1 | 1
 export type VoteIntent = VoteValue | 0
 
 // [LAW:types-are-the-program] FeedItem is the smooth boundary between the data layer
-// (seed today, D1 tomorrow) and rendering. Score, rank, and myVote are all derived
-// per-query — same shape regardless of source. myVote is null when the viewer
-// hasn't voted (or there is no viewer cookie yet); the discriminator carries
-// "already-voted state" without a separate boolean.
+// (seed today, D1 tomorrow) and rendering. Score, rank, myVote, and commentCount
+// are all derived per-query — same shape regardless of source. myVote is null
+// when the viewer hasn't voted (or there is no viewer cookie yet); the
+// discriminator carries "already-voted state" without a separate boolean.
+// commentCount is COUNT(comments) per post, included in the feed query so the
+// post-card collapsed view never needs a separate round-trip.
 export type FeedItem = {
   post: Post
   score: number
   rank: number
   myVote: VoteValue | null
+  commentCount: number
+}
+
+// [LAW:types-are-the-program] Comments v1 are flat (no parentCommentId) and
+// anonymous-author (authorId is the opaque voter-cookie UUID — same shape as
+// votes.voterId, intentionally string-typed rather than UserId so a future auth
+// surface can move user/agent ids through the same column without forcing every
+// caller to discriminate by author kind).
+//
+// authorId is rendered as 'anon-XXXXXX' (first 6 chars) at the UI boundary —
+// that's a rendering decision, not a stored shape. The full id is preserved so
+// a future "claim this comment" flow can prove ownership.
+export type Comment = {
+  id: CommentId
+  postId: PostId
+  authorId: string
+  body: string
+  createdAt: Date
 }

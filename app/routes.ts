@@ -5,5 +5,6 @@ export default [
   route("api/challenge", "routes/api.challenge.ts"),
   route("api/generate", "routes/api.generate.ts"),
   route("api/posts/:id/vote", "routes/api.posts.$id.vote.ts"),
+  route("api/posts/:id/comments", "routes/api.posts.$id.comments.ts"),
   route("media/:key", "routes/media.$key.ts"),
 ] satisfies RouteConfig

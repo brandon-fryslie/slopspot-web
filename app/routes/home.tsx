@@ -39,7 +39,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <ul className="flex flex-col gap-5">
           {items.map((item) => (
             <li key={item.post.id}>
-              <PostCard post={item.post} score={item.score} myVote={item.myVote} />
+              <PostCard
+                post={item.post}
+                score={item.score}
+                myVote={item.myVote}
+                commentCount={item.commentCount}
+              />
             </li>
           ))}
         </ul>
