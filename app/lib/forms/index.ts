@@ -256,7 +256,7 @@ const HARD_FORMS: { [K in HardForm['kind']]: FormHandler<Extract<HardForm, { kin
       const ws = words(prompt)
       const target = f.target.toLowerCase()
       if (ws.length < target.length)
-        return { ok: false, detail: `only ${ws.length} words; need at least ${target.length}` }
+        return { ok: false, detail: `only ${ws.length} ${ws.length === 1 ? 'word' : 'words'}; need at least ${target.length}` }
       for (let i = 0; i < target.length; i++) {
         if (ws[i][0] !== target[i])
           return {
@@ -413,8 +413,12 @@ const HARD_FORMS: { [K in HardForm['kind']]: FormHandler<Extract<HardForm, { kin
   },
 
   iambic_pentameter: {
+    // [LAW:types-are-the-program] The verifier checks syllable count only (10 per line),
+    // not stress alternation. True iambic stress verification would reject many valid lines
+    // due to lexical-vs-metrical stress divergence, causing undiagnosable false negatives.
+    // The describe() states exactly what is verified so agents know the actual rule.
     describe: (f) =>
-      `The text must be exactly ${f.lines} line${f.lines === 1 ? '' : 's'} of iambic pentameter — each line must have exactly 10 syllables. Use common words — the syllable counter requires recognized English vocabulary`,
+      `The text must be exactly ${f.lines} line${f.lines === 1 ? '' : 's'}, each with exactly 10 syllables (iambic pentameter line length). Use common words — the syllable counter requires recognized English vocabulary`,
     verify: (prompt, f) => {
       const lines = prompt.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
       if (lines.length !== f.lines)
@@ -561,7 +565,7 @@ function ordinal(n: number): string {
   return n + (suffixes[(v - 20) % 10] ?? suffixes[v] ?? suffixes[0])
 }
 
-// Manacher-inspired: find longest palindromic substring length in s.
+// Center-expansion palindrome search: O(n²) worst case, adequate for prompt strings ≤500 chars.
 function longestPalindrome(s: string): number {
   if (s.length === 0) return 0
   let best = 1

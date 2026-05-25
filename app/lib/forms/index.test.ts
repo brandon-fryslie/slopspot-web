@@ -284,7 +284,7 @@ describe('HardForm: acrostic', () => {
   it('fails when there are fewer words than target length', () => {
     const r = verifyHard('Cat', f)
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.detail).toContain('only 1 words')
+    if (!r.ok) expect(r.detail).toContain('only 1 word')
   })
 
   it('allows extra words after target length', () => {
@@ -345,7 +345,7 @@ describe('HardForm: embedded_palindrome', () => {
     expect(verifyHard('the level bridge stands', f)).toEqual({ ok: true })
   })
 
-  it('minLength=3 passes on most text (short palindromes abound)', () => {
+  it('minLength=5 passes when text contains a 5-char palindrome (radar)', () => {
     expect(verifyHard('a man with radar', { kind: 'embedded_palindrome', minLength: 5 })).toEqual({ ok: true })
   })
 
