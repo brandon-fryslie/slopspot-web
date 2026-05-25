@@ -67,7 +67,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     const messages: Record<typeof verification.reason, string> = {
       malformed: "challengeId is malformed",
       invalid_signature: "challengeId signature is invalid — obtain a fresh one from GET /api/challenge",
-      expired: "challengeId has expired (30min TTL) — obtain a fresh one from GET /api/challenge",
+      expired: "challengeId has expired (4min TTL) — obtain a fresh one from GET /api/challenge",
       wrong_ack: "acknowledgement does not satisfy the challenge — read GET /api/challenge in full",
     }
     return Response.json(
