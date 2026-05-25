@@ -475,7 +475,13 @@ describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () 
     // cyberpunk-neon has STYLE_FAMILY_ASPECT_BIAS = { '16:9': 1.5, '4:3': 1.5 }.
     // Base weights: 16:9 = 20, 9:16 = 15 → biased 30 vs 15 → 2× ratio.
     const cyber = chain.filter((r) => r.styleFamily === 'cyberpunk-neon')
-    if (cyber.length < 30) return  // not enough samples in this seed; skip
+    // [LAW:no-silent-fallbacks] Assert the sample is large enough rather
+    // than early-returning when it isn't — a deterministic 1000-fire chain
+    // across 14 style families gives each style ~71 picks on average, well
+    // above the 30 needed for this bias claim to be meaningful. A future
+    // chain change that drops cyber below 30 would have silently no-op'd
+    // this test under the old early-return; now it fails loudly.
+    expect(cyber.length).toBeGreaterThanOrEqual(30)
     const land16 = cyber.filter((r) => r.aspectRatio === '16:9').length
     const port9 = cyber.filter((r) => r.aspectRatio === '9:16').length
     // R4 perturbs this but the bias should still produce land16 > port9.
