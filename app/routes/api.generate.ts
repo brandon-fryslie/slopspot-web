@@ -52,9 +52,10 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   // [LAW:single-enforcer] Challenge gate: HMAC+TTL → bank lookup → easy form →
   // hard form → secret gates → quota reservation. One call, one place.
+  const internalToken = request.headers.get("X-Internal-Token") ?? undefined
   let vr
   try {
-    vr = await verifyChallenge(parsed.challengeId, parsed.params.prompt, context.cloudflare.env)
+    vr = await verifyChallenge(parsed.challengeId, parsed.params.prompt, context.cloudflare.env, { internalToken })
   } catch (e) {
     if (e instanceof ChallengeConfigError) {
       return Response.json({ error: "challenge verifier misconfigured" }, { status: 500 })

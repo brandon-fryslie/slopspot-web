@@ -32,8 +32,9 @@ function makeEnv(overrides: Partial<{
   secret: string
   quotaFull: boolean
   malformedEntry: boolean
+  internalSeedToken: string
 }> = {}): Env {
-  const { bankEmpty = false, secret = SECRET, quotaFull = false, malformedEntry = false } = overrides
+  const { bankEmpty = false, secret = SECRET, quotaFull = false, malformedEntry = false, internalSeedToken } = overrides
   const store = new Map<string, string>()
   if (!bankEmpty) {
     store.set('manifest', JSON.stringify({ ids: [FAKE_ENTRY_ID] }))
@@ -55,6 +56,7 @@ function makeEnv(overrides: Partial<{
       put: vi.fn(),
     } as unknown as KVNamespace,
     DB: makeMockDB(quotaFull),
+    ...(internalSeedToken !== undefined ? { SLOPSPOT_INTERNAL_SEED_TOKEN: internalSeedToken } : {}),
   } as unknown as Env
 }
 
@@ -259,7 +261,7 @@ describe('verifyChallenge', () => {
       const { challengeId } = await issueChallenge(env, now)
       const payloadB64 = challengeId.slice(0, challengeId.lastIndexOf('.'))
       seen.add(payloadB64.length % 4)
-      const result = await verifyChallenge(challengeId, VALID_PROMPT, env, now)
+      const result = await verifyChallenge(challengeId, VALID_PROMPT, env, { now })
       expect(result.kind, `now=${now} payloadLen%4=${payloadB64.length % 4}`).toBe('verified')
     }
     expect(seen.size).toBe(3)
@@ -437,5 +439,33 @@ describe('verifyChallenge', () => {
 
   it('DAILY_QUOTA constant is 20', () => {
     expect(DAILY_QUOTA).toBe(20)
+  })
+
+  // ─── internal bypass ──────────────────────────────────────────────────────
+
+  it('returns verified{entryId:internal} when internalToken matches SLOPSPOT_INTERNAL_SEED_TOKEN', async () => {
+    const env = makeEnv({ internalSeedToken: 'secret-seed-token' })
+    const result = await verifyChallenge('any-challenge-id', 'any prompt', env, { internalToken: 'secret-seed-token' })
+    expect(result).toEqual({ kind: 'verified', entryId: 'internal' })
+  })
+
+  it('bypasses all gate checks — does not call DB.batch (no quota consumed)', async () => {
+    const env = makeEnv({ internalSeedToken: 'secret-seed-token' })
+    const db = env.DB as unknown as { batch: ReturnType<typeof vi.fn> }
+    await verifyChallenge('any', 'any prompt', env, { internalToken: 'secret-seed-token' })
+    expect(db.batch).not.toHaveBeenCalled()
+  })
+
+  it('falls through to normal pipeline when internalToken does not match', async () => {
+    const env = makeEnv({ internalSeedToken: 'secret-seed-token' })
+    const { challengeId } = await issueChallenge(env)
+    const result = await verifyChallenge(challengeId, VALID_PROMPT, env, { internalToken: 'wrong-token' })
+    expect(result).toEqual({ kind: 'verified', entryId: FAKE_ENTRY_ID })
+  })
+
+  it('falls through to normal pipeline when SLOPSPOT_INTERNAL_SEED_TOKEN is not set', async () => {
+    const { challengeId } = await issueChallenge(makeEnv())
+    const result = await verifyChallenge(challengeId, VALID_PROMPT, makeEnv(), { internalToken: 'any-token' })
+    expect(result).toEqual({ kind: 'verified', entryId: FAKE_ENTRY_ID })
   })
 })

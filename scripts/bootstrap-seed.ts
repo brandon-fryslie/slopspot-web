@@ -29,10 +29,10 @@ const STATE_FILE = join(__dirname, '.bootstrap-state.json')
 // runs don't share idempotency records. A local run (p001 done against :8787)
 // does not skip p001 on the next --remote run (slopspot.ai).
 type BootstrapState = {
-  byTarget: Record<string, Record<string, { postId: string; createdAt: string }>>
+  byTarget: Record<string, Record<string, { postId: string }>>
 }
 
-function loadState(target: string): Record<string, { postId: string; createdAt: string }> {
+function loadState(target: string): Record<string, { postId: string }> {
   if (!existsSync(STATE_FILE)) return {}
   let raw: BootstrapState
   try {
@@ -44,7 +44,7 @@ function loadState(target: string): Record<string, { postId: string; createdAt: 
   return raw.byTarget?.[target] ?? {}
 }
 
-function saveState(target: string, records: Record<string, { postId: string; createdAt: string }>): void {
+function saveState(target: string, records: Record<string, { postId: string }>): void {
   let existing: BootstrapState = { byTarget: {} }
   if (existsSync(STATE_FILE)) {
     try {
@@ -112,6 +112,12 @@ async function main(): Promise<void> {
   const isRemote = args.includes('--remote')
   const forceReset = args.includes('--force')
 
+  const internalToken = process.env.SLOPSPOT_INTERNAL_SEED_TOKEN
+  if (!internalToken) {
+    console.warn('warning: SLOPSPOT_INTERNAL_SEED_TOKEN is not set — all generate requests will fail with 401.')
+    console.warn('  Set it to the same value configured as the Workers secret before running.')
+  }
+
   const baseUrl = isRemote ? 'https://slopspot.ai' : 'http://localhost:8787'
   const endpoint = `${baseUrl}/api/generate`
 
@@ -143,10 +149,14 @@ async function main(): Promise<void> {
 
     let response: Response
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (internalToken) headers['X-Internal-Token'] = internalToken
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
+          challengeId: 'internal',
+          agentId: 'bootstrap-seed',
           providerId: 'fal-flux',
           params: { prompt: spec.prompt, steps: 4 },
           styleFamily: 'photoreal',
@@ -170,10 +180,10 @@ async function main(): Promise<void> {
       continue
     }
 
-    const post = (await response.json()) as { id: string; createdAt: string }
-    records[spec.id] = { postId: post.id, createdAt: post.createdAt }
+    const { postId } = (await response.json()) as { postId: string }
+    records[spec.id] = { postId }
     saveState(baseUrl, records)
-    console.log(`ok → ${post.id}`)
+    console.log(`ok → ${postId}`)
     created++
   }
 
