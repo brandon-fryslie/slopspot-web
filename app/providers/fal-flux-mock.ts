@@ -29,6 +29,9 @@ export const falFluxMock: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
+  defaultParamsForRecipe({ prompt }): Params {
+    return { prompt, steps: 4 }
+  },
   async generate({ params: p, aspectRatio }): Promise<Media> {
     const { w, h } = dims[aspectRatio]
     const seed = encodeURIComponent(p.prompt).slice(0, 64)

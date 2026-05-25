@@ -54,6 +54,12 @@ export function parseReplicateSdxlResponse(
 // diff rather than a silent rotation.
 const SDXL_MODEL_VERSION = '7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc'
 
+// SDXL's neutral guidance scale — high enough to follow the prompt, low enough
+// not to over-saturate stylization. The chooser doesn't (yet) vary this by
+// style; if pl6.6 wants to push painterly styles toward higher guidance,
+// that's a per-style table here.
+const SDXL_DEFAULT_GUIDANCE = 7.5
+
 export const replicateSdxl: GenerationProvider<Params> = {
   id: ProviderId("replicate-sdxl"),
   version: "2026-05-24",
@@ -61,6 +67,9 @@ export const replicateSdxl: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.0035 },
   supportedAspectRatios: ASPECT_RATIOS,
+  defaultParamsForRecipe({ prompt, seed }): Params {
+    return { prompt, guidanceScale: SDXL_DEFAULT_GUIDANCE, seed }
+  },
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
     const { w, h } = REPLICATE_CANONICAL_DIMS[aspectRatio]
     const input = {

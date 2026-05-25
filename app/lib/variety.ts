@@ -84,6 +84,40 @@ export const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const
 export type AspectRatio = (typeof ASPECT_RATIOS)[number]
 export const aspectRatioSchema = z.enum(ASPECT_RATIOS)
 
+// [LAW:one-source-of-truth] The doc's §Aspect ratio policy distribution. Weights
+// are proportional (not probabilities); the weighted sampler normalizes. Kept
+// as raw percentages from the doc so a reviewer comparing this file to the
+// doc's table sees identical numbers.
+export const ASPECT_RATIO_BASE_WEIGHTS: Record<AspectRatio, number> = {
+  '1:1': 60,
+  '16:9': 20,
+  '9:16': 15,
+  '4:3': 3,
+  '3:4': 2,
+}
+
+// [LAW:dataflow-not-control-flow] Every style family carries a bias map, often
+// empty. The chooser reads the bias for any (style, ratio) and multiplies — no
+// "if style has a bias else use base" branch. The doc only calls out 6 styles
+// with 1.5× multipliers; the rest get an empty map that contributes no
+// multipliers (the chooser's fold treats absent keys as 1.0).
+export const STYLE_FAMILY_ASPECT_BIAS: Record<StyleFamily, Partial<Record<AspectRatio, number>>> = {
+  'oil-painting': {},
+  photoreal: {},
+  'cyberpunk-neon': { '16:9': 1.5, '4:3': 1.5 },
+  liminal: { '16:9': 1.5, '4:3': 1.5 },
+  'low-poly': {},
+  vaporwave: {},
+  watercolor: {},
+  anime: { '9:16': 1.5, '3:4': 1.5 },
+  cottagecore: {},
+  'haunted-mundane': {},
+  '1990s-cgi': { '9:16': 1.5, '3:4': 1.5 },
+  'botanical-illustration': { '9:16': 1.5, '3:4': 1.5 },
+  'brutalist-architecture': { '16:9': 1.5, '4:3': 1.5 },
+  'risograph-print': {},
+}
+
 // [LAW:types-are-the-program] Two SubjectTemplateId types, deliberately split:
 // the chooser's return type excludes T00 by construction (the backfill
 // sentinel is unreachable when generating new content), and the storage
@@ -143,6 +177,8 @@ export const STORED_SUBJECT_TEMPLATE_IDS = [
   ...CHOOSER_SUBJECT_TEMPLATE_IDS,
 ] as const
 export type StoredSubjectTemplateId = (typeof STORED_SUBJECT_TEMPLATE_IDS)[number]
+
+export const storedSubjectTemplateIdSchema = z.enum(STORED_SUBJECT_TEMPLATE_IDS)
 
 // Phrases verbatim from the doc's §Subject templates table. The chooser fills
 // {slot} placeholders with vocab values and the renderer normalizes any

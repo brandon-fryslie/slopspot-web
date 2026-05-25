@@ -33,6 +33,9 @@ export const replicateSdxlMock: GenerationProvider<Params> = {
   paramsSchema: params,
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
+  defaultParamsForRecipe({ prompt, seed }): Params {
+    return { prompt, guidanceScale: 7.5, seed }
+  },
   async generate({ params: p, aspectRatio }): Promise<Media> {
     const { w, h } = SDXL_DIMS[aspectRatio]
     const seed = p.seed ?? hash(p.prompt)

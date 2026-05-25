@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
-import { ProviderId, type AspectRatio, type Media } from "~/lib/domain"
+import { ProviderId, type AspectRatio, type Media, type StyleFamily } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
 import {
   REPLICATE_CANONICAL_DIMS,
@@ -79,15 +79,51 @@ export function parseReplicateIdeogramResponse(
 // reproducibility — a model rotation becomes a visible diff.
 const IDEOGRAM_MODEL_VERSION = '7cef9d520d672bb802588ad0d13151bc51aee9a408c270aebf25d6530045dd29'
 
+// [LAW:locality-or-seam] Style → ideogram styleType lives here, in the
+// provider file. The chooser doesn't know ideogram has a styleType field;
+// ideogram doesn't know the chooser exists. They meet at the recipe boundary.
+// 'Auto' is ideogram's "let the model pick" mode — explicit, not omitted, so
+// every variant of params has the same shape. [LAW:dataflow-not-control-flow]
+type IdeogramStyleType = NonNullable<Params['styleType']>
+const STYLE_TO_IDEOGRAM_STYLE_TYPE: Record<StyleFamily, IdeogramStyleType> = {
+  anime: 'Anime',
+  '1990s-cgi': 'Render 3D',
+  'risograph-print': 'Design',
+  vaporwave: 'Design',
+  'botanical-illustration': 'Design',
+  photoreal: 'Realistic',
+  'oil-painting': 'Auto',
+  'cyberpunk-neon': 'Auto',
+  liminal: 'Auto',
+  'low-poly': 'Auto',
+  watercolor: 'Auto',
+  cottagecore: 'Auto',
+  'haunted-mundane': 'Auto',
+  'brutalist-architecture': 'Auto',
+}
+
+// Ideogram's seed is a 31-bit non-negative int. The chooser hands us a 32-bit
+// unsigned int (0..2^32-1); mask the top bit so any chooser seed lands in
+// ideogram's range without changing the chooser's contract. [LAW:single-enforcer]
+// per-provider seed-shape translation, mirroring the per-provider aspect-ratio
+// translation already done here.
+const IDEOGRAM_SEED_MASK = 0x7fffffff
+
 export const replicateIdeogram: GenerationProvider<Params> = {
   id: ProviderId("replicate-ideogram"),
   version: "2026-05-24",
   displayName: "Replicate Ideogram v2 Turbo",
   paramsSchema: params,
-  // Replicate price as of 2025-11: $0.025/image for ideogram-v2-turbo. Used
-  // by the firehose budget guard to enforce the daily spend ceiling.
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.025 },
   supportedAspectRatios: ASPECT_RATIOS,
+  defaultParamsForRecipe({ prompt, styleFamily, seed }): Params {
+    return {
+      prompt,
+      seed: seed & IDEOGRAM_SEED_MASK,
+      styleType: STYLE_TO_IDEOGRAM_STYLE_TYPE[styleFamily],
+      magicPromptOption: 'Auto',
+    }
+  },
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
     const { w, h } = REPLICATE_CANONICAL_DIMS[aspectRatio]
     const input = {
