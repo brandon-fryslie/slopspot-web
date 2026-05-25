@@ -60,9 +60,10 @@
     }
   ],
   // [LAW:one-source-of-truth] CHALLENGE_BANK KV namespace is the single store
-  // for bank-gen BankEntry records. bank-gen (this PR) writes; GET /api/challenge
-  // (slopspot-shell-dqx.6) will read. 48h TTL provides overlap so the previous
-  // day's bank remains available until the next cron run overwrites it.
+  // for bank-gen BankEntry records. bank-gen (this PR) writes under UUID keys
+  // with 48h TTL; GET /api/challenge (slopspot-shell-dqx.6) will read. At peak
+  // overlap (day N+1 cron runs before day N entries expire) up to ~2000 keys
+  // are live; they expire automatically — no manual cleanup needed.
   "kv_namespaces": [
     {
       "binding": "CHALLENGE_BANK",

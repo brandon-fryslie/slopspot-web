@@ -198,7 +198,6 @@ describe('runBankGen', () => {
     const fakeKv = makeFakeKv()
     const env = makeEnv({ CHALLENGE_BANK: fakeKv as unknown as KVNamespace })
 
-    // Return a valid Anthropic response for every fetch call
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -210,16 +209,9 @@ describe('runBankGen', () => {
       }),
     )
 
-    // Use a tiny BATCH_SIZE by running only 2 entries via a patched loop
-    // (we can't change the constant, but we can spy on put count)
-    // Run with full BATCH_SIZE=1000 would be slow; instead, patch processEntry indirectly
-    // by verifying KV.put is called >= 1 time after a small run. Since we can't
-    // override BATCH_SIZE externally, we verify the contract via a 1-entry smoke test
-    // by running the full function and checking that KV.put was called at all.
-    // (This test does invoke 1000 fetch calls in test; mock is fast so it stays under 1s.)
-    await runBankGen(env)
+    await runBankGen(env, { batchSize: 5 })
 
-    expect(fakeKv.put).toHaveBeenCalledTimes(1000)
+    expect(fakeKv.put).toHaveBeenCalledTimes(5)
     const firstCall = fakeKv.put.mock.calls[0]
     const key = firstCall[0] as string
     const value = JSON.parse(firstCall[1] as string) as BankEntry
@@ -233,7 +225,6 @@ describe('runBankGen', () => {
     const fakeKv = makeFakeKv()
     const env = makeEnv({ CHALLENGE_BANK: fakeKv as unknown as KVNamespace })
 
-    // Always fail the Claude call (both first attempt and retry)
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -244,11 +235,35 @@ describe('runBankGen', () => {
     )
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await runBankGen(env)
+    await runBankGen(env, { batchSize: 5 })
 
-    // No KV writes on total failure
     expect(fakeKv.put).not.toHaveBeenCalled()
-    // Failures were logged
     expect(consoleSpy).toHaveBeenCalled()
+  })
+
+  it('continues when KV put fails — does not abort the batch', async () => {
+    const fakeKv = makeFakeKv()
+    fakeKv.put.mockRejectedValueOnce(new Error('KV transient failure'))
+    const env = makeEnv({ CHALLENGE_BANK: fakeKv as unknown as KVNamespace })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ content: [{ type: 'text', text: 'briefing' }] }),
+        text: () => Promise.resolve(''),
+      }),
+    )
+
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await runBankGen(env, { batchSize: 3, concurrency: 1 })
+
+    // One failure (first entry KV put threw), two successes
+    expect(fakeKv.put).toHaveBeenCalledTimes(3)
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'bank-gen: KV put failed',
+      expect.objectContaining({ err: expect.any(Error) }),
+    )
   })
 })

@@ -233,19 +233,27 @@ async function processEntry(apiKey: string, kv: KVNamespace): Promise<EntryResul
     generated_at: Date.now(),
   }
 
-  await kv.put(entry.id, JSON.stringify(entry), { expirationTtl: BANK_TTL_SECONDS })
+  try {
+    await kv.put(entry.id, JSON.stringify(entry), { expirationTtl: BANK_TTL_SECONDS })
+  } catch (kvErr) {
+    console.error('bank-gen: KV put failed', { id: entry.id, easyKind: easy.kind, err: kvErr })
+    return { ok: false, easyKind: easy.kind, hardKind: hard.kind }
+  }
+
   return { ok: true }
 }
 
 // ─── Main entrypoint ──────────────────────────────────────────────────────────
 
+type RunOpts = { batchSize?: number; concurrency?: number }
+
 // [LAW:single-enforcer] runBankGen is the one place that writes to CHALLENGE_BANK.
 // workers/app.ts calls it; nothing else does.
 //
-// [LAW:dataflow-not-control-flow] Processes BATCH_SIZE entries across CONCURRENCY
-// concurrent slots. Each batch slot always runs; empty results at the end of the
-// last batch are the data deciding that the loop is done, not a branch.
-export async function runBankGen(env: Env): Promise<void> {
+// [LAW:dataflow-not-control-flow] Processes batchSize entries across concurrency
+// concurrent slots. Each batch slot always runs; variability is in the entry data,
+// not in whether slots execute.
+export async function runBankGen(env: Env, { batchSize = BATCH_SIZE, concurrency = CONCURRENCY }: RunOpts = {}): Promise<void> {
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('SLOPSPOT_ANTHROPIC_API_KEY is not configured')
 
@@ -253,10 +261,11 @@ export async function runBankGen(env: Env): Promise<void> {
   let failures = 0
   const startMs = Date.now()
 
-  const indices = Array.from({ length: BATCH_SIZE }, (_, i) => i)
-  for (let offset = 0; offset < BATCH_SIZE; offset += CONCURRENCY) {
-    const batch = indices.slice(offset, offset + CONCURRENCY)
-    const results = await Promise.all(batch.map(() => processEntry(apiKey, env.CHALLENGE_BANK)))
+  for (let offset = 0; offset < batchSize; offset += concurrency) {
+    const slotCount = Math.min(concurrency, batchSize - offset)
+    const results = await Promise.all(
+      Array.from({ length: slotCount }, () => processEntry(apiKey, env.CHALLENGE_BANK)),
+    )
     for (const r of results) {
       if (r.ok) successes++
       else failures++
@@ -266,7 +275,7 @@ export async function runBankGen(env: Env): Promise<void> {
   console.log('bank-gen: batch complete', {
     successes,
     failures,
-    total: BATCH_SIZE,
+    total: batchSize,
     durationMs: Date.now() - startMs,
   })
 }
