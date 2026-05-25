@@ -76,8 +76,14 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
   }
   if (ids.length === 0) throw new ChallengeBankEmptyError()
 
-  // Shuffle once so retries cover distinct candidates — no repeated picks on the same bad ID
-  const candidates = [...ids].sort(() => Math.random() - 0.5).slice(0, 3)
+  // Partial Fisher-Yates: O(k) where k=3, uniform distribution, distinct picks
+  const pool = [...ids]
+  const count = Math.min(3, pool.length)
+  for (let i = 0; i < count; i++) {
+    const j = i + Math.floor(Math.random() * (pool.length - i))
+    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+  }
+  const candidates = pool.slice(0, count)
   let briefingText: string | null = null
   let entryId: string | null = null
   for (const candidate of candidates) {
