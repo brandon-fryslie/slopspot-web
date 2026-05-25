@@ -1,19 +1,29 @@
 {
-  // [LAW:locality-or-seam] Standalone tsconfig for Workers integration tests.
-  // NOT referenced by tsconfig.json — TypeScript project references require
-  // the referenced project to emit declarations, but noEmit:true (inherited
-  // by tsconfig.cloudflare.json from tsconfig.json) forbids that.
+  // [LAW:locality-or-seam] Separate tsconfig for Workers integration tests.
+  // Referenced from tsconfig.json root so pnpm typecheck (tsc -b) checks these
+  // files. The "noEmit constraint prevents project references" note in the earlier
+  // version was wrong: the root tsconfig.json CAN reference this project even
+  // though both inherit noEmit:true — the constraint only fires when a composite
+  // PROJECT tries to reference another composite project that has noEmit (sibling
+  // reference). Root-level references are exempt from that restriction.
   //
-  // Purpose: IDE type checking and vitest's TypeScript integration for test
-  // files in app/storage/__tests__/ and app/routes/__tests__/. These files
-  // are excluded from tsconfig.cloudflare.json (which lacks the two extra
-  // types they need):
+  // This project includes all of app/**/* so ~/ imports in test files resolve,
+  // plus the two type additions the main app environment must not have:
   //   - @cloudflare/vitest-pool-workers: declares the virtual `cloudflare:test`
-  //     module (env, fetchMock, SELF)
+  //     module (env, fetchMock, SELF) — only meaningful in test contexts
   //   - node: provides Buffer for binary fetchMock reply bodies (nodejs_compat
-  //     makes it available at runtime; this file makes it available to tsc)
+  //     makes it available at runtime; this makes it visible to tsc)
+  //
+  // app/**/* overlaps with tsconfig.cloudflare.json. TypeScript tolerates dual-
+  // include across composite projects that both inherit noEmit:true — same
+  // precedent as app/lib/variety.ts being included in tsconfig.node.json.
+  // The test dirs are EXCLUDED from tsconfig.cloudflare.json so they are only
+  // typechecked here (with the correct type environment), never under cloudflare
+  // types (which would fail on cloudflare:test / Buffer).
   "compilerOptions": {
+    "composite": true,
     "strict": true,
+    "skipLibCheck": true,
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "types": ["vite/client", "@cloudflare/vitest-pool-workers", "node"],
     "target": "ES2022",
@@ -21,6 +31,7 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "baseUrl": ".",
+    "rootDirs": [".", "./.react-router/types"],
     "paths": {
       "~/*": ["./app/*"]
     },
@@ -29,15 +40,11 @@
     "noEmit": true
   },
   "include": [
-    "app/storage/__tests__/**/*",
-    "app/routes/__tests__/**/*",
-    // App source the tests import from — included directly since project
-    // references require emit which noEmit forbids.
-    "app/storage/ingest.ts",
-    "app/routes/media.$key.ts",
-    "app/lib/domain.ts",
-    "app/lib/variety.ts",
-    "app/db/client.ts",
+    ".react-router/types/**/*",
+    "app/**/*",
+    "app/**/.server/**/*",
+    "app/**/.client/**/*",
+    "workers/**/*",
     "worker-configuration.d.ts"
   ]
 }

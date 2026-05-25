@@ -1,6 +1,5 @@
 import { defineWorkspace } from 'vitest/config'
 import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config'
-import tsconfigPaths from 'vite-tsconfig-paths'
 import { resolve } from 'path'
 
 // [LAW:locality-or-seam] Two distinct test environments need two distinct
