@@ -438,4 +438,36 @@ describe('verifyChallenge', () => {
   it('DAILY_QUOTA constant is 20', () => {
     expect(DAILY_QUOTA).toBe(20)
   })
+
+  // ─── internal bypass ──────────────────────────────────────────────────────
+
+  it('returns verified{entryId:internal} when internalToken matches SLOPSPOT_INTERNAL_SEED_TOKEN', async () => {
+    const env = { ...makeEnv(), SLOPSPOT_INTERNAL_SEED_TOKEN: 'secret-seed-token' } as unknown as Env
+    const result = await verifyChallenge('any-challenge-id', 'any prompt', env, Date.now(), 'secret-seed-token')
+    expect(result).toEqual({ kind: 'verified', entryId: 'internal' })
+  })
+
+  it('bypasses all gate checks — does not call DB.batch (no quota consumed)', async () => {
+    const db = makeMockDB()
+    const env = {
+      ...makeEnv(),
+      SLOPSPOT_INTERNAL_SEED_TOKEN: 'secret-seed-token',
+      DB: db,
+    } as unknown as Env
+    await verifyChallenge('any', 'any prompt', env, Date.now(), 'secret-seed-token')
+    expect(db.batch).not.toHaveBeenCalled()
+  })
+
+  it('falls through to normal pipeline when internalToken does not match', async () => {
+    const env = { ...makeEnv(), SLOPSPOT_INTERNAL_SEED_TOKEN: 'secret-seed-token' } as unknown as Env
+    const { challengeId } = await issueChallenge(env)
+    const result = await verifyChallenge(challengeId, VALID_PROMPT, env, Date.now(), 'wrong-token')
+    expect(result).toEqual({ kind: 'verified', entryId: FAKE_ENTRY_ID })
+  })
+
+  it('falls through to normal pipeline when SLOPSPOT_INTERNAL_SEED_TOKEN is not set', async () => {
+    const { challengeId } = await issueChallenge(makeEnv())
+    const result = await verifyChallenge(challengeId, VALID_PROMPT, makeEnv(), Date.now(), 'any-token')
+    expect(result).toEqual({ kind: 'verified', entryId: FAKE_ENTRY_ID })
+  })
 })
