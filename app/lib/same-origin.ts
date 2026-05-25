@@ -1,9 +1,12 @@
-// [LAW:single-enforcer] The one CSRF same-origin gate for state-changing POST
-// routes. Born inlined in /api/posts/:id/vote; lifted out here at the moment of
-// its second consumer (/api/posts/:id/comments) so the two routes cannot drift
-// from one another. Every state-changing POST route imports this; the gate's
-// scheme/host/port comparison and its fail-closed behavior on opaque origins
-// live in exactly one place.
+// [LAW:single-enforcer] The CSRF same-origin gate shared by the cookie-auth
+// POST routes — /api/posts/:id/vote and /api/posts/:id/comments. Born inlined
+// in the vote route; lifted here at the moment of its second consumer so the
+// two routes cannot drift from one another, with the scheme/host/port
+// comparison and the fail-closed behavior on opaque origins living in exactly
+// one place. /api/generate is the other state-changing POST in this app but
+// has a different threat shape (proof-of-briefing-read challenge gate, not
+// cookie identity) so it does not call this — adopting it there is a separate
+// security decision tracked outside this module.
 //
 // [LAW:types-are-the-program] Returns boolean — the closed answer the route
 // needs ("is this request same-origin?"). The body shape and method check stay

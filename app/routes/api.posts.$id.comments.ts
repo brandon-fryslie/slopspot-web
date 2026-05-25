@@ -3,6 +3,7 @@ import { z } from "zod"
 import { createComment, listComments } from "~/db/comments"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
+import { invalidBodyResponse } from "~/lib/api-errors"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP trust boundary for comments. Verification
@@ -37,10 +38,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   try {
     parsed = bodySchema.parse(await request.json())
   } catch (e) {
-    return Response.json(
-      { error: "invalid body", detail: String(e), hint: "body must be { body: string } where body is 1..2000 chars after trim" },
-      { status: 400 },
-    )
+    return invalidBodyResponse(e, "body must be { body: string } where body is 1..2000 chars after trim")
   }
 
   const voter = resolveVoter(request)

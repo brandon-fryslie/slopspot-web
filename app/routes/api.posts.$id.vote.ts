@@ -3,6 +3,7 @@ import { z } from "zod"
 import { setVote } from "~/db/votes"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
+import { invalidBodyResponse } from "~/lib/api-errors"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP trust boundary for votes. Verification order:
@@ -35,10 +36,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   try {
     parsed = bodySchema.parse(await request.json())
   } catch (e) {
-    return Response.json(
-      { error: "invalid body", detail: String(e), hint: "body must be { value: 1 | -1 | 0 } — 0 retracts" },
-      { status: 400 },
-    )
+    return invalidBodyResponse(e, "body must be { value: 1 | -1 | 0 } — 0 retracts")
   }
 
   const voter = resolveVoter(request)

@@ -190,9 +190,11 @@ export const votes = sqliteTable(
 // votes) so a future auth surface can move user/agent ids into the same column
 // without a schema rewrite.
 //
-// Index on (post_id, created_at DESC) for thread fetch — the dominant read
-// pattern is "comments for this post, newest first." A WHERE post_id = ? scan
-// without the (post_id, created_at) index would force a sort on every read.
+// Index on (post_id, created_at) for thread fetch — the dominant read pattern
+// is "comments for this post, newest first." SQLite traverses a B-tree index
+// in either direction, so an ORDER BY created_at DESC is served by this index
+// without an explicit DESC; the alternative shape (no index) would force a
+// sort on every read.
 //
 // No CHECK on body length. Length policy is enforced by Zod at the HTTP trust
 // boundary (1..2000); the DB constraint would lock that policy in two places
