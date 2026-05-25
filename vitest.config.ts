@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
 // [LAW:locality-or-seam] Test config is its own concern, kept off vite.config.ts.
@@ -17,8 +17,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: [
-      '**/node_modules/**',
-      '**/dist/**',
+      ...configDefaults.exclude,
       // Workers integration tests require miniflare — they live in a separate
       // workspace project (see vitest.workspace.ts).
       'app/storage/__tests__/**',

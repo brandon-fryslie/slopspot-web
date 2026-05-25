@@ -1,6 +1,6 @@
 import { defineWorkspace } from 'vitest/config'
 import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config'
-import { resolve } from 'path'
+import { fileURLToPath } from 'url'
 
 // [LAW:locality-or-seam] Two distinct test environments need two distinct
 // projects. The node project is the existing unit test suite; it uses vitest's
@@ -18,15 +18,13 @@ export default defineWorkspace([
   // we don't load the full wrangler.jsonc to avoid pulling in the main Worker
   // (workers/app.ts) and its full dependency graph into the test isolate.
   //
-  // resolve.alias is used instead of tsconfigPaths() because the workers
-  // test files are excluded from tsconfig.cloudflare.json (they need their
-  // own types) and tsconfig.workers-test.json is not referenced from
-  // tsconfig.json (noEmit constraint prevents project references). Without
-  // a referenced tsconfig that covers these files, tsconfigPaths() cannot
-  // discover the ~/* alias, so we declare it directly.
+  // resolve.alias is used instead of tsconfigPaths() because tsconfigPaths()
+  // discovers tsconfigs by traversing the tsconfig.json reference graph, and
+  // tsconfig.workers-test.json is a leaf that covers a different type env than
+  // the rest of the graph. Using import.meta.url (proper ESM) avoids __dirname.
   defineWorkersProject({
     resolve: {
-      alias: { '~': resolve(__dirname, 'app') },
+      alias: { '~': fileURLToPath(new URL('./app', import.meta.url)) },
     },
     test: {
       name: 'workers',

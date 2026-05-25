@@ -23,7 +23,7 @@ describe('/media/:key route loader', () => {
 
   it('returns 200 with correct content-type, immutable cache header, and byte-identical body for a stored object', async () => {
     const bytes = new Uint8Array([1, 2, 3, 4, 5])
-    const key = 'test-sha256-key-abc123'
+    const key = 'ab'.repeat(32)
     await env.MEDIA.put(key, bytes.buffer, { httpMetadata: { contentType: 'image/webp' } })
 
     const response = await loader(args(key))
