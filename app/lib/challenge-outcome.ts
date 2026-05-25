@@ -1,5 +1,6 @@
-// [LAW:single-enforcer] One module owns the mapping from internal verification
-// outcomes to HTTP responses. No code outside this module decides response shape.
+// [LAW:single-enforcer] Designated response-shape seam for the protein-shell
+// gate flow. The old route (api.generate.ts) will be replaced by ticket .7;
+// once wired, this is the only place that maps verification outcomes to HTTP.
 // [LAW:one-source-of-truth] Callers log the full Outcome (gate names, entryIds);
 // the HTTP body strips mechanism-identifying fields where caller-opacity applies.
 
@@ -17,10 +18,7 @@ function assertNever(x: never): never {
 }
 
 function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
+  return Response.json(body, { status })
 }
 
 export function outcomeToResponse(o: Outcome): Response {
