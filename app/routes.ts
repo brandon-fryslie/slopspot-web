@@ -4,5 +4,6 @@ export default [
   index("routes/home.tsx"),
   route("api/challenge", "routes/api.challenge.ts"),
   route("api/generate", "routes/api.generate.ts"),
+  route("api/posts/:id/vote", "routes/api.posts.$id.vote.ts"),
   route("media/:key", "routes/media.$key.ts"),
 ] satisfies RouteConfig

@@ -9,7 +9,8 @@
 // vote score is a separate aggregate) and the domain shape (Content/GenerationStatus
 // are closed discriminated unions). Everything below is the residue of that one map.
 
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
   generations,
@@ -29,6 +30,7 @@ import {
   type Media,
   type Origin,
   type Post,
+  type VoteValue,
 } from '~/lib/domain'
 import {
   aspectRatioSchema,
@@ -183,7 +185,22 @@ function toPost(row: FeedRow): Post {
   }
 }
 
-export async function getFeed(env: Env): Promise<FeedItem[]> {
+// [LAW:types-are-the-program] The schema's votes_value_shape CHECK guarantees a
+// stored value is exactly -1 or 1; SQL returns it as `number`. This is the
+// boundary translation back to VoteValue. A row that came back as something
+// other than -1/1 means the CHECK was bypassed — fail loud, do not coerce.
+function toMyVote(raw: number | null, postId: string): VoteValue | null {
+  if (raw === null) return null
+  if (raw === 1 || raw === -1) return raw
+  throw new Error(
+    `feed: vote value ${raw} for post ${postId} is outside the stored shape (-1 | 1)`,
+  )
+}
+
+export async function getFeed(
+  env: Env,
+  voterId?: string,
+): Promise<FeedItem[]> {
   const database = db(env)
 
   // [LAW:one-source-of-truth] Score is SUM(votes.value), never a stored column.
@@ -200,20 +217,37 @@ export async function getFeed(env: Env): Promise<FeedItem[]> {
 
   const score = sql<number>`coalesce(${voteScore.score}, 0)`
 
+  // [LAW:dataflow-not-control-flow] The JOIN to the viewer's own vote runs every
+  // call, regardless of whether a voter id is known. The sentinel when voterId
+  // is absent ('') cannot match any real UUID, so the LEFT JOIN simply yields
+  // null for every row — same query shape, the data decides what matches.
+  const myVote = alias(votes, 'my_vote')
+  const myVoterId = voterId ?? ''
+
   const rows = await database
     .select({
       post: posts,
       generation: generations,
       upload: uploads,
       score,
+      myVote: myVote.value,
     })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .leftJoin(uploads, eq(uploads.postId, posts.id))
     .leftJoin(voteScore, eq(voteScore.postId, posts.id))
+    .leftJoin(
+      myVote,
+      and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)),
+    )
     .orderBy(desc(score), desc(posts.createdAt))
     .limit(50)
 
   // rank is the post-sort position — derived per query, same as the seed produced.
-  return rows.map((row, i) => ({ post: toPost(row), score: row.score, rank: i + 1 }))
+  return rows.map((row, i) => ({
+    post: toPost(row),
+    score: row.score,
+    rank: i + 1,
+    myVote: toMyVote(row.myVote, row.post.id),
+  }))
 }

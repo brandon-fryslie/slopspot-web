@@ -1,6 +1,7 @@
 import type { Route } from "./+types/home"
 import { getFeed } from "~/db/feed"
 import { PostCard } from "~/components/post-card"
+import { readVoterId } from "~/lib/voter-cookie"
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -13,8 +14,8 @@ export function meta(_args: Route.MetaArgs) {
   ]
 }
 
-export async function loader({ context }: Route.LoaderArgs) {
-  const items = await getFeed(context.cloudflare.env)
+export async function loader({ request, context }: Route.LoaderArgs) {
+  const items = await getFeed(context.cloudflare.env, readVoterId(request))
   return { items }
 }
 
@@ -38,7 +39,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <ul className="flex flex-col gap-5">
           {items.map((item) => (
             <li key={item.post.id}>
-              <PostCard post={item.post} score={item.score} />
+              <PostCard post={item.post} score={item.score} myVote={item.myVote} />
             </li>
           ))}
         </ul>

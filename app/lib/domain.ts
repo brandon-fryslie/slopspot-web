@@ -96,12 +96,24 @@ export type Post = {
   origin: Origin
 }
 
+// [LAW:types-are-the-program] Votes have two related but distinct types:
+//   - VoteValue (-1 | 1) is the *stored* shape, matching the votes.value CHECK.
+//     Retract is encoded as row absence, never a stored 0.
+//   - VoteIntent (VoteValue | 0) is the *wire* shape the vote endpoint accepts.
+//     0 means retract; the writer maps it to DELETE before any row touches
+//     storage. This split keeps the storage-narrow invariant true by
+//     construction: no caller can ask for value=0 and end up with a stored row.
+export type VoteValue = -1 | 1
+export type VoteIntent = VoteValue | 0
+
 // [LAW:types-are-the-program] FeedItem is the smooth boundary between the data layer
-// (seed today, D1 tomorrow) and rendering. Score and rank are derived per-query — same
-// shape regardless of source. The feed reader fills the slot; the consumer reads the
-// slot. The seam IS the type.
+// (seed today, D1 tomorrow) and rendering. Score, rank, and myVote are all derived
+// per-query — same shape regardless of source. myVote is null when the viewer
+// hasn't voted (or there is no viewer cookie yet); the discriminator carries
+// "already-voted state" without a separate boolean.
 export type FeedItem = {
   post: Post
   score: number
   rank: number
+  myVote: VoteValue | null
 }
