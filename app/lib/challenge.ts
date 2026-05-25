@@ -7,14 +7,28 @@
 // from the embedded payload, so forgery requires the secret. No DB needed —
 // the signature IS the proof of issuance.
 
+import type { Outcome } from '~/lib/challenge-outcome'
+import { verifyEasy, verifyHard, type EasyForm, type HardForm } from '~/lib/forms'
+import { runSecretGates } from '~/lib/secret-gates'
+import { tryReserve } from '~/lib/quota'
+
 export type ChallengeToken = string & { readonly __brand: 'ChallengeToken' }
 
-// [LAW:types-are-the-program] Typed error lets the route distinguish empty-bank
-// (503) from misconfiguration (500) via instanceof — not fragile string matching.
+// [LAW:types-are-the-program] Typed errors let callers distinguish failure modes
+// via instanceof — not fragile string matching. ChallengeConfigError is the only
+// synchronous throw from verifyChallenge; any other throw is a storage/service
+// failure. The route maps ChallengeConfigError → 500, anything else → 503.
 export class ChallengeBankEmptyError extends Error {
   constructor() {
     super('challenge bank is empty')
     this.name = 'ChallengeBankEmptyError'
+  }
+}
+
+export class ChallengeConfigError extends Error {
+  constructor(msg: string) {
+    super(msg)
+    this.name = 'ChallengeConfigError'
   }
 }
 
@@ -24,6 +38,14 @@ type ChallengePayload = {
   entryId: string
   nonce: string
   issuedAt: number
+}
+
+type BankEntry = {
+  id: string
+  briefingText: string
+  easyForm: EasyForm
+  hardForm: HardForm
+  generatedAt: number
 }
 
 async function hmacSign(payload: string, secret: string): Promise<string> {
@@ -59,7 +81,7 @@ export type IssuedChallenge = {
 // times before giving up. Both bindings are required; missing secret throws synchronously.
 export async function issueChallenge(env: Env, now = Date.now()): Promise<IssuedChallenge> {
   const secret = env.SLOPSPOT_CHALLENGE_SECRET
-  if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
+  if (!secret) throw new ChallengeConfigError('SLOPSPOT_CHALLENGE_SECRET is not configured')
 
   const manifestJson = await env.CHALLENGE_BANK.get('manifest')
   if (manifestJson === null) throw new ChallengeBankEmptyError()
@@ -90,8 +112,12 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
     const entryJson = await env.CHALLENGE_BANK.get(candidate)
     if (!entryJson) continue
     try {
-      const entry = JSON.parse(entryJson) as { briefingText?: unknown }
-      if (typeof entry.briefingText === 'string' && entry.briefingText.trim().length > 0) {
+      const entry = JSON.parse(entryJson) as { briefingText?: unknown; easyForm?: unknown; hardForm?: unknown }
+      if (
+        typeof entry.briefingText === 'string' && entry.briefingText.trim().length > 0 &&
+        entry.easyForm !== null && typeof entry.easyForm === 'object' &&
+        entry.hardForm !== null && typeof entry.hardForm === 'object'
+      ) {
         briefingText = entry.briefingText
         entryId = candidate
       }
@@ -118,50 +144,106 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
   }
 }
 
-// wrong_ack remains in the union to keep api.generate.ts compiling until dqx.7
-// removes the acknowledgement field from the generate-route body schema.
-// [LAW:one-way-deps] dqx.7 owns that deletion; this file does not reach into routes.
-export type VerifyResult =
-  | { ok: true; entryId: string }
-  | { ok: false; reason: 'malformed' | 'invalid_signature' | 'expired' | 'wrong_ack' }
+// [LAW:types-are-the-program] ChallengeVerifyResult separates "gate cleared, proceed"
+// from Outcome so the HTTP-response contract (Outcome) is not contaminated with an
+// internal control signal. Callers narrow on kind === 'verified' and pass failures
+// directly to outcomeToResponse — no case for 'verified' exists there by construction.
+export type ChallengeVerifyResult =
+  | { kind: 'verified'; entryId: string }
+  | Exclude<Outcome, { kind: 'generated' }>
 
-// acknowledgement parameter is accepted for api.generate.ts compat; dqx.7 removes it.
+// [LAW:single-enforcer] Full verification pipeline: HMAC+TTL → bank lookup →
+// easy form → hard form → secret gates → quota. All steps run in dependency order;
+// each failure exits immediately. prompt is params.prompt — the creative submission
+// IS the challenge response; there is no separate acknowledgement field.
 export async function verifyChallenge(
   challengeId: string,
-  _acknowledgement: string,
-  secret: string,
+  prompt: string,
+  env: Env,
   now = Date.now(),
-): Promise<VerifyResult> {
-  if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
+): Promise<ChallengeVerifyResult> {
+  const secret = env.SLOPSPOT_CHALLENGE_SECRET
+  if (!secret) throw new ChallengeConfigError('SLOPSPOT_CHALLENGE_SECRET is not configured')
+
+  // Step 1: HMAC + TTL
   const dot = challengeId.lastIndexOf('.')
-  if (dot === -1) return { ok: false, reason: 'malformed' }
+  if (dot === -1) return { kind: 'token_invalid' }
 
   const payloadB64 = challengeId.slice(0, dot)
   const sig = challengeId.slice(dot + 1)
 
   if (!(await hmacVerify(payloadB64, sig, secret))) {
-    return { ok: false, reason: 'invalid_signature' }
+    return { kind: 'token_invalid' }
   }
 
   let payload: ChallengePayload
   try {
-    // Restore standard base64 padding before atob — the encoded form strips '='
     const std = payloadB64.replace(/-/g, '+').replace(/_/g, '/')
     const padded = std + '==='.slice((std.length + 3) % 4)
     payload = JSON.parse(atob(padded)) as ChallengePayload
   } catch {
-    return { ok: false, reason: 'malformed' }
+    return { kind: 'token_invalid' }
   }
 
-  // Runtime guard: missing/non-string entryId or non-numeric issuedAt means the
-  // token was forged or issued by a different version of this code.
   if (typeof payload.entryId !== 'string' || payload.entryId.trim().length === 0 || !Number.isFinite(payload.issuedAt)) {
-    return { ok: false, reason: 'malformed' }
+    return { kind: 'token_invalid' }
   }
 
   if (now > payload.issuedAt + CHALLENGE_TTL_MS) {
-    return { ok: false, reason: 'expired' }
+    return { kind: 'token_expired' }
   }
 
-  return { ok: true, entryId: payload.entryId }
+  // Step 2: KV lookup for bank entry
+  const entryJson = await env.CHALLENGE_BANK.get(payload.entryId)
+  if (entryJson === null) {
+    return { kind: 'bank_entry_missing', entryId: payload.entryId }
+  }
+
+  let entry: BankEntry
+  try {
+    const parsed = JSON.parse(entryJson) as Partial<BankEntry>
+    if (!parsed || typeof parsed.briefingText !== 'string' || !parsed.easyForm || !parsed.hardForm) throw null
+    entry = parsed as BankEntry
+  } catch {
+    return { kind: 'bank_entry_missing', entryId: payload.entryId }
+  }
+
+  // Step 3: easy form verification
+  // Catch assertNever throws — unknown form kind in a bank entry is a malformed
+  // entry condition, not a verifier bug; map to bank_entry_missing so the caller
+  // retries rather than seeing a 500. [LAW:types-are-the-program]
+  let easyResult
+  try {
+    easyResult = verifyEasy(prompt, entry.easyForm)
+  } catch {
+    return { kind: 'bank_entry_missing', entryId: payload.entryId }
+  }
+  if (!easyResult.ok) {
+    return { kind: 'form_violation', which: 'easy', detail: easyResult.detail }
+  }
+
+  // Step 4: hard form verification
+  let hardResult
+  try {
+    hardResult = verifyHard(prompt, entry.hardForm)
+  } catch {
+    return { kind: 'bank_entry_missing', entryId: payload.entryId }
+  }
+  if (!hardResult.ok) {
+    return { kind: 'form_violation', which: 'hard', detail: hardResult.detail }
+  }
+
+  // Step 5: secret gates
+  const gateResult = runSecretGates(prompt)
+  if (!gateResult.ok) {
+    return { kind: 'secret_gate_failed', gate: gateResult.gate }
+  }
+
+  // Step 6: quota reservation (atomic; slot is consumed before createPost)
+  const quotaResult = await tryReserve(env)
+  if (quotaResult.kind === 'exhausted') {
+    return { kind: 'quota_exhausted', retryAfter: quotaResult.retryAfter }
+  }
+
+  return { kind: 'verified', entryId: payload.entryId }
 }
