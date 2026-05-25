@@ -12,7 +12,10 @@ export type ChallengeToken = string & { readonly __brand: 'ChallengeToken' }
 // [LAW:types-are-the-program] Typed error lets the route distinguish empty-bank
 // (503) from misconfiguration (500) via instanceof — not fragile string matching.
 export class ChallengeBankEmptyError extends Error {
-  constructor() { super('challenge bank is empty') }
+  constructor() {
+    super('challenge bank is empty')
+    this.name = 'ChallengeBankEmptyError'
+  }
 }
 
 export const CHALLENGE_TTL_MS = 240 * 1000
@@ -61,8 +64,14 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
   const manifestJson = await env.CHALLENGE_BANK.get('manifest')
   if (!manifestJson) throw new ChallengeBankEmptyError()
 
-  const { ids } = JSON.parse(manifestJson) as { ids: unknown }
-  if (!Array.isArray(ids) || !ids.every((id): id is string => typeof id === 'string' && id.length > 0)) {
+  let ids: string[]
+  try {
+    const parsed: unknown = JSON.parse(manifestJson)
+    if (!parsed || typeof parsed !== 'object') throw null
+    const raw: unknown = (parsed as Record<string, unknown>).ids
+    if (!Array.isArray(raw) || !raw.every((id): id is string => typeof id === 'string' && id.length > 0)) throw null
+    ids = raw
+  } catch {
     throw new Error('challenge manifest is malformed')
   }
   if (ids.length === 0) throw new ChallengeBankEmptyError()
@@ -73,10 +82,14 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
     const candidate = ids[Math.floor(Math.random() * ids.length)]
     const entryJson = await env.CHALLENGE_BANK.get(candidate)
     if (!entryJson) continue
-    const entry = JSON.parse(entryJson) as { briefingText?: unknown }
-    if (typeof entry.briefingText === 'string' && entry.briefingText.trim().length > 0) {
-      briefingText = entry.briefingText
-      entryId = candidate
+    try {
+      const entry = JSON.parse(entryJson) as { briefingText?: unknown }
+      if (typeof entry.briefingText === 'string' && entry.briefingText.trim().length > 0) {
+        briefingText = entry.briefingText
+        entryId = candidate
+      }
+    } catch {
+      // malformed KV entry — skip and retry with a different id
     }
   }
   if (briefingText === null || entryId === null) throw new ChallengeBankEmptyError()
