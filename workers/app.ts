@@ -1,4 +1,5 @@
 import { createRequestHandler } from "react-router"
+import { runBankGen } from "./bank-gen"
 import { runScheduled } from "~/firehose/scheduled"
 
 // [LAW:single-enforcer] Cloudflare bindings (env + ctx) enter the React Router
@@ -27,9 +28,21 @@ export default {
   },
   // [LAW:single-enforcer] The cron entry point is here for the same reason
   // `fetch` is: this is the one place Cloudflare bindings cross into the
-  // application world. The orchestration lives in `~/firehose/scheduled` so
-  // this file stays a thin binding-pass and never grows ad-hoc cron logic.
+  // application world. Dispatch by event.cron keeps each module ignorant of
+  // the other — bank-gen doesn't know the firehose exists, and vice-versa.
+  // [LAW:locality-or-seam] event.cron is the discriminator; variability lives
+  // in the value, not in shared state or flags.
   async scheduled(event, env, _ctx) {
+    if (event.cron === '0 3 * * *') {
+      // Top-level catch mirrors runScheduled's pattern: keep the worker alive
+      // even when bank-gen throws (missing secret, KV failure, etc.).
+      try {
+        await runBankGen(env)
+      } catch (err) {
+        console.error('bank-gen: unhandled error', { cron: event.cron }, err)
+      }
+      return
+    }
     await runScheduled(event, env)
   },
 } satisfies ExportedHandler<Env>

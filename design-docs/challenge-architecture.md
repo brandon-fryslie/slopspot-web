@@ -133,11 +133,11 @@ type HardForm =                                    // creative LLM-required
   // …~15-20 variants total
 
 type BankEntry = {
-  id: string                       // KV key
+  id: string                       // KV key (UUID)
   briefingText: string             // LLM-written prose declaring both forms in SlopSpot voice
   easyForm: EasyForm
   hardForm: HardForm
-  generatedAt: number              // epoch-ms (matches issuedAt units); drives 48h rotation
+  generatedAt: number              // epoch-ms; drives 48h rotation
 }
 
 type Outcome =                     // canonical truth, logged faithfully
@@ -165,15 +165,13 @@ the test suite has to catch.
 `GET /api/challenge`:
 
 ```
-1. Random entry from bank (today's + yesterday's, 48h overlap)
-   — KV key scheme: bank-gen writes entries under sequentially-numbered keys
-     per day (e.g. "YYYY-MM-DD:0001" ... "YYYY-MM-DD:N") and writes a
-     small per-day "manifest" key recording N. Issuance reads the
-     manifest for today and yesterday, picks one of the dates at random,
-     picks an index in [1, N] at random, and does a single get-by-key.
-     This keeps selection O(1) — no `kv.list()` on the hot path. The
-     manifest is the canonical record of "how many entries exist for
-     day D"; [LAW:one-source-of-truth] no separate index to drift.
+1. Random entry from bank (current + previous day, 48h overlap)
+   — KV key scheme: bank-gen writes entries under UUID keys and writes a
+     single `"manifest"` key → `{ ids: string[] }` with the same 48h TTL.
+     Issuance reads the manifest, picks a random id, does one direct get-by-key.
+     Selection is O(1) — no `kv.list()` on the hot path. [LAW:one-source-of-truth]
+     the manifest is the single index of live entry ids; no drift is possible
+     because bank-gen writes entries and the manifest atomically in one run.
 2. Encode + sign the payload (matching shipped v1):
      payloadB64  = base64url(JSON.stringify({ entryId, nonce, issuedAt: now }))
      sigBytes    = HMAC-SHA256(key = SLOPSPOT_CHALLENGE_SECRET, message = payloadB64)
@@ -187,7 +185,7 @@ the test suite has to catch.
    inside the signed payload — embedded in the challengeId blob (and thus
    base64url-decodable by anyone holding it), not a separate top-level
    response field; clients treat challengeId as opaque.
-3. Return { challengeId, text: briefingText, expiresAt: ISO-8601 string of (now + 240_000) }
+3. Return { challengeId, text: entry.briefingText, expiresAt: ISO-8601 string of (now + 240_000) }
    Cache-Control: no-store
 ```
 
@@ -364,10 +362,21 @@ the hot path. A failed cron leaves the previous day's bank intact for 48h —
 failures), `GET /api/challenge` returns 503, not a stub challenge. The system
 halts loudly rather than degrading silently.
 
-**LLM choice: Anthropic API** for bank-gen. Bank quality is the entire surface
-quality of the gate — Claude writes the SlopSpot voice markedly better than
-Workers AI's Llama-class models, and this work happens once a day in batch.
-Cost is cents/day. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
+**LLM choice: `claude-haiku-4-5-20251001`** for bank-gen. Haiku is cost-efficient
+for bulk generation (~1000 calls/day) and sufficient for briefing prose quality.
+The briefings are 150-300 words with a fixed voice — quality difference vs Sonnet
+is negligible at this task. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
+
+Each `BankEntry` is stored under a UUID key with 48h TTL:
+```ts
+type BankEntry = {
+  id: string           // crypto.randomUUID()
+  briefingText: string
+  easyForm: EasyForm
+  hardForm: HardForm
+  generatedAt: number  // Date.now()
+}
+```
 
 ---
 
@@ -375,7 +384,7 @@ Cost is cents/day. New secret: `SLOPSPOT_ANTHROPIC_API_KEY`.
 
 | Store                 | Shape                                              | Lifetime |
 | --------------------- | -------------------------------------------------- | -------- |
-| KV `CHALLENGE_BANK`   | per-entry: `"YYYY-MM-DD:NNNN" → BankEntry (JSON)`; per-day manifest: `"YYYY-MM-DD:manifest" → { count: number }` | 48h auto-expire |
+| KV `CHALLENGE_BANK`   | per-entry: `uuid → BankEntry (JSON)`; `"manifest" → { ids: string[] }` for O(1) random selection | 48h auto-expire |
 | D1 `challenge_quota`  | `date TEXT PRIMARY KEY, count INTEGER NOT NULL`    | 7d retention (cleaned by cron) |
 
 The bank lives in KV — write-once-daily, read-many, no atomicity needed,
