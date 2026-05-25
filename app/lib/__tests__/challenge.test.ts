@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { issueChallenge, verifyChallenge, CHALLENGE_TTL_MS } from '~/lib/challenge'
+import { issueChallenge, verifyChallenge, CHALLENGE_TTL_MS, ChallengeBankEmptyError } from '~/lib/challenge'
 
 const SECRET = 'test-secret-for-unit-tests'
 const FAKE_ENTRY_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
@@ -50,9 +50,9 @@ describe('issueChallenge', () => {
     )
   })
 
-  it('throws when bank has no manifest', async () => {
+  it('throws ChallengeBankEmptyError when bank has no manifest', async () => {
     await expect(issueChallenge(makeEnv({ bankEmpty: true }))).rejects.toThrow(
-      'challenge bank is empty',
+      ChallengeBankEmptyError,
     )
   })
 

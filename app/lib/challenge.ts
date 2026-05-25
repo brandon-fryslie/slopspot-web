@@ -9,6 +9,12 @@
 
 export type ChallengeToken = string & { readonly __brand: 'ChallengeToken' }
 
+// [LAW:types-are-the-program] Typed error lets the route distinguish empty-bank
+// (503) from misconfiguration (500) via instanceof — not fragile string matching.
+export class ChallengeBankEmptyError extends Error {
+  constructor() { super('challenge bank is empty') }
+}
+
 export const CHALLENGE_TTL_MS = 240 * 1000
 
 type ChallengePayload = {
@@ -53,10 +59,13 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
   if (!secret) throw new Error('SLOPSPOT_CHALLENGE_SECRET is not configured')
 
   const manifestJson = await env.CHALLENGE_BANK.get('manifest')
-  if (!manifestJson) throw new Error('challenge bank is empty')
+  if (!manifestJson) throw new ChallengeBankEmptyError()
 
-  const { ids } = JSON.parse(manifestJson) as { ids: string[] }
-  if (!ids || ids.length === 0) throw new Error('challenge bank is empty')
+  const { ids } = JSON.parse(manifestJson) as { ids: unknown }
+  if (!Array.isArray(ids) || !ids.every((id): id is string => typeof id === 'string' && id.length > 0)) {
+    throw new Error('challenge manifest is malformed')
+  }
+  if (ids.length === 0) throw new ChallengeBankEmptyError()
 
   let briefingText: string | null = null
   let entryId: string | null = null
@@ -65,12 +74,12 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
     const entryJson = await env.CHALLENGE_BANK.get(candidate)
     if (!entryJson) continue
     const entry = JSON.parse(entryJson) as { briefingText?: unknown }
-    if (typeof entry.briefingText === 'string') {
+    if (typeof entry.briefingText === 'string' && entry.briefingText.trim().length > 0) {
       briefingText = entry.briefingText
       entryId = candidate
     }
   }
-  if (briefingText === null || entryId === null) throw new Error('challenge bank is empty')
+  if (briefingText === null || entryId === null) throw new ChallengeBankEmptyError()
 
   const payload: ChallengePayload = {
     entryId,
