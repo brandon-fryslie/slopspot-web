@@ -60,9 +60,9 @@
     }
   ],
   // [LAW:one-source-of-truth] CHALLENGE_BANK KV namespace is the single store
-  // for bank-gen BankEntry records. bank-gen writes; GET /api/challenge reads.
-  // 48h TTL on each entry provides overlap when the daily cron writes the next
-  // batch before the previous day's entries expire.
+  // for bank-gen BankEntry records. bank-gen (this PR) writes; GET /api/challenge
+  // (slopspot-shell-dqx.6) will read. 48h TTL provides overlap so the previous
+  // day's bank remains available until the next cron run overwrites it.
   "kv_namespaces": [
     {
       "binding": "CHALLENGE_BANK",

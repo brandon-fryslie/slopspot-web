@@ -34,7 +34,13 @@ export default {
   // in the value, not in shared state or flags.
   async scheduled(event, env, _ctx) {
     if (event.cron === '0 3 * * *') {
-      await runBankGen(env)
+      // Top-level catch mirrors runScheduled's pattern: keep the worker alive
+      // even when bank-gen throws (missing secret, KV failure, etc.).
+      try {
+        await runBankGen(env)
+      } catch (err) {
+        console.error('bank-gen: unhandled error', { cron: event.cron }, err)
+      }
       return
     }
     await runScheduled(event, env)

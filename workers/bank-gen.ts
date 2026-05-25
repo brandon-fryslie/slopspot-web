@@ -29,7 +29,17 @@ export type BankEntry = {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const BATCH_SIZE = 1000
+
+// Concurrency for Anthropic API calls. At 10 concurrent calls × ~1s/call,
+// the batch finishes in ~100s — well within the 15-minute scheduled-event limit.
+// Tune upward if the account has a higher Anthropic rate-limit tier.
+const CONCURRENCY = 10
+
 const BANK_TTL_SECONDS = 48 * 60 * 60
+
+// Per-request timeout for Claude API calls. A hung connection at 30s is skipped
+// so it doesn't stall the batch indefinitely.
+const REQUEST_TIMEOUT_MS = 30_000
 
 // claude-haiku-4-5-20251001: cost-efficient for bulk generation (~1000 calls/day).
 // Briefings are short (150-300 words) so quality difference vs Sonnet is negligible.
@@ -154,19 +164,28 @@ type AnthropicMessage = {
 // Direct fetch — follows the replicate-helpers pattern (no SDK dep) and runs
 // cleanly in Workers without any Node shims.
 export async function callClaudeApi(prompt: string, apiKey: string): Promise<string> {
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 600,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+  let resp: Response
+  try {
+    resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 600,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   if (!resp.ok) {
     const body = await resp.text()
@@ -180,10 +199,52 @@ export async function callClaudeApi(prompt: string, apiKey: string): Promise<str
   return textBlock.text.trim()
 }
 
+// ─── Entry processor ──────────────────────────────────────────────────────────
+
+type EntryResult = { ok: true } | { ok: false; easyKind: string; hardKind: string }
+
+async function processEntry(apiKey: string, kv: KVNamespace): Promise<EntryResult> {
+  const easy = randomEasyForm()
+  const hard = randomHardForm()
+  const prompt = buildMetaPrompt(easy, hard)
+
+  let briefingText: string
+  try {
+    briefingText = await callClaudeApi(prompt, apiKey)
+  } catch {
+    // One retry per entry — transient errors (rate limit, timeout) often clear.
+    try {
+      briefingText = await callClaudeApi(prompt, apiKey)
+    } catch (retryErr) {
+      console.error('bank-gen: Claude call failed after retry', {
+        easyKind: easy.kind,
+        hardKind: hard.kind,
+        err: retryErr,
+      })
+      return { ok: false, easyKind: easy.kind, hardKind: hard.kind }
+    }
+  }
+
+  const entry: BankEntry = {
+    id: crypto.randomUUID(),
+    briefing_text: briefingText,
+    easy_form: easy,
+    hard_form: hard,
+    generated_at: Date.now(),
+  }
+
+  await kv.put(entry.id, JSON.stringify(entry), { expirationTtl: BANK_TTL_SECONDS })
+  return { ok: true }
+}
+
 // ─── Main entrypoint ──────────────────────────────────────────────────────────
 
 // [LAW:single-enforcer] runBankGen is the one place that writes to CHALLENGE_BANK.
 // workers/app.ts calls it; nothing else does.
+//
+// [LAW:dataflow-not-control-flow] Processes BATCH_SIZE entries across CONCURRENCY
+// concurrent slots. Each batch slot always runs; empty results at the end of the
+// last batch are the data deciding that the loop is done, not a branch.
 export async function runBankGen(env: Env): Promise<void> {
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('SLOPSPOT_ANTHROPIC_API_KEY is not configured')
@@ -192,44 +253,14 @@ export async function runBankGen(env: Env): Promise<void> {
   let failures = 0
   const startMs = Date.now()
 
-  for (let i = 0; i < BATCH_SIZE; i++) {
-    const easy = randomEasyForm()
-    const hard = randomHardForm()
-    const prompt = buildMetaPrompt(easy, hard)
-
-    let briefingText: string
-    try {
-      briefingText = await callClaudeApi(prompt, apiKey)
-    } catch (firstErr) {
-      // One retry per entry — transient API errors (rate limit, timeout) often
-      // clear on the second attempt. Permanent failures (invalid key, bad model
-      // name) will fail both and be logged individually.
-      try {
-        briefingText = await callClaudeApi(prompt, apiKey)
-      } catch (retryErr) {
-        console.error('bank-gen: Claude call failed after retry', {
-          index: i,
-          easyKind: easy.kind,
-          hardKind: hard.kind,
-          err: retryErr,
-        })
-        failures++
-        continue
-      }
+  const indices = Array.from({ length: BATCH_SIZE }, (_, i) => i)
+  for (let offset = 0; offset < BATCH_SIZE; offset += CONCURRENCY) {
+    const batch = indices.slice(offset, offset + CONCURRENCY)
+    const results = await Promise.all(batch.map(() => processEntry(apiKey, env.CHALLENGE_BANK)))
+    for (const r of results) {
+      if (r.ok) successes++
+      else failures++
     }
-
-    const entry: BankEntry = {
-      id: crypto.randomUUID(),
-      briefing_text: briefingText,
-      easy_form: easy,
-      hard_form: hard,
-      generated_at: Date.now(),
-    }
-
-    await env.CHALLENGE_BANK.put(entry.id, JSON.stringify(entry), {
-      expirationTtl: BANK_TTL_SECONDS,
-    })
-    successes++
   }
 
   console.log('bank-gen: batch complete', {

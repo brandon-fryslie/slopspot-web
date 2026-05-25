@@ -133,11 +133,11 @@ type HardForm =                                    // creative LLM-required
   // …~15-20 variants total
 
 type BankEntry = {
-  id: string                       // KV key
-  briefingText: string             // LLM-written prose declaring both forms in SlopSpot voice
-  easyForm: EasyForm
-  hardForm: HardForm
-  generatedAt: number              // epoch-ms (matches issuedAt units); drives 48h rotation
+  id: string                       // KV key (UUID)
+  briefing_text: string            // LLM-written prose declaring both forms in SlopSpot voice
+  easy_form: EasyForm
+  hard_form: HardForm
+  generated_at: number             // epoch-ms; drives 48h rotation
 }
 
 type Outcome =                     // canonical truth, logged faithfully
@@ -187,7 +187,7 @@ the test suite has to catch.
    inside the signed payload — embedded in the challengeId blob (and thus
    base64url-decodable by anyone holding it), not a separate top-level
    response field; clients treat challengeId as opaque.
-3. Return { challengeId, text: briefingText, expiresAt: ISO-8601 string of (now + 240_000) }
+3. Return { challengeId, text: entry.briefing_text, expiresAt: ISO-8601 string of (now + 240_000) }
    Cache-Control: no-store
 ```
 
@@ -279,8 +279,8 @@ The pipeline:
 ```
 1. Verify HMAC + TTL on token        → Outcome.token_invalid / token_expired
 2. Extract entryId, KV lookup        → BankEntry (bank_entry_missing on lookup miss)
-3. verifyEasy(prompt, entry.easyForm) → Outcome.form_violation{which:'easy'} on fail
-4. verifyHard(prompt, entry.hardForm) → Outcome.form_violation{which:'hard'} on fail
+3. verifyEasy(prompt, entry.easy_form) → Outcome.form_violation{which:'easy'} on fail
+4. verifyHard(prompt, entry.hard_form) → Outcome.form_violation{which:'hard'} on fail
 5. for gate in SECRET_GATES:
      gate(prompt)                    → Outcome.secret_gate_failed{gate} on fail
 6. quota.tryReserve(today)           → Outcome.quota_exhausted on full
