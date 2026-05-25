@@ -18,7 +18,7 @@ function makeStubProvider(id: string): GenerationProvider<{ prompt: string }> {
     id: ProviderId(id),
     version: 'v',
     displayName: id,
-    paramsSchema: z.object({ prompt: z.string() }),
+    paramsSchema: z.object({ prompt: z.string().min(1).max(500) }),
     capabilities: { producesMedia: ['image'], supportsSeed: false, costEstimateUsd: 0 },
     supportedAspectRatios: ['1:1'],
     promptMaxLength: 500,
