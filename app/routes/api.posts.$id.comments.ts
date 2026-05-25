@@ -4,6 +4,7 @@ import { createComment, listComments } from "~/db/comments"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
+import { authorLabel } from "~/lib/author-label"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP trust boundary for comments. Verification
@@ -18,9 +19,11 @@ import { PostId } from "~/lib/domain"
 // resource; they share nothing else.
 
 // [LAW:types-are-the-program] The wire shape enforces non-empty, trimmed body
-// within the 1..2000 grapheme bound. `.trim()` is a transform — it normalizes
-// before length is evaluated, so a whitespace-only body fails the min(1) by
-// construction rather than slipping through to a stored row of empty text.
+// within the 1..2000 JS-string-length bound (UTF-16 code units — what
+// `String.prototype.length` counts; not grapheme clusters). `.trim()` is a
+// transform — it normalizes before length is evaluated, so a whitespace-only
+// body fails the min(1) by construction rather than slipping through to a
+// stored row of empty text.
 const bodySchema = z.object({
   body: z.string().trim().min(1).max(2000),
 })
@@ -69,7 +72,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   return new Response(
     JSON.stringify({
       id: result.comment.id,
-      authorId: result.comment.authorId,
+      authorLabel: authorLabel(result.comment.authorId),
       body: result.comment.body,
       createdAt: result.comment.createdAt.toISOString(),
     }),
@@ -80,7 +83,9 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 // [LAW:dataflow-not-control-flow] Same shape every call: list, serialize,
 // return. No "if there are no comments, special-case" — the empty list is the
 // data. Times serialize as ISO strings on the wire; the client parses them
-// back to Date at the UI boundary.
+// back to Date at the UI boundary. [LAW:single-enforcer] author identity is
+// never echoed onto the wire — only the display label crosses the boundary,
+// computed by app/lib/author-label so the redaction lives in one place.
 export async function loader({ params, context }: Route.LoaderArgs) {
   const list = await listComments(
     context.cloudflare.env,
@@ -89,7 +94,7 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   return Response.json({
     comments: list.map((c) => ({
       id: c.id,
-      authorId: c.authorId,
+      authorLabel: authorLabel(c.authorId),
       body: c.body,
       createdAt: c.createdAt.toISOString(),
     })),

@@ -251,12 +251,13 @@ function StatusBadge({ status }: { status: GenerationStatus }) {
 
 // [LAW:types-are-the-program] Wire shape for a comment as it arrives from the
 // /api/posts/:id/comments loader. createdAt is an ISO string on the wire; the
-// component parses it to Date once at the JSON boundary, then everything below
-// speaks domain Comments. Mirrors the server's serialization in the route's
-// loader.
+// component parses it to Date once at the JSON boundary. authorLabel is the
+// already-redacted display string (server-side single-enforcer in
+// app/lib/author-label) — the raw voter UUID never crosses this boundary, so
+// the client cannot leak it back into the page even by accident.
 type ClientComment = {
   id: string
-  authorId: string
+  authorLabel: string
   body: string
   createdAt: string
 }
@@ -447,11 +448,10 @@ function CommentSection({
 }
 
 function CommentRow({ comment }: { comment: ClientComment }) {
-  const label = `anon-${comment.authorId.slice(0, 6)}`
   return (
     <li className="px-3 py-2">
       <div className="flex items-center gap-2 font-mono text-[10px] text-white/45">
-        <span className="rounded bg-white/5 px-1.5 py-0.5 text-white/65">{label}</span>
+        <span className="rounded bg-white/5 px-1.5 py-0.5 text-white/65">{comment.authorLabel}</span>
         <span>{relativeTime(new Date(comment.createdAt))}</span>
       </div>
       <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-white/85">

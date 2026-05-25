@@ -8,8 +8,9 @@
 // [LAW:types-are-the-program] createComment returns a discriminated outcome,
 // mirroring setVote — ok carries the inserted Comment, post_not_found carries
 // the reason. The route's HTTP mapping is an exhaustive switch on the closed
-// union (200 / 404). Adding a new failure arm stops compilation at the route
-// until a status code is chosen.
+// union (201 on ok — a new resource is created — and 404 on post_not_found).
+// Adding a new failure arm stops compilation at the route until a status code
+// is chosen.
 
 import { desc, eq } from 'drizzle-orm'
 import { db } from '~/db/client'
