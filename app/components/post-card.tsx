@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Post, Media, Origin, Actor, Content, GenerationStatus, VoteValue } from "~/lib/domain"
 
 export function PostCard({
@@ -67,6 +67,18 @@ function VoteControls({
   // button's `disabled={pending}` is the visual signal; this ref is the
   // correctness guarantee.
   const inFlight = useRef(false)
+
+  // [LAW:one-source-of-truth] The server (via the loader's props) is the truth;
+  // local state is a cache with an optimistic overlay. On a parent re-render
+  // with new initial values (loader revalidation, navigation back, HMR), pull
+  // the truth back into the cache — except while a vote is in flight, where
+  // doing so would yank the optimistic overlay out from under the user.
+  useEffect(() => {
+    if (!inFlight.current) {
+      setScore(initialScore)
+      setMyVote(initialMyVote)
+    }
+  }, [initialScore, initialMyVote])
 
   async function castVote(direction: VoteValue) {
     if (inFlight.current) return

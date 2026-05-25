@@ -44,7 +44,12 @@ function isSameOrigin(request: Request): boolean {
   // "definitely not our origin." Fail closed; the gate exists to reject the
   // untrusted case, and an unparseable origin is untrusted by definition.
   try {
-    return new URL(origin).host === new URL(request.url).host
+    // [LAW:types-are-the-program] `.origin` is the canonical RFC 6454 tuple —
+    // scheme + host + port — not just host. Comparing `.host` would treat
+    // `http://example.com` as same-origin as `https://example.com`, which
+    // breaks the CSRF gate's whole premise (an http:// page should not be
+    // able to drive POSTs against the https:// production deploy).
+    return new URL(origin).origin === new URL(request.url).origin
   } catch {
     return false
   }
