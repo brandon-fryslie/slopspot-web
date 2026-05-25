@@ -156,12 +156,30 @@ export type ChallengeVerifyResult =
 // easy form → hard form → secret gates → quota. All steps run in dependency order;
 // each failure exits immediately. prompt is params.prompt — the creative submission
 // IS the challenge response; there is no separate acknowledgement field.
+//
+// opts.internalToken: when present and matching SLOPSPOT_INTERNAL_SEED_TOKEN, all
+// gate checks are bypassed. [LAW:no-mode-explosion] one documented bypass path,
+// one owner (SLOPSPOT_INTERNAL_SEED_TOKEN), exclusively for bootstrap/internal tooling.
 export async function verifyChallenge(
   challengeId: string,
   prompt: string,
   env: Env,
-  now = Date.now(),
+  opts: { now?: number; internalToken?: string } = {},
 ): Promise<ChallengeVerifyResult> {
+  const now = opts.now ?? Date.now()
+  // Internal bypass: precedes secret check so bootstrap works in any env config.
+  // Constant-time XOR comparison avoids timing attacks on the token value.
+  const internalSeedToken = env.SLOPSPOT_INTERNAL_SEED_TOKEN as string | undefined
+  const providedToken = opts.internalToken ?? ''
+  if (internalSeedToken && providedToken.length === internalSeedToken.length && providedToken.length > 0) {
+    let diff = 0
+    for (let i = 0; i < internalSeedToken.length; i++) diff |= providedToken.charCodeAt(i) ^ internalSeedToken.charCodeAt(i)
+    if (diff === 0) {
+      console.log('[challenge] internal bypass accepted; gate pipeline skipped')
+      return { kind: 'verified', entryId: 'internal' }
+    }
+  }
+
   const secret = env.SLOPSPOT_CHALLENGE_SECRET
   if (!secret) throw new ChallengeConfigError('SLOPSPOT_CHALLENGE_SECRET is not configured')
 
