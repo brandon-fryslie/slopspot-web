@@ -56,6 +56,20 @@ describe('issueChallenge', () => {
     )
   })
 
+  it('throws malformed error when manifest contains whitespace-only IDs', async () => {
+    const store = new Map<string, string>([
+      ['manifest', JSON.stringify({ ids: ['   '] })],
+    ])
+    const env = {
+      SLOPSPOT_CHALLENGE_SECRET: SECRET,
+      CHALLENGE_BANK: {
+        get: vi.fn(async (key: string) => store.get(key) ?? null),
+        put: vi.fn(),
+      } as unknown as KVNamespace,
+    } as unknown as Env
+    await expect(issueChallenge(env)).rejects.toThrow('challenge manifest is malformed')
+  })
+
   it('retries when manifest contains an expired entry — shuffle guarantees distinct picks', async () => {
     const GOOD_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
     const store = new Map<string, string>([

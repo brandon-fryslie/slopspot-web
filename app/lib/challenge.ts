@@ -69,21 +69,20 @@ export async function issueChallenge(env: Env, now = Date.now()): Promise<Issued
     const parsed: unknown = JSON.parse(manifestJson)
     if (!parsed || typeof parsed !== 'object') throw null
     const raw: unknown = (parsed as Record<string, unknown>).ids
-    if (!Array.isArray(raw) || !raw.every((id): id is string => typeof id === 'string' && id.length > 0)) throw null
+    if (!Array.isArray(raw) || !raw.every((id): id is string => typeof id === 'string' && id.trim().length > 0)) throw null
     ids = raw
   } catch {
     throw new Error('challenge manifest is malformed')
   }
   if (ids.length === 0) throw new ChallengeBankEmptyError()
 
-  // Partial Fisher-Yates: O(k) where k=3, uniform distribution, distinct picks
-  const pool = [...ids]
-  const count = Math.min(3, pool.length)
+  // Partial Fisher-Yates in-place on the already-allocated ids array: O(k), k=3
+  const count = Math.min(3, ids.length)
   for (let i = 0; i < count; i++) {
-    const j = i + Math.floor(Math.random() * (pool.length - i))
-    ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    const j = i + Math.floor(Math.random() * (ids.length - i))
+    ;[ids[i], ids[j]] = [ids[j], ids[i]]
   }
-  const candidates = pool.slice(0, count)
+  const candidates = ids.slice(0, count)
   let briefingText: string | null = null
   let entryId: string | null = null
   for (const candidate of candidates) {
