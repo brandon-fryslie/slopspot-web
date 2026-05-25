@@ -57,15 +57,17 @@ function words(text: string): string[] {
     .filter((w) => w.length > 0)
 }
 
+// Module-level cast: cmuSyllables is a flat word→stress-sequence lookup.
+const CMU_DICT = cmuSyllables as Record<string, string>
+
 // Look up syllable stress sequence from CMU dict. Returns null for OOV.
 // The stress sequence is a string of '0' (unstressed) and '1' (stressed) chars
 // where length = syllable count.
 function syllables(word: string): string | null {
-  const dict = cmuSyllables as Record<string, string>
-  return dict[word.toLowerCase()] ?? null
+  return CMU_DICT[word.toLowerCase()] ?? null
 }
 
-// Count syllables in text. Returns null on first OOV word, with the OOV word.
+// Count syllables in text. Returns { oov } on first unrecognized word.
 function countSyllables(text: string): { total: number } | { oov: string } {
   const ws = words(text)
   let total = 0
@@ -155,6 +157,8 @@ const EASY_FORMS: { [K in EasyForm['kind']]: FormHandler<Extract<EasyForm, { kin
     describe: (f) =>
       `The text must contain exactly ${f.count} occurrence${f.count === 1 ? '' : 's'} of "${f.mark}"`,
     verify: (prompt, f) => {
+      if (f.mark.length !== 1)
+        return { ok: false, detail: `invalid form: mark must be exactly 1 character` }
       const actual = [...prompt].filter((c) => c === f.mark).length
       if (actual !== f.count)
         return {
@@ -169,6 +173,9 @@ const EASY_FORMS: { [K in EasyForm['kind']]: FormHandler<Extract<EasyForm, { kin
     describe: (f) =>
       `The first ${f.pattern.length} words must begin with letters matching the pattern "${f.pattern}" — C=consonant, V=vowel`,
     verify: (prompt, f) => {
+      const invalid = [...f.pattern.toUpperCase()].find((c) => c !== 'C' && c !== 'V')
+      if (invalid !== undefined)
+        return { ok: false, detail: `invalid form: pattern character "${invalid}" is not C or V` }
       const ws = words(prompt)
       if (ws.length < f.pattern.length)
         return {
@@ -177,15 +184,14 @@ const EASY_FORMS: { [K in EasyForm['kind']]: FormHandler<Extract<EasyForm, { kin
         }
       const vowels = new Set('aeiou')
       for (let i = 0; i < f.pattern.length; i++) {
-        const expected = f.pattern[i].toUpperCase()
+        const expected = f.pattern[i].toUpperCase() as 'C' | 'V'
         const firstLetter = ws[i][0]
         const isVowel = vowels.has(firstLetter)
-        const matches =
-          (expected === 'V' && isVowel) || (expected === 'C' && !isVowel)
+        const matches = (expected === 'V' && isVowel) || (expected === 'C' && !isVowel)
         if (!matches)
           return {
             ok: false,
-            detail: `word ${i + 1} "${ws[i]}" starts with "${firstLetter}" which is a ${isVowel ? 'vowel' : 'consonant'}, but pattern position ${i + 1} requires a ${expected === 'V' ? 'vowel' : 'consonant'}`,
+            detail: `word ${i + 1} "${ws[i]}" starts with "${firstLetter}" (${isVowel ? 'vowel' : 'consonant'}), but pattern position ${i + 1} requires a ${expected === 'V' ? 'vowel' : 'consonant'}`,
           }
       }
       return { ok: true }
@@ -238,6 +244,8 @@ const HARD_FORMS: { [K in HardForm['kind']]: FormHandler<Extract<HardForm, { kin
     describe: (f) =>
       `The text must not contain the letter "${f.forbidden.toUpperCase()}" anywhere — not a single instance`,
     verify: (prompt, f) => {
+      if (f.forbidden.length !== 1 || !/^[a-zA-Z]$/.test(f.forbidden))
+        return { ok: false, detail: `invalid form: forbidden must be exactly one alphabetic letter` }
       const forbidden = f.forbidden.toLowerCase()
       const idx = prompt.toLowerCase().indexOf(forbidden)
       if (idx !== -1)
