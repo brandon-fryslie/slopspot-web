@@ -8,7 +8,7 @@ export async function loader({ context }: Route.LoaderArgs) {
     challenge = await issueChallenge(env)
   } catch (err) {
     if (err instanceof ChallengeBankEmptyError) {
-      return Response.json({ error: "challenge bank is empty — try again later" }, { status: 503 })
+      return Response.json({ error: "no usable challenge available — try again later" }, { status: 503 })
     }
     return Response.json({ error: "challenge issuer misconfigured" }, { status: 500 })
   }

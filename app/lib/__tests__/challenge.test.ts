@@ -70,6 +70,24 @@ describe('issueChallenge', () => {
     await expect(issueChallenge(env)).rejects.toThrow('challenge manifest is malformed')
   })
 
+  it('skips malformed KV entry JSON and uses another valid candidate', async () => {
+    const GOOD_ID = 'cccccccc-dddd-eeee-ffff-000000000000'
+    const store = new Map<string, string>([
+      ['manifest', JSON.stringify({ ids: [FAKE_ENTRY_ID, GOOD_ID] })],
+      [FAKE_ENTRY_ID, '{{{not valid json'],
+      [GOOD_ID, JSON.stringify({ id: GOOD_ID, briefingText: 'good briefing from valid entry', generatedAt: 1 })],
+    ])
+    const env = {
+      SLOPSPOT_CHALLENGE_SECRET: SECRET,
+      CHALLENGE_BANK: {
+        get: vi.fn(async (key: string) => store.get(key) ?? null),
+        put: vi.fn(),
+      } as unknown as KVNamespace,
+    } as unknown as Env
+    const result = await issueChallenge(env)
+    expect(result.text).toBe('good briefing from valid entry')
+  })
+
   it('retries when manifest contains an expired entry — shuffle guarantees distinct picks', async () => {
     const GOOD_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
     const store = new Map<string, string>([
