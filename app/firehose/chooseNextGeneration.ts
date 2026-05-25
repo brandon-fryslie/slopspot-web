@@ -9,7 +9,7 @@
 // distribution modifiers, not control-flow branches — empty `recent` reduces
 // every rule to a no-op without a "first run" check.
 
-import { ProviderId } from '~/lib/domain'
+import type { ProviderId } from '~/lib/domain'
 import {
   ASPECT_RATIOS,
   ASPECT_RATIO_BASE_WEIGHTS,

@@ -82,7 +82,13 @@ export async function getRecentRecipes(env: Env, n: number): Promise<RecentRecip
     })
     .from(generations)
     .innerJoin(posts, eq(posts.id, generations.postId))
-    .orderBy(desc(posts.createdAt))
+    // [LAW:types-are-the-program] Deterministic ordering: createdAt is
+    // millisecond-resolution, so two rows can tie. The chooser's R1/R3/R4 use
+    // recent[0] as a hard-reject driver — if "most recent" can flip-flop
+    // between runs, the chooser's output stops being a function of (DB state,
+    // scheduledTime). posts.id (UUID) is the stable tie-breaker that closes
+    // that hole; ordering is by-time first, by-id second.
+    .orderBy(desc(posts.createdAt), desc(posts.id))
     .limit(n)
 
   return rows.map((row) => ({
