@@ -1,5 +1,5 @@
 import type { Route } from "./+types/fork.$id"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { z } from "zod"
 import { getPostById } from "~/db/feed"
@@ -28,16 +28,22 @@ import { ASPECT_RATIOS, STYLE_FAMILIES, TEMPLATE_PHRASES } from "~/lib/variety"
 // upload posts can never produce a fork-button click; the 400 here defends
 // direct-URL access.
 
+// [LAW:one-source-of-truth] PROMPT_MAX is the one constant the pre-fill schema
+// and the wire body schema (in api.fork.$id.ts) both reference for the upper
+// bound. SDXL and ideogram store up to 1000 chars; fal-flux stores up to 500.
+// Reading at 1000 accepts every stored row and never silently truncates.
+const PROMPT_MAX = 1000
+
 // Each provider's paramsSchema has `prompt: string` — the canonical "what to
 // generate" field. The form lets the user edit this; other provider-specific
 // tunables (steps / negativePrompt / seed / styleType) are re-derived from the
 // recipe in the action via defaultParamsForRecipe, mirroring the firehose
-// chooser's translation.
+// chooser's translation. `.trim()` mirrors the body schema's trim so a parent
+// stored with incidental whitespace doesn't pre-fill an effectively-empty
+// prompt (which the submit button would then disable).
 const promptedParamsSchema = z
-  .object({ prompt: z.string().min(1).max(1000) })
+  .object({ prompt: z.string().trim().min(1).max(PROMPT_MAX) })
   .passthrough()
-
-const PROMPT_MAX = 1000
 
 // [LAW:types-are-the-program] The loader's output is the form's exact pre-fill
 // shape — one closed type, no nullables. If a row drifts (parent not found,
@@ -108,15 +114,24 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(loaderData.aspectRatio)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // [LAW:single-enforcer] Synchronous re-entrancy guard, same shape as
+  // VoteControls + CommentSection. `setSubmitting(true)` is queued for the
+  // next render, so a rapid second click inside the same microtask would
+  // still see `submitting === false` from React state. The ref mutates
+  // synchronously, so the second click bails on the same tick. This matters
+  // more here than on votes/comments because each fork triggers a paid
+  // provider call — a double-fire would charge twice.
+  const inFlight = useRef(false)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (submitting) return
+    if (inFlight.current) return
     const trimmed = prompt.trim()
     if (trimmed.length === 0) {
       setError("prompt cannot be empty")
       return
     }
+    inFlight.current = true
     setSubmitting(true)
     setError(null)
     try {
@@ -137,6 +152,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       setError(String(err))
     } finally {
       setSubmitting(false)
+      inFlight.current = false
     }
   }
 
