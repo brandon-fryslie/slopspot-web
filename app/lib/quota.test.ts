@@ -16,7 +16,7 @@ function makeD1Mock(initial = 0) {
       bind: (..._params: unknown[]) => ({}) as D1PreparedStatement,
     }),
     batch: async (_stmts: D1PreparedStatement[]) => {
-      // simulate INSERT OR IGNORE (always a no-op in our model)
+      // simulate INSERT ... ON CONFLICT(date) DO NOTHING (always a no-op in our model)
       const r1 = { results: [] } as unknown as D1Result
 
       let r2: D1Result

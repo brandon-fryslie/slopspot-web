@@ -1,7 +1,7 @@
 // [LAW:single-enforcer] One module, one operation: tryReserve atomically
-// increments today's count and returns reserved-or-exhausted. Every path
-// through the challenge gate calls this before createPost — never a separate
-// check-then-increment.
+// increments today's count and returns reserved-or-exhausted. The challenge
+// gate verifier (slopspot-shell-dqx.7) will call this before createPost for
+// every submission — never a separate check-then-increment.
 //
 // [LAW:dataflow-not-control-flow] Both SQL statements always run. The INSERT
 // materializes today's row; the UPDATE's WHERE-guard and RETURNING are the
