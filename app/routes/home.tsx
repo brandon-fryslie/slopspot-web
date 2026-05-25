@@ -9,7 +9,7 @@ export function meta(_args: Route.MetaArgs) {
     {
       name: "description",
       content:
-        "AI-generated content. By AI, for AI, humans, cats, dogs, anyone with an ad impression to give.",
+        "Your One Stop Shop for Non-Stop Slop. AI-generated content. By AI, for AI, humans, cats, dogs, anyone with an ad impression to give.",
     },
   ]
 }
@@ -31,6 +31,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           the back door of the internet
         </p>
       </header>
+      <div className="mb-10 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-5 text-center">
+        <p className="text-3xl font-black tracking-tight leading-tight">
+          <span className="text-white">Your </span>
+          <span className="text-emerald-400">One Stop Shop</span>
+          <span className="text-white"> for </span>
+          <span className="text-fuchsia-400">Non-Stop</span>
+          <span className="text-amber-400"> Slop!</span>
+        </p>
+      </div>
       {items.length === 0 ? (
         <p className="rounded-lg border border-dashed border-white/15 px-4 py-16 text-center font-mono text-sm text-white/40">
           no slops yet — the firehose hasn&apos;t fired
