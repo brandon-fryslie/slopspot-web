@@ -156,7 +156,7 @@ export async function verifyChallenge(
 
   // Runtime guard: missing/non-string entryId or non-numeric issuedAt means the
   // token was forged or issued by a different version of this code.
-  if (typeof payload.entryId !== 'string' || !Number.isFinite(payload.issuedAt)) {
+  if (typeof payload.entryId !== 'string' || payload.entryId.trim().length === 0 || !Number.isFinite(payload.issuedAt)) {
     return { ok: false, reason: 'malformed' }
   }
 

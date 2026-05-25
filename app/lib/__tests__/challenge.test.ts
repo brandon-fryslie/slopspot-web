@@ -183,4 +183,17 @@ describe('verifyChallenge', () => {
     const result = await verifyChallenge(`${b64}.${sig}`, '', SECRET)
     expect(result).toEqual({ ok: false, reason: 'malformed' })
   })
+
+  it('returns malformed for a HMAC-valid payload with empty entryId', async () => {
+    const corruptPayload = { entryId: '   ', nonce: 'test', issuedAt: Date.now() } // whitespace-only entryId
+    const corruptJson = JSON.stringify(corruptPayload)
+    const b64 = btoa(corruptJson).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(SECRET),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    const sigBytes = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(b64))
+    const sig = btoa(String.fromCharCode(...new Uint8Array(sigBytes)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+    const result = await verifyChallenge(`${b64}.${sig}`, '', SECRET)
+    expect(result).toEqual({ ok: false, reason: 'malformed' })
+  })
 })
