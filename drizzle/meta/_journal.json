@@ -15,6 +15,13 @@
       "when": 1779628364129,
       "tag": "0001_variety_taxonomy",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779689475053,
+      "tag": "0002_comments",
+      "breakpoints": true
     }
   ]
 }
