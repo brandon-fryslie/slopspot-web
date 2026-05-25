@@ -436,13 +436,15 @@ describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () 
       m.set(r.providerId, (m.get(r.providerId) ?? 0) + 1)
       byStyle.set(r.styleFamily, m)
     }
-    // For each style with enough samples (≥30), the most-picked provider
-    // should be one of the table's primary providers (weight == max). A
-    // tertiary provider winning the count would indicate the weighting is
-    // not flowing through the chooser. Hard equality (single dominant) is
-    // too tight for FNV-hash variance; we accept any provider tied for the
-    // max as the dominant pick (matches real cases like vaporwave where
-    // multiple providers can share the top spot under R3-induced rotation).
+    // For each style with enough samples (≥30), assert the most-picked
+    // provider has weight ≥ 0.5 in the weights table. The point of the
+    // ≥0.5 floor (not a strict "weight == max" check) is that R3's enforced
+    // rotation between fires can give a 0.5-weight secondary a higher
+    // count than a 1.0-weight primary in any finite sample — so the
+    // primary-vs-secondary winner is noise, but a tertiary (0.2/0.3)
+    // winning would indicate the weighting isn't flowing through the
+    // chooser at all. The error message includes the primaries set for
+    // diagnostic context on failure.
     let stylesChecked = 0
     for (const [style, counts] of byStyle) {
       const totalForStyle = [...counts.values()].reduce((a, b) => a + b, 0)
@@ -455,10 +457,6 @@ describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () 
           .filter(([, w]) => w === maxWeight)
           .map(([id]) => id),
       )
-      // R3 rotates providers between fires, so even a 1.0-weight primary
-      // doesn't dominate cleanly — but it should still be among the
-      // most-picked. Assert the most-picked-count provider has weight
-      // ≥ 0.5 (not a tertiary 0.2/0.3) for this style.
       const sorted = [...counts.entries()].sort(([, a], [, b]) => b - a)
       const topPick = sorted[0]![0]
       const topWeight = weights[topPick] ?? 0
