@@ -22,6 +22,13 @@
       "when": 1779689475053,
       "tag": "0002_comments",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1748131200000,
+      "tag": "0003_challenge_quota",
+      "breakpoints": true
     }
   ]
 }
