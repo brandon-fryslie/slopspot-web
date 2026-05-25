@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import type { Post, Media, Origin, Actor, Content, GenerationStatus, VoteValue } from "~/lib/domain"
 
 export function PostCard({
@@ -60,16 +60,29 @@ function VoteControls({
   const [score, setScore] = useState(initialScore)
   const [myVote, setMyVote] = useState<VoteValue | null>(initialMyVote)
   const [pending, setPending] = useState(false)
+  // [LAW:single-enforcer] Synchronous re-entrancy guard. `setPending(true)` is
+  // queued for the next render, so a rapid second click inside the same
+  // microtask would still see `pending === false` from React state. The ref is
+  // mutated synchronously, so the second click bails on the same tick. The
+  // button's `disabled={pending}` is the visual signal; this ref is the
+  // correctness guarantee.
+  const inFlight = useRef(false)
 
   async function castVote(direction: VoteValue) {
+    if (inFlight.current) return
+    inFlight.current = true
+
     const prev = { score, myVote }
     const oldValue = myVote ?? 0
     // Optimistic: the local score moves by (newVote - oldVote). When direction
     // matches current myVote, the swing is zero — UI unchanged, idempotent
-    // request still flies for symmetry.
+    // request still flies for symmetry. Stale-closure arithmetic isn't a
+    // concern because the inFlight guard prevents a second castVote until this
+    // one has both confirmed/rolled-back and cleared the flag.
     setScore(score + (direction - oldValue))
     setMyVote(direction)
     setPending(true)
+
     try {
       const res = await fetch(`/api/posts/${postId}/vote`, {
         method: "POST",
@@ -85,6 +98,7 @@ function VoteControls({
       setMyVote(prev.myVote)
     } finally {
       setPending(false)
+      inFlight.current = false
     }
   }
 

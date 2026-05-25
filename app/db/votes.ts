@@ -16,7 +16,7 @@
 // union — adding a sentinel to VoteIntent stops compilation here until handled.
 
 import { and, eq, sql } from 'drizzle-orm'
-import { db } from '~/db/client'
+import { db, type DB } from '~/db/client'
 import { votes } from '~/db/schema'
 import type { PostId, VoteIntent, VoteValue } from '~/lib/domain'
 
@@ -62,19 +62,16 @@ export async function setVote(
   }
 
   return {
-    score: await scoreFor(postId, ctx),
+    score: await scoreFor(database, postId),
     value: value === 0 ? null : value,
   }
 }
 
 // [LAW:one-source-of-truth] Same SUM-with-coalesce shape feed.ts uses for the
-// list view, scoped to one post. Extracted so the route can return the post's
-// score after a write without re-deriving the aggregate.
-export async function scoreFor(
-  postId: PostId,
-  ctx: { env: Env },
-): Promise<number> {
-  const database = db(ctx.env)
+// list view, scoped to one post. Takes the already-constructed DB instance so
+// a single request initializes Drizzle once — setVote calls it on its own
+// database; external callers pass theirs in.
+export async function scoreFor(database: DB, postId: PostId): Promise<number> {
   const rows = await database
     .select({
       score: sql<number>`coalesce(sum(${votes.value}), 0)`,

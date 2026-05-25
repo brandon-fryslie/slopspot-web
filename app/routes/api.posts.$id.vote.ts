@@ -5,9 +5,10 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP trust boundary for votes. Verification order:
-// method check → body parse (Zod, [LAW:types-are-the-program] the wire shape
-// already encodes the closed VoteIntent union, so a body with value=2 fails
-// here before any DB touch) → voter id resolve → delegate to setVote.
+// method check → same-origin check (CSRF gate) → body parse (Zod,
+// [LAW:types-are-the-program] the wire shape already encodes the closed
+// VoteIntent union, so a body with value=2 fails here before any DB touch) →
+// voter id resolve → delegate to setVote.
 //
 // [LAW:locality-or-seam] Authentication is intentionally absent: voter identity
 // is a long-lived anonymous cookie. Real auth (the prerequisite for users
@@ -19,9 +20,34 @@ const bodySchema = z.object({
   value: z.union([z.literal(1), z.literal(-1), z.literal(0)]),
 })
 
+// [LAW:single-enforcer] Same-origin gate for the state-changing POST. Browsers
+// attach `Origin` on every POST submission they originate; a request whose
+// Origin is present but doesn't match the request's own host is by definition
+// cross-site (a third-party page driving the user's browser) and must be
+// rejected before any voter id is minted. The SameSite=Lax cookie blocks the
+// caller's existing identity from being sent — but resolveVoter would still
+// mint a *fresh* one per call, letting a third party trickle the score under
+// a stream of anonymous identities. The Origin check is what stops that.
+//
+// [LAW:no-defensive-null-guards] exception: an absent `Origin` header is a
+// legitimate not-third-party case (some same-origin tooling and older clients
+// omit it). Treat absent as same-origin and let the cookie/SameSite layer be
+// the secondary defense. The defensive shape would be "reject if Origin is
+// absent" — which would break legitimate clients without preventing the
+// browser-driven attack the gate exists to block.
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin")
+  if (origin === null) return true
+  return new URL(origin).host === new URL(request.url).host
+}
+
 export async function action({ request, params, context }: Route.ActionArgs) {
   if (request.method !== "POST") {
     return Response.json({ error: "method not allowed" }, { status: 405 })
+  }
+
+  if (!isSameOrigin(request)) {
+    return Response.json({ error: "cross-origin POST forbidden" }, { status: 403 })
   }
 
   let parsed
