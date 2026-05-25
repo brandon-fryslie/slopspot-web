@@ -228,3 +228,12 @@ export type DbVote = typeof votes.$inferSelect
 export type NewDbVote = typeof votes.$inferInsert
 export type DbComment = typeof comments.$inferSelect
 export type NewDbComment = typeof comments.$inferInsert
+
+// Challenge quota: tracks daily generation count for the protein-shell gate.
+// [LAW:single-enforcer] app/lib/quota.ts is the only writer via D1 batch.
+// This table is intentionally separate from the app domain schema — it
+// serves gate enforcement, not content persistence.
+export const challengeQuota = sqliteTable('challenge_quota', {
+  date: text('date').primaryKey(),
+  count: integer('count').notNull(),
+})
