@@ -32,6 +32,7 @@ import {
 import {
   PostId,
   ProviderId,
+  type Actor,
   type Content,
   type FeedItem,
   type GenerationStatus,
@@ -184,11 +185,35 @@ function toContent(row: FeedRow): Content {
   }
 }
 
+// [LAW:types-are-the-program] Anti-corruption layer for legacy rows written before
+// the Actor union gained the 'anon' variant. Fork submissions prior to this change
+// stored { kind: 'agent', agentId: 'anon-XXXXXX' }. Normalizing at the read
+// boundary keeps the domain pure — callers never see the legacy shape.
+//
+// The predicate matches exactly the output of authorLabel(uuid): 'anon-' + the
+// first 6 chars of a UUID (hex digits; case-insensitive because voter IDs may
+// originate from any UUID source, not just crypto.randomUUID()). Tighter than
+// startsWith('anon-') alone to avoid misclassifying a self-reported agentId.
+const LEGACY_ANON_RE = /^anon-[0-9a-f]{6}$/i
+function normalizeActor(raw: Actor): Actor {
+  if (raw.kind === 'agent' && LEGACY_ANON_RE.test(raw.agentId)) {
+    return { kind: 'anon', label: raw.agentId }
+  }
+  return raw
+}
+
+function normalizeOrigin(raw: Origin): Origin {
+  return {
+    actor: normalizeActor(raw.actor),
+    ...(raw.onBehalfOf !== undefined ? { onBehalfOf: normalizeActor(raw.onBehalfOf) } : {}),
+  }
+}
+
 function toPost(row: FeedRow): Post {
   return {
     id: PostId(row.post.id),
     createdAt: row.post.createdAt,
-    origin: parseJson<Origin>(row.post.originJson, `origin_json for post ${row.post.id}`),
+    origin: normalizeOrigin(parseJson<Origin>(row.post.originJson, `origin_json for post ${row.post.id}`)),
     content: toContent(row),
   }
 }
