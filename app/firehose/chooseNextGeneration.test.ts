@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { RecentRecipe } from '~/db/recent'
 import { ProviderId, type AspectRatio, type StyleFamily } from '~/lib/domain'
 import {
@@ -356,7 +356,6 @@ describe('chooseNextGeneration — config guard', () => {
 describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () => {
   const N = 1000
   const BASE_T = Date.UTC(2026, 0, 1, 0, 0, 0)
-  const SIX_HOURS = 6 * 60 * 60 * 1000
   const R6_WINDOW = 20
 
   // Run the chain once; every test below shares this output. [LAW:dataflow-not-control-flow]
@@ -385,7 +384,13 @@ describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () 
     return out
   }
 
-  const chain = runChain()
+  // [LAW:dataflow-not-control-flow] beforeAll fires when any test in this
+  // describe is selected, not at describe-load time. Filtering the suite
+  // out with `vitest -t ...` skips the 1000-fire simulation entirely.
+  let chain: ChooserOutput[]
+  beforeAll(() => {
+    chain = runChain()
+  })
 
   it(`R1: never two consecutive same style_family across ${N} fires`, () => {
     for (let i = 1; i < chain.length; i++) {
@@ -423,7 +428,7 @@ describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () 
     expect(seen.size).toBe(STYLE_FAMILIES.length)
   })
 
-  it('distribution: per style, provider ordering matches STYLE_FAMILY_PROVIDER_WEIGHTS within ±20% margin on the dominant pick', () => {
+  it("distribution: per style with ≥30 picks, the most-chosen provider's weight is ≥0.5 in STYLE_FAMILY_PROVIDER_WEIGHTS (never a tertiary 0.2/0.3 by accident)", () => {
     // Group provider counts by style.
     const byStyle = new Map<StyleFamily, Map<string, number>>()
     for (const r of chain) {
