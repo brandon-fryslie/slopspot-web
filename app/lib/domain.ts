@@ -109,19 +109,36 @@ export type Post = {
 export type VoteValue = -1 | 1
 export type VoteIntent = VoteValue | 0
 
-// [LAW:types-are-the-program] FeedItem is the smooth boundary between the data layer
-// (seed today, D1 tomorrow) and rendering. Score, rank, myVote, and commentCount
-// are all derived per-query — same shape regardless of source. myVote is null
-// when the viewer hasn't voted (or there is no viewer cookie yet); the
-// discriminator carries "already-voted state" without a separate boolean.
-// commentCount is COUNT(comments) per post, included in the feed query so the
-// post-card collapsed view never needs a separate round-trip.
-export type FeedItem = {
+// [LAW:types-are-the-program] RenderablePost is the strongest true theorem about
+// what PostCard needs to render a post: the post itself, its derived score,
+// the viewer's own vote (or absence of one), and how many comments it has.
+// Every field is computed per-query — same shape regardless of source.
+// myVote is null when the viewer hasn't voted (or there is no viewer cookie
+// yet); the discriminator carries "already-voted state" without a separate
+// boolean. commentCount is COUNT(comments) per post, projected at query
+// time so the post-card collapsed view never needs a separate round-trip.
+//
+// [LAW:one-type-per-behavior] This shape is the boundary between the data
+// layer and rendering, and is the same whether a post arrives via the feed
+// list (getFeed) or via its permalink (getFeedItemById). One renderable
+// shape, two readers — not two types-that-happen-to-look-the-same.
+export type RenderablePost = {
   post: Post
   score: number
-  rank: number
   myVote: VoteValue | null
   commentCount: number
+}
+
+// [LAW:one-type-per-behavior] A FeedItem IS a RenderablePost plus a list
+// position. `rank` is meaningful only in the context of a sorted feed query
+// — the post's index in (score DESC, createdAt DESC) order. Pinning `rank`
+// onto every read of a single post would force callers to invent a
+// placeholder (e.g. `rank: 1` in a permalink), which is the textbook
+// type-admits-illegal-state failure mode. The intersection split makes
+// "this post on its own" vs "this post in a ranked list" structurally
+// distinct: the type system itself records which view produced the value.
+export type FeedItem = RenderablePost & {
+  rank: number
 }
 
 // [LAW:types-are-the-program] Comments v1 are flat (no parentCommentId) and

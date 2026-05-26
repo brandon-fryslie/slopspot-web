@@ -6,10 +6,12 @@ import { PostCard } from "~/components/post-card"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The permalink page route. Reuses getFeedItemById,
-// which produces the same FeedItem shape getFeed produces per row — so a post
-// rendered here looks identical to the same post rendered in the feed list
-// (same PostCard, same score / commentCount / myVote semantics). No second
-// renderer, no second data shape; one mapping, two viewpoints.
+// which returns a RenderablePost — the same renderable shape getFeed
+// projects per row, minus the list-position `rank` that only the feed
+// view carries. PostCard consumes RenderablePost directly, so a post
+// looks identical here and in the feed list (same PostCard, same
+// score / commentCount / myVote semantics). One renderable shape, two
+// viewpoints; rank is the only thing distinguishing them.
 //
 // [LAW:locality-or-seam] The fork submit handler navigates to /p/<newId> to
 // solve the "I forked a post and now I can't see it" UX gap from ec7.3 —
@@ -67,12 +69,11 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
           </span>
         </h1>
       </header>
-      <PostCard
-        post={item.post}
-        score={item.score}
-        myVote={item.myVote}
-        commentCount={item.commentCount}
-      />
+      {/* [LAW:dataflow-not-control-flow] item is a RenderablePost — exactly
+          PostCard's prop shape. Spread it as a single value flowing across
+          the boundary rather than re-listing every field; the type system
+          carries the contract. */}
+      <PostCard {...item} />
     </main>
   )
 }
