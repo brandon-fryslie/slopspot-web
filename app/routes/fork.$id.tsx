@@ -162,12 +162,16 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         const detail = await res.text().catch(() => "")
         throw new Error(`fork failed: ${res.status} ${detail}`.trim())
       }
-      // Fork succeeded → navigate to home. The new post is already persisted
-      // (createPost is synchronous on success) and the home loader will pick
-      // it up. The feed orders by (score DESC, createdAt DESC), so a fresh
-      // fork at score 0 lands at the top of the zero-score band — not
-      // necessarily the absolute top if higher-scored posts exist.
-      navigate("/")
+      // [LAW:single-enforcer] Navigate to the new post's permalink, not to
+      // home. The feed orders by (score DESC, createdAt DESC), so a fresh
+      // fork at score 0 lands below any higher-scored posts — possibly off
+      // the visible viewport, which was the "did anything happen?" UX gap
+      // ec7.3.2 closes. The api/fork/:id response shape `{ id, parentId }`
+      // is the seam this redirect rides on; the wire schema below pins it
+      // so a future API change can't silently regress this navigation.
+      const responseSchema = z.object({ id: z.string().min(1) })
+      const { id: newPostId } = responseSchema.parse(await res.json())
+      navigate(`/p/${newPostId}`)
     } catch (err) {
       setError(String(err))
     } finally {

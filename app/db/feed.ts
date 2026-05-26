@@ -3,12 +3,14 @@
 // sets that arm's columns; this module switches on the status it reads and
 // pulls that arm's columns. Same discriminators, opposite direction.
 //
-// Two readers live here because they share the same row→Post mapping
+// Three readers live here because they share the same row→Post mapping
 // (toPost/toContent/toStatus): getFeed for the homepage list (with score,
-// commentCount, myVote aggregates), and getPostById for single-post lookup
-// (parent-recipe fetch on /fork/:id). Splitting them into separate files would
-// duplicate the mapping or force an export-just-for-share — instead they share
-// the helpers in-module.
+// commentCount, myVote aggregates), getFeedItemById for the permalink page
+// (same aggregates, narrowed to one post by id), and getPostById for the
+// fork form's parent-recipe fetch (no aggregates — the form does not render
+// score/comments). Splitting them into separate files would duplicate the
+// mapping or force an export-just-for-share — instead they share the helpers
+// in-module.
 //
 // [LAW:types-are-the-program] FeedItem is the smooth seam between storage and
 // rendering (app/lib/domain.ts). This module's whole job is to absorb the
@@ -301,6 +303,88 @@ export async function getFeed(
     myVote: toMyVote(row.myVote, row.post.id),
     commentCount: row.commentCount,
   }))
+}
+
+// [LAW:single-enforcer] Single-post FeedItem lookup — the permalink route
+// (/p/:id) funnels through here. Returns the same FeedItem shape getFeed
+// returns per row, so PostCard renders identically whether the post is reached
+// via the feed or via its permalink. Returns null on miss (the wire decides
+// the 404 status; the reader does not throw on absence, only on shape
+// violations).
+//
+// [LAW:dataflow-not-control-flow] Same join+aggregate shape as getFeed —
+// voteScore CTE, commentCount CTE, myVote alias, every leftJoin runs every
+// call. The only differences are the `.where(eq(posts.id, id))` filter (the
+// data that selects which post comes back) and `.limit(1)` (the data that
+// says "one is enough"). Order is unnecessary on a single-row result. The
+// rank field on FeedItem is feed-position semantics that don't apply to a
+// permalink view — pinned to 1 here because the permalink result is a list
+// of size one. [LAW:one-source-of-truth] for the aggregates: every per-post
+// number (score, commentCount, myVote) is derived from the same source
+// tables and same expressions as the feed, never a separate query the
+// permalink invents.
+export async function getFeedItemById(
+  env: Env,
+  id: PostId,
+  voterId?: string,
+): Promise<FeedItem | null> {
+  const database = db(env)
+
+  const voteScore = database
+    .select({
+      postId: votes.postId,
+      score: sql<number>`sum(${votes.value})`.as('score'),
+    })
+    .from(votes)
+    .groupBy(votes.postId)
+    .as('vote_score')
+
+  const score = sql<number>`coalesce(${voteScore.score}, 0)`
+
+  const commentCount = database
+    .select({
+      postId: comments.postId,
+      count: sql<number>`count(*)`.as('count'),
+    })
+    .from(comments)
+    .groupBy(comments.postId)
+    .as('comment_count')
+
+  const cCount = sql<number>`coalesce(${commentCount.count}, 0)`
+
+  const myVote = alias(votes, 'my_vote')
+  const myVoterId = voterId ?? ''
+
+  const rows = await database
+    .select({
+      post: posts,
+      generation: generations,
+      upload: uploads,
+      score,
+      myVote: myVote.value,
+      commentCount: cCount,
+    })
+    .from(posts)
+    .leftJoin(generations, eq(generations.postId, posts.id))
+    .leftJoin(uploads, eq(uploads.postId, posts.id))
+    .leftJoin(voteScore, eq(voteScore.postId, posts.id))
+    .leftJoin(commentCount, eq(commentCount.postId, posts.id))
+    .leftJoin(
+      myVote,
+      and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)),
+    )
+    .where(eq(posts.id, id))
+    .limit(1)
+
+  if (rows.length === 0) return null
+  const row = rows[0]
+  return {
+    post: toPost(row),
+    score: row.score,
+    rank: 1,
+    myVote: toMyVote(row.myVote, row.post.id),
+    commentCount: row.commentCount,
+  }
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
