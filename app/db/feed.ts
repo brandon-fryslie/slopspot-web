@@ -41,6 +41,7 @@ import {
   type Media,
   type Origin,
   type Post,
+  type RenderablePost,
   type VoteValue,
 } from '~/lib/domain'
 import {
@@ -300,8 +301,14 @@ function selectFeedRows(database: ReturnType<typeof db>, voterId: string | undef
   return { query, score }
 }
 
-// One row → one FeedItem. Both readers funnel through this so the per-row
-// FeedItem construction lives in exactly one place. [LAW:single-enforcer]
+// [LAW:single-enforcer] One row → one RenderablePost. Both readers funnel
+// through this so the per-row construction of the four-field renderable
+// shape lives in exactly one place. The feed reader spreads its output and
+// adds `rank` (the only field unique to list-position views); the permalink
+// reader returns it bare. The variability between "ranked" and "bare"
+// renderable lives in the caller, not in a parameter to this helper —
+// [LAW:dataflow-not-control-flow], the function does the same thing every
+// time, the caller decides whether to augment.
 type FeedRowWithAggregates = {
   post: DbPost
   generation: DbGeneration | null
@@ -311,11 +318,10 @@ type FeedRowWithAggregates = {
   commentCount: number
 }
 
-function rowToFeedItem(row: FeedRowWithAggregates, rank: number): FeedItem {
+function rowToRenderablePost(row: FeedRowWithAggregates): RenderablePost {
   return {
     post: toPost(row),
     score: row.score,
-    rank,
     myVote: toMyVote(row.myVote, row.post.id),
     commentCount: row.commentCount,
   }
@@ -332,35 +338,39 @@ export async function getFeed(
     .orderBy(desc(score), desc(posts.createdAt))
     .limit(50)
 
-  // rank is the post-sort position — derived per query, same as the seed produced.
-  return rows.map((row, i) => rowToFeedItem(row, i + 1))
+  // rank is the post-sort position — derived per query, meaningful only in
+  // the list view. Added here by spread, not by the shared helper, because
+  // it's the one field whose semantics belong to "post in a ranked list"
+  // rather than "renderable post".
+  return rows.map((row, i): FeedItem => ({
+    ...rowToRenderablePost(row),
+    rank: i + 1,
+  }))
 }
 
-// [LAW:single-enforcer] Single-post FeedItem lookup — the permalink route
-// (/p/:id) funnels through here. Returns the same FeedItem shape getFeed
-// returns per row, so PostCard renders identically whether the post is reached
-// via the feed or via its permalink. Returns null on miss (the wire decides
-// the 404 status; the reader does not throw on absence, only on shape
-// violations).
+// [LAW:single-enforcer] Single-post lookup — the permalink route (/p/:id)
+// funnels through here. Returns RenderablePost (not FeedItem) because rank
+// is feed-list-position semantics, meaningless when there's no list.
+// [LAW:one-type-per-behavior] — the return type itself records that this
+// is a single-post view, not a list-of-one. Returns null on miss (the wire
+// decides the 404 status; the reader does not throw on absence, only on
+// shape violations).
 //
 // The shared selectFeedRows helper guarantees the same aggregates the feed
 // uses — score, commentCount, myVote — so a future change to any aggregate
-// applies to both views. The only call-site variability is `.where()` +
-// `.limit(1)` (the filter that picks which post) and the rank of 1 (a
-// permalink result is a list of size one; the feed-position semantic does
-// not apply to a single-post view).
+// applies to both views by construction.
 export async function getFeedItemById(
   env: Env,
   id: PostId,
   voterId?: string,
-): Promise<FeedItem | null> {
+): Promise<RenderablePost | null> {
   const database = db(env)
   const { query } = selectFeedRows(database, voterId)
 
   const rows = await query.where(eq(posts.id, id)).limit(1)
 
   if (rows.length === 0) return null
-  return rowToFeedItem(rows[0], 1)
+  return rowToRenderablePost(rows[0])
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
