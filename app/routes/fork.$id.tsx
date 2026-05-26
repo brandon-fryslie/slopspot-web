@@ -1,6 +1,6 @@
 import type { Route } from "./+types/fork.$id"
 import { useRef, useState } from "react"
-import { useNavigate } from "react-router"
+import { Link, useNavigate } from "react-router"
 import { z } from "zod"
 import { getPostById } from "~/db/feed"
 import { getProvider, UnknownProviderError } from "~/providers"
@@ -42,6 +42,14 @@ import { ASPECT_RATIOS, STYLE_FAMILIES, renderTemplate } from "~/lib/variety"
 const promptedParamsSchema = z
   .object({ prompt: z.string().trim().min(1).max(PROMPT_MAX) })
   .passthrough()
+
+// [LAW:one-source-of-truth] The response contract from /api/fork/:id, pinned
+// here at module scope (same pattern as promptedParamsSchema above) — defined
+// once per file load, not re-instantiated on every form submit. The schema
+// asserts only what the redirect consumes (`id`); the producer emits a wider
+// envelope (`{ id, parentId }`), and pinning fields the client doesn't read
+// would assert a contract the consumer doesn't enforce.
+const forkResponseSchema = z.object({ id: z.string().min(1) })
 
 // [LAW:types-are-the-program] The loader's output is the form's exact pre-fill
 // shape — one closed type, no nullables. If a row drifts (parent not found,
@@ -162,12 +170,14 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         const detail = await res.text().catch(() => "")
         throw new Error(`fork failed: ${res.status} ${detail}`.trim())
       }
-      // Fork succeeded → navigate to home. The new post is already persisted
-      // (createPost is synchronous on success) and the home loader will pick
-      // it up. The feed orders by (score DESC, createdAt DESC), so a fresh
-      // fork at score 0 lands at the top of the zero-score band — not
-      // necessarily the absolute top if higher-scored posts exist.
-      navigate("/")
+      // [LAW:single-enforcer] Navigate to the new post's permalink, not to
+      // home. The feed orders by (score DESC, createdAt DESC), so a fresh
+      // fork at score 0 lands below any higher-scored posts — possibly off
+      // the visible viewport, which was the "did anything happen?" UX gap
+      // ec7.3.2 closes. forkResponseSchema (module-scope above) pins the
+      // wire contract this redirect rides on.
+      const { id: newPostId } = forkResponseSchema.parse(await res.json())
+      navigate(`/p/${newPostId}`)
     } catch (err) {
       setError(String(err))
     } finally {
@@ -179,12 +189,16 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-8 border-b border-white/10 pb-6">
-        <a
-          href="/"
+        {/* [LAW:one-source-of-truth] React Router's <Link> is the canonical
+            in-app navigation primitive — client-side routing, no full
+            document reload. A bare anchor would tear down React and
+            refetch the whole bundle for an internal jump. */}
+        <Link
+          to="/"
           className="font-mono text-xs uppercase tracking-[0.25em] text-white/40 transition hover:text-white/70"
         >
           ← back to slopspot
-        </a>
+        </Link>
         <h1 className="mt-3 text-3xl font-black tracking-tight text-white">
           Fork{" "}
           <span className="font-mono text-xl text-emerald-400">
