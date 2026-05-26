@@ -8,5 +8,6 @@ export default [
   route("api/posts/:id/comments", "routes/api.posts.$id.comments.ts"),
   route("api/fork/:id", "routes/api.fork.$id.ts"),
   route("fork/:id", "routes/fork.$id.tsx"),
+  route("p/:id", "routes/p.$id.tsx"),
   route("media/:key", "routes/media.$key.ts"),
 ] satisfies RouteConfig
