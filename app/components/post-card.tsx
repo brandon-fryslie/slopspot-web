@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react"
-import type { Post, Media, Origin, Actor, Content, GenerationStatus, VoteValue } from "~/lib/domain"
+import type { Post, Media, Origin, Actor, Content, GenerationStatus, RenderablePost, VoteValue } from "~/lib/domain"
 
+// [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
+// shape that the feed reader and the permalink reader both produce. The
+// list-position `rank` field that lives on FeedItem is deliberately NOT
+// in this prop type: PostCard renders the same way whether it appears in
+// a ranked list or as a permalink, so it has no business reading rank.
+// The type carries that fact: a caller that has a FeedItem can pass it
+// here (FeedItem extends RenderablePost), and a caller that only has a
+// RenderablePost (the permalink loader) is not forced to invent a rank.
 export function PostCard({
   post,
   score,
   myVote,
   commentCount,
-}: {
-  post: Post
-  score: number
-  myVote: VoteValue | null
-  commentCount: number
-}) {
+}: RenderablePost) {
   return (
     <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
       <ContentView content={post.content} />
