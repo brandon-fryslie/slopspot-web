@@ -1,4 +1,5 @@
 import type { Route } from "./+types/p.$id"
+import { Link } from "react-router"
 import { getFeedItemById } from "~/db/feed"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostCard } from "~/components/post-card"
@@ -49,12 +50,17 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-8 border-b border-white/10 pb-6">
-        <a
-          href="/"
+        {/* [LAW:one-source-of-truth] React Router's <Link> is the canonical
+            in-app navigation primitive: client-side routing, no full
+            document reload, preserves SPA state. A bare <a href="/"> would
+            tear down React and refetch the whole bundle for an in-app
+            destination — wrong tool for an internal jump. */}
+        <Link
+          to="/"
           className="font-mono text-xs uppercase tracking-[0.25em] text-white/40 transition hover:text-white/70"
         >
           ← back to slopspot
-        </a>
+        </Link>
         <h1 className="mt-3 text-3xl font-black tracking-tight text-white">
           <span className="font-mono text-xl text-emerald-400">
             p:{item.post.id.slice(0, 8)}
