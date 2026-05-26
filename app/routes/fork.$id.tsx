@@ -166,9 +166,12 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       // home. The feed orders by (score DESC, createdAt DESC), so a fresh
       // fork at score 0 lands below any higher-scored posts — possibly off
       // the visible viewport, which was the "did anything happen?" UX gap
-      // ec7.3.2 closes. The api/fork/:id response shape `{ id, parentId }`
-      // is the seam this redirect rides on; the wire schema below pins it
-      // so a future API change can't silently regress this navigation.
+      // ec7.3.2 closes. The schema pins only the field this redirect reads
+      // (`id`); the producer (api.fork.$id.ts) emits a wider `{ id, parentId }`
+      // envelope, but pinning fields the client doesn't read would assert
+      // a contract beyond what the consumer enforces. If `id` ever changes
+      // shape or disappears, the parse fails loud at this boundary; if
+      // `parentId` changes, the client (which never reads it) is unaffected.
       const responseSchema = z.object({ id: z.string().min(1) })
       const { id: newPostId } = responseSchema.parse(await res.json())
       navigate(`/p/${newPostId}`)

@@ -232,15 +232,26 @@ function toMyVote(raw: number | null, postId: string): VoteValue | null {
   )
 }
 
-export async function getFeed(
-  env: Env,
-  voterId?: string,
-): Promise<FeedItem[]> {
-  const database = db(env)
-
-  // [LAW:one-source-of-truth] Score is SUM(votes.value), never a stored column.
-  // The subquery aggregates per post; the LEFT JOIN + COALESCE makes a post with no
-  // votes score 0 rather than dropping out of the feed.
+// [LAW:single-enforcer] One place defines the FeedItem-shaped rowset's joins,
+// aggregates, and column selection. Both readers (getFeed and getFeedItemById)
+// build their queries from this helper, so any aggregate change (new column,
+// different COALESCE, a future per-post stat) lands in both views by
+// construction — no drift risk.
+//
+// [LAW:one-source-of-truth] Score is SUM(votes.value), never a stored column.
+// commentCount is COUNT(comments) per post, derived the same way. The LEFT
+// JOIN + COALESCE shapes make a post with no votes / no comments still appear
+// with a numeric zero, rather than dropping out or yielding NULL downstream.
+//
+// [LAW:dataflow-not-control-flow] The JOIN to the viewer's own vote runs every
+// call, regardless of whether a voter id is known. The sentinel when voterId
+// is absent ('') cannot match any real UUID, so the LEFT JOIN simply yields
+// null for every row — same query shape, the data decides what matches.
+//
+// The return shape includes `score` separately because callers need it as a
+// SQL expression for ordering (getFeed orders by it) — separate from the
+// per-row scalar projected into the SELECT.
+function selectFeedRows(database: ReturnType<typeof db>, voterId: string | undefined) {
   const voteScore = database
     .select({
       postId: votes.postId,
@@ -252,10 +263,6 @@ export async function getFeed(
 
   const score = sql<number>`coalesce(${voteScore.score}, 0)`
 
-  // [LAW:one-source-of-truth] commentCount is COUNT(comments) per post, derived
-  // the same way score is — never a denormalized column. Same LEFT JOIN +
-  // COALESCE shape: a post with zero comments still appears with count 0,
-  // rather than dropping out of the feed or yielding NULL downstream.
   const commentCount = database
     .select({
       postId: comments.postId,
@@ -267,14 +274,10 @@ export async function getFeed(
 
   const cCount = sql<number>`coalesce(${commentCount.count}, 0)`
 
-  // [LAW:dataflow-not-control-flow] The JOIN to the viewer's own vote runs every
-  // call, regardless of whether a voter id is known. The sentinel when voterId
-  // is absent ('') cannot match any real UUID, so the LEFT JOIN simply yields
-  // null for every row — same query shape, the data decides what matches.
   const myVote = alias(votes, 'my_vote')
   const myVoterId = voterId ?? ''
 
-  const rows = await database
+  const query = database
     .select({
       post: posts,
       generation: generations,
@@ -292,17 +295,45 @@ export async function getFeed(
       myVote,
       and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)),
     )
+    .$dynamic()
+
+  return { query, score }
+}
+
+// One row → one FeedItem. Both readers funnel through this so the per-row
+// FeedItem construction lives in exactly one place. [LAW:single-enforcer]
+type FeedRowWithAggregates = {
+  post: DbPost
+  generation: DbGeneration | null
+  upload: DbUpload | null
+  score: number
+  myVote: number | null
+  commentCount: number
+}
+
+function rowToFeedItem(row: FeedRowWithAggregates, rank: number): FeedItem {
+  return {
+    post: toPost(row),
+    score: row.score,
+    rank,
+    myVote: toMyVote(row.myVote, row.post.id),
+    commentCount: row.commentCount,
+  }
+}
+
+export async function getFeed(
+  env: Env,
+  voterId?: string,
+): Promise<FeedItem[]> {
+  const database = db(env)
+  const { query, score } = selectFeedRows(database, voterId)
+
+  const rows = await query
     .orderBy(desc(score), desc(posts.createdAt))
     .limit(50)
 
   // rank is the post-sort position — derived per query, same as the seed produced.
-  return rows.map((row, i) => ({
-    post: toPost(row),
-    score: row.score,
-    rank: i + 1,
-    myVote: toMyVote(row.myVote, row.post.id),
-    commentCount: row.commentCount,
-  }))
+  return rows.map((row, i) => rowToFeedItem(row, i + 1))
 }
 
 // [LAW:single-enforcer] Single-post FeedItem lookup — the permalink route
@@ -312,79 +343,24 @@ export async function getFeed(
 // the 404 status; the reader does not throw on absence, only on shape
 // violations).
 //
-// [LAW:dataflow-not-control-flow] Same join+aggregate shape as getFeed —
-// voteScore CTE, commentCount CTE, myVote alias, every leftJoin runs every
-// call. The only differences are the `.where(eq(posts.id, id))` filter (the
-// data that selects which post comes back) and `.limit(1)` (the data that
-// says "one is enough"). Order is unnecessary on a single-row result. The
-// rank field on FeedItem is feed-position semantics that don't apply to a
-// permalink view — pinned to 1 here because the permalink result is a list
-// of size one. [LAW:one-source-of-truth] for the aggregates: every per-post
-// number (score, commentCount, myVote) is derived from the same source
-// tables and same expressions as the feed, never a separate query the
-// permalink invents.
+// The shared selectFeedRows helper guarantees the same aggregates the feed
+// uses — score, commentCount, myVote — so a future change to any aggregate
+// applies to both views. The only call-site variability is `.where()` +
+// `.limit(1)` (the filter that picks which post) and the rank of 1 (a
+// permalink result is a list of size one; the feed-position semantic does
+// not apply to a single-post view).
 export async function getFeedItemById(
   env: Env,
   id: PostId,
   voterId?: string,
 ): Promise<FeedItem | null> {
   const database = db(env)
+  const { query } = selectFeedRows(database, voterId)
 
-  const voteScore = database
-    .select({
-      postId: votes.postId,
-      score: sql<number>`sum(${votes.value})`.as('score'),
-    })
-    .from(votes)
-    .groupBy(votes.postId)
-    .as('vote_score')
-
-  const score = sql<number>`coalesce(${voteScore.score}, 0)`
-
-  const commentCount = database
-    .select({
-      postId: comments.postId,
-      count: sql<number>`count(*)`.as('count'),
-    })
-    .from(comments)
-    .groupBy(comments.postId)
-    .as('comment_count')
-
-  const cCount = sql<number>`coalesce(${commentCount.count}, 0)`
-
-  const myVote = alias(votes, 'my_vote')
-  const myVoterId = voterId ?? ''
-
-  const rows = await database
-    .select({
-      post: posts,
-      generation: generations,
-      upload: uploads,
-      score,
-      myVote: myVote.value,
-      commentCount: cCount,
-    })
-    .from(posts)
-    .leftJoin(generations, eq(generations.postId, posts.id))
-    .leftJoin(uploads, eq(uploads.postId, posts.id))
-    .leftJoin(voteScore, eq(voteScore.postId, posts.id))
-    .leftJoin(commentCount, eq(commentCount.postId, posts.id))
-    .leftJoin(
-      myVote,
-      and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)),
-    )
-    .where(eq(posts.id, id))
-    .limit(1)
+  const rows = await query.where(eq(posts.id, id)).limit(1)
 
   if (rows.length === 0) return null
-  const row = rows[0]
-  return {
-    post: toPost(row),
-    score: row.score,
-    rank: 1,
-    myVote: toMyVote(row.myVote, row.post.id),
-    commentCount: row.commentCount,
-  }
+  return rowToFeedItem(rows[0], 1)
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
