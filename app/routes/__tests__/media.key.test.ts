@@ -10,11 +10,22 @@ declare module 'cloudflare:test' {
 // The loader only accesses params.key and context.cloudflare.env.MEDIA. The
 // `url` and `pattern` fields are required by RR7's CreateServerLoaderArgs
 // type even though the loader does not read them.
+// No-op ExecutionContext stub. The loader does not call ctx.waitUntil or
+// ctx.passThroughOnException, but providing real methods (instead of an empty
+// cast) keeps the test helper structurally correct so a future loader that
+// starts using ctx fails by behavior, not by TypeError on a missing method.
+const stubCtx: ExecutionContext = {
+  waitUntil() {},
+  passThroughOnException() {},
+  exports: {} as Cloudflare.Exports,
+  props: {},
+}
+
 const args = (key: string): Parameters<typeof loader>[0] => {
   const url = new URL(`https://slopspot.ai/media/${key}`)
   return {
     params: { key },
-    context: { cloudflare: { env, ctx: {} as ExecutionContext } },
+    context: { cloudflare: { env, ctx: stubCtx } },
     request: new Request(url),
     url,
     pattern: '/media/:key',

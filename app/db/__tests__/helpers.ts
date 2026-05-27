@@ -66,6 +66,15 @@ export type SeedPostOpts = {
   content?: SeedPostContent
 }
 
+// [LAW:types-are-the-program] Exhaustiveness guard for the status discriminator
+// — mirrors feed.ts's `assertNever`. In the default arm `value` narrows to
+// `never`, so this compiles only while every GenerationStatus variant is
+// handled. Adding a variant in app/lib/domain.ts breaks the build at the
+// `: never` assignment, not at runtime by spreading `undefined` columns.
+function assertNever(value: never, what: string): never {
+  throw new Error(`helpers: unexpected ${what} at seed boundary: ${String(value)}`)
+}
+
 // [LAW:types-are-the-program] One per-arm projection from GenerationStatus to
 // the column shape the generations_status_shape CHECK demands. Mirrors
 // createPost's transition logic but applies it at insert time (no running →
@@ -112,6 +121,8 @@ function statusColumns(status: GenerationStatus) {
         failedAt: status.failedAt,
         failedReason: status.reason,
       }
+    default:
+      return assertNever(status, 'GenerationStatus arm')
   }
 }
 
