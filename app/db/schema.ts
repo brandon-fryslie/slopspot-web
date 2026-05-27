@@ -44,7 +44,7 @@ export const posts = sqliteTable(
     id: text('id').primaryKey(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     contentKind: text('content_kind', {
-      enum: ['generation', 'upload'],
+      enum: ['generation', 'upload', 'found'],
     }).notNull(),
     originJson: text('origin_json').notNull(),
   },
@@ -57,7 +57,7 @@ export const posts = sqliteTable(
     // discriminator real at the storage boundary, matching generations.status.
     check(
       'posts_content_kind_shape',
-      sql`${t.contentKind} IN ('generation', 'upload')`,
+      sql`${t.contentKind} IN ('generation', 'upload', 'found')`,
     ),
   ],
 )
@@ -161,6 +161,24 @@ export const uploads = sqliteTable('uploads', {
   assetJson: text('asset_json').notNull(),
 })
 
+// Found: sibling table for content_kind='found' posts (Reddit-style outbound
+// link submissions). url + title are NOT NULL by domain (`{ kind: 'found' }`
+// requires both); description is nullable (optional in the domain); thumbnail
+// is a nullable Media JSON, parsed at the read boundary like uploads.asset_json.
+// The linked media itself is NOT rehosted — only the optional thumbnail flows
+// through ~/storage/ingest. The url column carries the outbound destination
+// verbatim; URL parsing/validation lives at the wire trust boundary
+// (slopspot-content-sources-svq.2), not at storage.
+export const found = sqliteTable('found', {
+  postId: text('post_id')
+    .primaryKey()
+    .references(() => posts.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  thumbnailJson: text('thumbnail_json'),
+})
+
 // Votes: source of truth for score. The (post_id, voter_id) PK enforces one
 // vote per voter per post. value is -1 or 1 (Reddit-style; abstentions are
 // just row absence).
@@ -233,6 +251,8 @@ export type DbGeneration = typeof generations.$inferSelect
 export type NewDbGeneration = typeof generations.$inferInsert
 export type DbUpload = typeof uploads.$inferSelect
 export type NewDbUpload = typeof uploads.$inferInsert
+export type DbFound = typeof found.$inferSelect
+export type NewDbFound = typeof found.$inferInsert
 export type DbVote = typeof votes.$inferSelect
 export type NewDbVote = typeof votes.$inferInsert
 export type DbComment = typeof comments.$inferSelect

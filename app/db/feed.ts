@@ -23,10 +23,12 @@ import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
   comments,
+  found,
   generations,
   posts,
   uploads,
   votes,
+  type DbFound,
   type DbGeneration,
   type DbPost,
   type DbUpload,
@@ -58,6 +60,7 @@ type FeedRow = {
   post: DbPost
   generation: DbGeneration | null
   upload: DbUpload | null
+  found: DbFound | null
 }
 
 // [LAW:types-are-the-program] The storage→domain trust boundary. Columns carry the
@@ -156,35 +159,65 @@ function toRecipeSubject(
   return parsed.data
 }
 
+// [LAW:types-are-the-program] Closed union → exhaustive switch on the storage
+// discriminator. Adding a new variant to posts.contentKind upstream forces
+// this switch to grow before it compiles, matching the [LAW:single-enforcer]
+// shape: one place reads each arm. The default branch's assertNever doubles
+// as the runtime fail-loud for a contentKind no CHECK should have admitted.
+// [LAW:no-silent-fallbacks]
 function toContent(row: FeedRow): Content {
-  if (row.post.contentKind === 'upload') {
-    absent(row.generation, `generations row for upload post ${row.post.id}`)
-    const u = required(row.upload, `uploads row for post ${row.post.id}`)
-    return {
-      kind: 'upload',
-      asset: parseJson<Media>(u.assetJson, `asset_json for post ${row.post.id}`),
+  switch (row.post.contentKind) {
+    case 'upload': {
+      absent(row.generation, `generations row for upload post ${row.post.id}`)
+      absent(row.found, `found row for upload post ${row.post.id}`)
+      const u = required(row.upload, `uploads row for post ${row.post.id}`)
+      return {
+        kind: 'upload',
+        asset: parseJson<Media>(u.assetJson, `asset_json for post ${row.post.id}`),
+      }
     }
-  }
-  absent(row.upload, `uploads row for generation post ${row.post.id}`)
-  const g = required(row.generation, `generations row for post ${row.post.id}`)
-  // Variety fields at the trust boundary: Zod literal-union parses fail loud on
-  // any storage value outside the documented enums (style family or aspect
-  // ratio that no longer exists, mis-typed). [LAW:no-silent-fallbacks]
-  const styleFamily = styleFamilySchema.parse(g.styleFamily)
-  const aspectRatio = aspectRatioSchema.parse(g.aspectRatio)
-  const subject = toRecipeSubject(g.subjectTemplate, g.slotsJson, g.postId)
-  return {
-    kind: 'generation',
-    recipe: {
-      providerId: ProviderId(g.providerId),
-      providerVersion: g.providerVersion,
-      params: parseJson<unknown>(g.paramsJson, `params_json for post ${g.postId}`),
-      styleFamily,
-      aspectRatio,
-      subject,
-      parentId: g.parentPostId === null ? undefined : PostId(g.parentPostId),
-    },
-    status: toStatus(g),
+    case 'found': {
+      absent(row.generation, `generations row for found post ${row.post.id}`)
+      absent(row.upload, `uploads row for found post ${row.post.id}`)
+      const f = required(row.found, `found row for post ${row.post.id}`)
+      const thumbnail =
+        f.thumbnailJson === null
+          ? undefined
+          : parseJson<Media>(f.thumbnailJson, `thumbnail_json for post ${row.post.id}`)
+      return {
+        kind: 'found',
+        url: f.url,
+        title: f.title,
+        ...(f.description !== null ? { description: f.description } : {}),
+        ...(thumbnail !== undefined ? { thumbnail } : {}),
+      }
+    }
+    case 'generation': {
+      absent(row.upload, `uploads row for generation post ${row.post.id}`)
+      absent(row.found, `found row for generation post ${row.post.id}`)
+      const g = required(row.generation, `generations row for post ${row.post.id}`)
+      // Variety fields at the trust boundary: Zod literal-union parses fail loud on
+      // any storage value outside the documented enums (style family or aspect
+      // ratio that no longer exists, mis-typed). [LAW:no-silent-fallbacks]
+      const styleFamily = styleFamilySchema.parse(g.styleFamily)
+      const aspectRatio = aspectRatioSchema.parse(g.aspectRatio)
+      const subject = toRecipeSubject(g.subjectTemplate, g.slotsJson, g.postId)
+      return {
+        kind: 'generation',
+        recipe: {
+          providerId: ProviderId(g.providerId),
+          providerVersion: g.providerVersion,
+          params: parseJson<unknown>(g.paramsJson, `params_json for post ${g.postId}`),
+          styleFamily,
+          aspectRatio,
+          subject,
+          parentId: g.parentPostId === null ? undefined : PostId(g.parentPostId),
+        },
+        status: toStatus(g),
+      }
+    }
+    default:
+      return assertNever(row.post.contentKind, `contentKind for post ${row.post.id}`)
   }
 }
 
@@ -317,6 +350,7 @@ function selectFeedRows(
       post: posts,
       generation: generations,
       upload: uploads,
+      found,
       score,
       myVote: myVote.value,
       commentCount: cCount,
@@ -324,6 +358,7 @@ function selectFeedRows(
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .leftJoin(uploads, eq(uploads.postId, posts.id))
+    .leftJoin(found, eq(found.postId, posts.id))
     .leftJoin(voteScore, eq(voteScore.postId, posts.id))
     .leftJoin(commentCount, eq(commentCount.postId, posts.id))
     .leftJoin(
@@ -348,6 +383,7 @@ type FeedRowWithAggregates = {
   post: DbPost
   generation: DbGeneration | null
   upload: DbUpload | null
+  found: DbFound | null
   score: number
   myVote: number | null
   commentCount: number
@@ -459,10 +495,12 @@ export async function getPostById(env: Env, id: PostId): Promise<Post | null> {
       post: posts,
       generation: generations,
       upload: uploads,
+      found,
     })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .leftJoin(uploads, eq(uploads.postId, posts.id))
+    .leftJoin(found, eq(found.postId, posts.id))
     .where(eq(posts.id, id))
     .limit(1)
 
