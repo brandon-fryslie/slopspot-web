@@ -18,7 +18,7 @@
 // vote score is a separate aggregate) and the domain shape (Content/GenerationStatus
 // are closed discriminated unions). Everything below is the residue of that one map.
 
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
@@ -233,6 +233,32 @@ function toMyVote(raw: number | null, postId: string): VoteValue | null {
   )
 }
 
+// [LAW:single-enforcer] [LAW:one-source-of-truth] One definition of the
+// vote-score aggregate. The SUM/GROUP BY/alias is identical between phase 1
+// (rank candidates by score) and phase 2 (project per-row scores into the
+// FeedItem). The `filter` parameter is the *value* that distinguishes them —
+// undefined for phase 1 (aggregate over every vote, needed to rank all posts);
+// `inArray(votes.postId, ids)` for phase 2 (aggregate bounded to visible
+// posts). [LAW:dataflow-not-control-flow] — same code runs every call; the
+// caller's filter value is what changes. Drizzle's `.where(undefined)` is a
+// no-op (no WHERE emitted), so passing undefined is the data-flow expression
+// of "no filter."
+function voteScoreSubquery(database: ReturnType<typeof db>, filter: SQL | undefined) {
+  const voteScore = database
+    .select({
+      postId: votes.postId,
+      score: sql<number>`sum(${votes.value})`.as('score'),
+    })
+    .from(votes)
+    .where(filter)
+    .groupBy(votes.postId)
+    .as('vote_score')
+
+  const score = sql<number>`coalesce(${voteScore.score}, 0)`
+
+  return { voteScore, score }
+}
+
 // [LAW:single-enforcer] One place defines the FeedItem-shaped rowset's joins,
 // aggregates, and column selection. Both readers (getFeed and getFeedItemById)
 // build their queries from this helper, so any aggregate change (new column,
@@ -269,17 +295,7 @@ function selectFeedRows(
   ids: readonly string[],
   voterId: string | undefined,
 ) {
-  const voteScore = database
-    .select({
-      postId: votes.postId,
-      score: sql<number>`sum(${votes.value})`.as('score'),
-    })
-    .from(votes)
-    .where(inArray(votes.postId, ids))
-    .groupBy(votes.postId)
-    .as('vote_score')
-
-  const score = sql<number>`coalesce(${voteScore.score}, 0)`
+  const { voteScore, score } = voteScoreSubquery(database, inArray(votes.postId, ids))
 
   const commentCount = database
     .select({
@@ -358,26 +374,22 @@ function rowToRenderablePost(row: FeedRowWithAggregates): RenderablePost {
 // is what lets selectFeedRows's aggregate subqueries be filtered by `inArray`
 // — phase 2 already knows the visible set, so the SUM/COUNT subqueries
 // never scan rows outside it.
+//
+// `desc(posts.id)` is the deterministic tie-breaker. Without it, two posts
+// with equal score and createdAt could come back in different relative
+// orders across the two phases (SQLite makes no order guarantee for tied
+// rows), which would make ranks 1..50 flicker between requests.
 async function pickFeedIds(
   database: ReturnType<typeof db>,
   limit: number,
 ): Promise<string[]> {
-  const voteScore = database
-    .select({
-      postId: votes.postId,
-      score: sql<number>`sum(${votes.value})`.as('score'),
-    })
-    .from(votes)
-    .groupBy(votes.postId)
-    .as('vote_score')
-
-  const score = sql<number>`coalesce(${voteScore.score}, 0)`
+  const { voteScore, score } = voteScoreSubquery(database, undefined)
 
   const rows = await database
     .select({ id: posts.id })
     .from(posts)
     .leftJoin(voteScore, eq(voteScore.postId, posts.id))
-    .orderBy(desc(score), desc(posts.createdAt))
+    .orderBy(desc(score), desc(posts.createdAt), desc(posts.id))
     .limit(limit)
 
   return rows.map((r) => r.id)
@@ -391,7 +403,7 @@ export async function getFeed(
   const ids = await pickFeedIds(database, 50)
   const { query, score } = selectFeedRows(database, ids, voterId)
 
-  const rows = await query.orderBy(desc(score), desc(posts.createdAt))
+  const rows = await query.orderBy(desc(score), desc(posts.createdAt), desc(posts.id))
 
   // rank is the post-sort position — derived per query, meaningful only in
   // the list view. Added here by spread, not by the shared helper, because
