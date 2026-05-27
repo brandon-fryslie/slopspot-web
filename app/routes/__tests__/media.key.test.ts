@@ -7,13 +7,19 @@ declare module 'cloudflare:test' {
 }
 
 // Constructs a minimal LoaderArgs for the media.$key route.
-// The loader only accesses params.key and context.cloudflare.env.MEDIA.
-const args = (key: string): Parameters<typeof loader>[0] =>
-  ({
+// The loader only accesses params.key and context.cloudflare.env.MEDIA. The
+// `url` and `pattern` fields are required by RR7's CreateServerLoaderArgs
+// type even though the loader does not read them.
+const args = (key: string): Parameters<typeof loader>[0] => {
+  const url = new URL(`https://slopspot.ai/media/${key}`)
+  return {
     params: { key },
-    context: { cloudflare: { env } },
-    request: new Request(`https://slopspot.ai/media/${key}`),
-  }) as Parameters<typeof loader>[0]
+    context: { cloudflare: { env, ctx: {} as ExecutionContext } },
+    request: new Request(url),
+    url,
+    pattern: '/media/:key',
+  } as Parameters<typeof loader>[0]
+}
 
 describe('/media/:key route loader', () => {
   it('returns 404 for an unknown key', async () => {
