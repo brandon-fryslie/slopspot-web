@@ -228,7 +228,7 @@ function FoundLinkCard({
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="block transition hover:bg-white/[0.03]"
+      className="group block transition hover:bg-white/[0.03]"
     >
       {thumbnail !== undefined && <MediaView media={thumbnail} />}
       <div className="flex flex-col gap-1 px-3 py-3">
