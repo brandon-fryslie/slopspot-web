@@ -22,6 +22,7 @@ export default defineConfig({
       // workspace project (see vitest.workspace.ts).
       'app/storage/__tests__/**',
       'app/routes/__tests__/**',
+      'app/db/__tests__/**',
     ],
   },
 })
