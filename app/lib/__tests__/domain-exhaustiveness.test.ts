@@ -16,6 +16,8 @@ function contentDiscriminator(c: Content): string {
       return 'generation'
     case 'upload':
       return 'upload'
+    case 'found':
+      return 'found'
     default: {
       const _exhaustive: never = c
       return _exhaustive
@@ -75,8 +77,14 @@ describe('domain exhaustiveness (compile-time)', () => {
       kind: 'upload',
       asset: { kind: 'text', body: 'x' },
     }
+    const foundContent: Content = {
+      kind: 'found',
+      url: 'https://example.com/x',
+      title: 'an example',
+    }
     expect(contentDiscriminator(generation)).toBe('generation')
     expect(contentDiscriminator(upload)).toBe('upload')
+    expect(contentDiscriminator(foundContent)).toBe('found')
   })
 
   it('GenerationStatus has exactly four variants', () => {

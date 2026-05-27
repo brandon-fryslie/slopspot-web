@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Post, Media, Origin, Actor, Content, GenerationStatus, RenderablePost, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, GenerationStatus, RenderablePost, VoteValue } from "~/lib/domain"
 
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
 // shape that the feed reader and the permalink reader both produce. The
@@ -168,17 +168,85 @@ function VoteControls({
 }
 
 // [LAW:types-are-the-program] Closed union → exhaustive switch. Adding a new
-// GenerationStatus variant will fail to compile here until handled. The function's
-// return type is the enforcement mechanism — no `default:` needed, and none wanted.
+// Content or GenerationStatus variant will fail to compile here until handled.
+// The function's return type is the enforcement mechanism — no `default:`
+// needed, and none wanted.
 function ContentView({ content }: { content: Content }) {
-  if (content.kind === "upload") return <MediaView media={content.asset} />
-  const status = content.status
-  switch (status.kind) {
-    case "pending":   return <StatusPlaceholder tone="queued"  label="queued" />
-    case "running":   return <StatusPlaceholder tone="working" label="generating…" />
-    case "succeeded": return <MediaView media={status.output} />
-    case "failed":    return <StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} />
+  switch (content.kind) {
+    case "upload":
+      return <MediaView media={content.asset} />
+    case "found":
+      return (
+        <FoundLinkCard
+          url={content.url}
+          title={content.title}
+          description={content.description}
+          thumbnail={content.thumbnail}
+        />
+      )
+    case "generation": {
+      const status = content.status
+      switch (status.kind) {
+        case "pending":   return <StatusPlaceholder tone="queued"  label="queued" />
+        case "running":   return <StatusPlaceholder tone="working" label="generating…" />
+        case "succeeded": return <MediaView media={status.output} />
+        case "failed":    return <StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} />
+      }
+    }
   }
+}
+
+// [LAW:dataflow-not-control-flow] One link-card shape. The optional thumbnail
+// and description are data that turn parts of the card on/off; the same JSX
+// path renders every found post. target=_blank + rel=noopener noreferrer is
+// the trust-boundary discipline for outbound links — opener isolation prevents
+// the linked page from navigating us via window.opener, and noreferrer hides
+// our referrer header from the destination.
+function FoundLinkCard({
+  url,
+  title,
+  description,
+  thumbnail,
+}: {
+  url: string
+  title: string
+  description?: string
+  thumbnail?: Media
+}) {
+  // svq.2 validates URL well-formedness at the wire boundary; by the time it
+  // reaches the renderer it should parse. The try/catch is graceful
+  // degradation against a manual D1 insert that slipped past wire validation
+  // — a single bad row should not blank out the whole feed.
+  let domain: string
+  try {
+    domain = new URL(url).hostname
+  } catch {
+    domain = url
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block transition hover:bg-white/[0.03]"
+    >
+      {thumbnail !== undefined && <MediaView media={thumbnail} />}
+      <div className="flex flex-col gap-1 px-3 py-3">
+        <h2 className="text-base font-medium leading-snug text-white/90 group-hover:text-emerald-300">
+          {title}
+        </h2>
+        {description !== undefined && (
+          <p className="line-clamp-3 text-sm leading-relaxed text-white/65">
+            {description}
+          </p>
+        )}
+        <span className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-emerald-300/80">
+          <span aria-hidden>↗</span>
+          {domain}
+        </span>
+      </div>
+    </a>
+  )
 }
 
 function MediaView({ media }: { media: Media }) {

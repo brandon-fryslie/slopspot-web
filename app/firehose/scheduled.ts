@@ -77,6 +77,7 @@ export async function runScheduled(
   try {
     const post = await createPost(
       {
+        kind: 'generation',
         providerId: recipe.providerId,
         params: recipe.params,
         styleFamily: recipe.styleFamily,
