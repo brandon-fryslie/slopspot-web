@@ -18,7 +18,7 @@
 // vote score is a separate aggregate) and the domain shape (Content/GenerationStatus
 // are closed discriminated unions). Everything below is the residue of that one map.
 
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
@@ -239,6 +239,16 @@ function toMyVote(raw: number | null, postId: string): VoteValue | null {
 // different COALESCE, a future per-post stat) lands in both views by
 // construction — no drift risk.
 //
+// [LAW:types-are-the-program] The `ids` parameter is the visible post set —
+// the strongest true theorem about a per-post aggregate is "aggregate over
+// sibling rows whose post_id is in the visible set." Lifting that constraint
+// into each aggregate's WHERE makes the SUM/COUNT bounded by the caller's
+// narrowing instead of scanning the whole sibling table and then joining late.
+// The outer SELECT also filters by `posts.id IN (ids)`, so a single value
+// (ids) determines visibility for both the row set and every aggregate over
+// it. [LAW:one-source-of-truth] — no parallel "visible set" definitions to
+// drift.
+//
 // [LAW:one-source-of-truth] Score is SUM(votes.value), never a stored column.
 // commentCount is COUNT(comments) per post, derived the same way. The LEFT
 // JOIN + COALESCE shapes make a post with no votes / no comments still appear
@@ -248,17 +258,24 @@ function toMyVote(raw: number | null, postId: string): VoteValue | null {
 // call, regardless of whether a voter id is known. The sentinel when voterId
 // is absent ('') cannot match any real UUID, so the LEFT JOIN simply yields
 // null for every row — same query shape, the data decides what matches.
+// Empty `ids` is handled by Drizzle's `inArray(_, [])` → `WHERE false`, so the
+// helper degrades to "no rows" by data rather than by an early-return branch.
 //
 // The return shape includes `score` separately because callers need it as a
 // SQL expression for ordering (getFeed orders by it) — separate from the
 // per-row scalar projected into the SELECT.
-function selectFeedRows(database: ReturnType<typeof db>, voterId: string | undefined) {
+function selectFeedRows(
+  database: ReturnType<typeof db>,
+  ids: readonly string[],
+  voterId: string | undefined,
+) {
   const voteScore = database
     .select({
       postId: votes.postId,
       score: sql<number>`sum(${votes.value})`.as('score'),
     })
     .from(votes)
+    .where(inArray(votes.postId, ids))
     .groupBy(votes.postId)
     .as('vote_score')
 
@@ -270,6 +287,7 @@ function selectFeedRows(database: ReturnType<typeof db>, voterId: string | undef
       count: sql<number>`count(*)`.as('count'),
     })
     .from(comments)
+    .where(inArray(comments.postId, ids))
     .groupBy(comments.postId)
     .as('comment_count')
 
@@ -296,6 +314,7 @@ function selectFeedRows(database: ReturnType<typeof db>, voterId: string | undef
       myVote,
       and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)),
     )
+    .where(inArray(posts.id, ids))
     .$dynamic()
 
   return { query, score }
@@ -327,16 +346,52 @@ function rowToRenderablePost(row: FeedRowWithAggregates): RenderablePost {
   }
 }
 
+// [LAW:dataflow-not-control-flow] The two-phase shape (pick ids → hydrate) is
+// not a branch — it's the data flow. Phase 1 emits a value (the visible-id
+// set); phase 2 consumes it. The same code runs every call, regardless of
+// table size or vote distribution. Phase 1 is the irreducible cost of
+// score-based ordering: ranking requires the score for every post, so this
+// query is the one place the full SUM(votes) over all posts can live. Phase 2
+// then bounds every per-post aggregate to the 50 ids it received.
+//
+// Returning ids before hydrating, rather than joining everything in one query,
+// is what lets selectFeedRows's aggregate subqueries be filtered by `inArray`
+// — phase 2 already knows the visible set, so the SUM/COUNT subqueries
+// never scan rows outside it.
+async function pickFeedIds(
+  database: ReturnType<typeof db>,
+  limit: number,
+): Promise<string[]> {
+  const voteScore = database
+    .select({
+      postId: votes.postId,
+      score: sql<number>`sum(${votes.value})`.as('score'),
+    })
+    .from(votes)
+    .groupBy(votes.postId)
+    .as('vote_score')
+
+  const score = sql<number>`coalesce(${voteScore.score}, 0)`
+
+  const rows = await database
+    .select({ id: posts.id })
+    .from(posts)
+    .leftJoin(voteScore, eq(voteScore.postId, posts.id))
+    .orderBy(desc(score), desc(posts.createdAt))
+    .limit(limit)
+
+  return rows.map((r) => r.id)
+}
+
 export async function getFeed(
   env: Env,
   voterId?: string,
 ): Promise<FeedItem[]> {
   const database = db(env)
-  const { query, score } = selectFeedRows(database, voterId)
+  const ids = await pickFeedIds(database, 50)
+  const { query, score } = selectFeedRows(database, ids, voterId)
 
-  const rows = await query
-    .orderBy(desc(score), desc(posts.createdAt))
-    .limit(50)
+  const rows = await query.orderBy(desc(score), desc(posts.createdAt))
 
   // rank is the post-sort position — derived per query, meaningful only in
   // the list view. Added here by spread, not by the shared helper, because
@@ -365,9 +420,9 @@ export async function getFeedItemById(
   voterId?: string,
 ): Promise<RenderablePost | null> {
   const database = db(env)
-  const { query } = selectFeedRows(database, voterId)
+  const { query } = selectFeedRows(database, [id], voterId)
 
-  const rows = await query.where(eq(posts.id, id)).limit(1)
+  const rows = await query.limit(1)
 
   if (rows.length === 0) return null
   return rowToRenderablePost(rows[0])
