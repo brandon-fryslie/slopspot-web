@@ -7,7 +7,7 @@
 import { eq } from 'drizzle-orm'
 import type { ZodError, ZodIssue } from 'zod'
 import { db } from '~/db/client'
-import { generations, posts } from '~/db/schema'
+import { found, generations, posts } from '~/db/schema'
 import { getProvider } from '~/providers'
 import { ingestImage } from '~/storage/ingest'
 import type {
@@ -22,15 +22,37 @@ import type {
 } from '~/lib/domain'
 import { PostId as makePostId } from '~/lib/domain'
 
-export type CreatePostInput = {
-  providerId: ProviderId
-  params: unknown
-  styleFamily: StyleFamily
-  subject: RecipeSubject
-  aspectRatio: AspectRatio
-  origin: Origin
-  parentId?: PostId
-}
+// [LAW:types-are-the-program] CreatePostInput is a discriminated union — the
+// variant the caller wants to write IS the input shape, not a flag inside it.
+// Adding 'found' here forces every call site to declare which Content arm it
+// is producing, and the writer switches on that discriminator to do the right
+// work. No "generation by default" implicit case; the type forbids ambiguity.
+export type CreatePostInput =
+  | {
+      kind: 'generation'
+      providerId: ProviderId
+      params: unknown
+      styleFamily: StyleFamily
+      subject: RecipeSubject
+      aspectRatio: AspectRatio
+      origin: Origin
+      parentId?: PostId
+    }
+  | {
+      kind: 'found'
+      url: string
+      title: string
+      description?: string
+      // Optional thumbnail: caller passes the raw upstream URL plus dimensions
+      // it already knows (scraped from source, or from the discovery agent's
+      // metadata). The writer ingests the bytes into R2 and rewrites the url
+      // to /media/<sha256>, keeping w/h/alt verbatim from the caller — the
+      // exact mirror of the generation flow, where the provider returns
+      // dimensions and createPost rehosts the bytes. [LAW:single-enforcer]
+      // every hosted image still goes through ingestImage.
+      thumbnail?: { url: string; w: number; h: number; alt?: string }
+      origin: Origin
+    }
 
 // [LAW:types-are-the-program] The caller's params failing the provider schema is
 // a distinct, named failure — not a bare ZodError. ZodError is also thrown deep
@@ -74,6 +96,21 @@ function describeError(err: unknown): string {
 
 export async function createPost(
   input: CreatePostInput,
+  ctx: { env: Env },
+): Promise<Post> {
+  // [LAW:dataflow-not-control-flow] The variant of CreatePostInput selects the
+  // arm; each arm runs its own straight-line code. 'found' has no provider, no
+  // async status lifecycle, optionally one ingest — fundamentally different
+  // work than 'generation'. Splitting here keeps the generation pipeline
+  // unchanged (a 'found' insert can never accidentally enter the provider
+  // path) and keeps [LAW:single-enforcer] for post creation: both arms are
+  // inside createPost.
+  if (input.kind === 'found') return createFoundPost(input, ctx)
+  return createGenerationPost(input, ctx)
+}
+
+async function createGenerationPost(
+  input: Extract<CreatePostInput, { kind: 'generation' }>,
   ctx: { env: Env },
 ): Promise<Post> {
   const { env } = ctx
@@ -187,6 +224,77 @@ export async function createPost(
         parentId: input.parentId,
       },
       status: { kind: 'succeeded', output, completedAt },
+    },
+  }
+}
+
+// [LAW:single-enforcer] One write path for 'found' posts. The route layer
+// (slopspot-content-sources-svq.2) and discovery agents (slopspot-content-
+// sources-svq.5) both funnel through createPost — they cannot bypass the
+// post + found sibling-row transactional invariant or skip thumbnail
+// ingestion. [LAW:dataflow-not-control-flow] one path runs every call; the
+// optional thumbnailUrl is data that turns the ingest into a no-op or a one-
+// shot R2 write.
+async function createFoundPost(
+  input: Extract<CreatePostInput, { kind: 'found' }>,
+  ctx: { env: Env },
+): Promise<Post> {
+  const { env } = ctx
+  const database = db(env)
+
+  // [LAW:single-enforcer] Every hosted image flows through ingestImage. If a
+  // thumbnail was supplied, ingest its bytes BEFORE the post row is written
+  // so a failing fetch surfaces as a caller error (4xx-equivalent at the
+  // route), not a dangling post row with no thumbnail. The linked content
+  // itself is not rehosted — found posts are outbound links, not media we
+  // host. The caller supplies w/h (it knows them; the writer doesn't decode
+  // image headers) and the writer swaps the externally-hosted url with our
+  // content-addressed /media/<key>.
+  let thumbnail: Media | undefined
+  if (input.thumbnail !== undefined) {
+    const ingested = await ingestImage(input.thumbnail.url, env)
+    thumbnail = {
+      kind: 'image',
+      url: ingested.url,
+      w: input.thumbnail.w,
+      h: input.thumbnail.h,
+      ...(input.thumbnail.alt !== undefined ? { alt: input.thumbnail.alt } : {}),
+    }
+  }
+
+  const id = makePostId(crypto.randomUUID())
+  const createdAt = new Date()
+
+  // [LAW:types-are-the-program] Paired insert in one transaction: posts row +
+  // its found sibling. The cross-table cardinality (a content_kind='found'
+  // post has exactly one matching found row) is the writer's invariant, the
+  // same shape as the generation arm.
+  await database.batch([
+    database.insert(posts).values({
+      id,
+      createdAt,
+      contentKind: 'found',
+      originJson: JSON.stringify(input.origin),
+    }),
+    database.insert(found).values({
+      postId: id,
+      url: input.url,
+      title: input.title,
+      description: input.description ?? null,
+      thumbnailJson: thumbnail === undefined ? null : JSON.stringify(thumbnail),
+    }),
+  ])
+
+  return {
+    id,
+    createdAt,
+    origin: input.origin,
+    content: {
+      kind: 'found',
+      url: input.url,
+      title: input.title,
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(thumbnail !== undefined ? { thumbnail } : {}),
     },
   }
 }

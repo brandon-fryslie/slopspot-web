@@ -12,7 +12,7 @@
 // hermetic tests.
 
 import { db } from '~/db/client'
-import { comments, generations, posts, uploads, votes } from '~/db/schema'
+import { comments, found, generations, posts, uploads, votes } from '~/db/schema'
 import {
   PostId,
   type GenerationStatus,
@@ -55,9 +55,17 @@ export type SeedGenerationOpts = {
   parentId?: PostId
 }
 
+export type SeedFoundOpts = {
+  url?: string
+  title?: string
+  description?: string
+  thumbnail?: Media
+}
+
 export type SeedPostContent =
   | ({ kind: 'generation' } & SeedGenerationOpts)
   | { kind: 'upload'; asset?: Media }
+  | ({ kind: 'found' } & SeedFoundOpts)
 
 export type SeedPostOpts = {
   id?: string
@@ -126,6 +134,13 @@ function statusColumns(status: GenerationStatus) {
   }
 }
 
+// [LAW:types-are-the-program] Exhaustiveness guard for SeedPostContent — the
+// switch mirrors createPost's storage-side discriminator. Adding a Content
+// variant fires this `: never` assignment in the default arm before runtime.
+function assertNeverContent(value: never, what: string): never {
+  throw new Error(`helpers: unexpected ${what} at seed boundary: ${String(value)}`)
+}
+
 export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostId> {
   const database = db(env)
   const id = opts.id ?? crypto.randomUUID()
@@ -133,47 +148,70 @@ export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostI
   const origin = opts.origin ?? DEFAULT_ORIGIN
   const content: SeedPostContent = opts.content ?? { kind: 'generation' }
 
-  if (content.kind === 'upload') {
-    const asset = content.asset ?? DEFAULT_IMAGE
-    await database.batch([
-      database.insert(posts).values({
-        id,
-        createdAt,
-        contentKind: 'upload',
-        originJson: JSON.stringify(origin),
-      }),
-      database
-        .insert(uploads)
-        .values({ postId: id, assetJson: JSON.stringify(asset) }),
-    ])
-    return PostId(id)
+  switch (content.kind) {
+    case 'upload': {
+      const asset = content.asset ?? DEFAULT_IMAGE
+      await database.batch([
+        database.insert(posts).values({
+          id,
+          createdAt,
+          contentKind: 'upload',
+          originJson: JSON.stringify(origin),
+        }),
+        database
+          .insert(uploads)
+          .values({ postId: id, assetJson: JSON.stringify(asset) }),
+      ])
+      return PostId(id)
+    }
+    case 'found': {
+      await database.batch([
+        database.insert(posts).values({
+          id,
+          createdAt,
+          contentKind: 'found',
+          originJson: JSON.stringify(origin),
+        }),
+        database.insert(found).values({
+          postId: id,
+          url: content.url ?? 'https://example.com/found',
+          title: content.title ?? 'a found post',
+          description: content.description ?? null,
+          thumbnailJson:
+            content.thumbnail === undefined ? null : JSON.stringify(content.thumbnail),
+        }),
+      ])
+      return PostId(id)
+    }
+    case 'generation': {
+      const status = content.status ?? DEFAULT_STATUS
+      const subject = content.subject ?? DEFAULT_SUBJECT
+
+      await database.batch([
+        database.insert(posts).values({
+          id,
+          createdAt,
+          contentKind: 'generation',
+          originJson: JSON.stringify(origin),
+        }),
+        database.insert(generations).values({
+          postId: id,
+          providerId: content.providerId ?? 'fal-flux',
+          providerVersion: content.providerVersion ?? '1.0',
+          paramsJson: JSON.stringify(content.params ?? { prompt: 'a test prompt' }),
+          parentPostId: content.parentId ?? null,
+          styleFamily: content.styleFamily ?? 'photoreal',
+          subjectTemplate: subject.subjectTemplate,
+          slotsJson: JSON.stringify(subject.slots),
+          aspectRatio: content.aspectRatio ?? '1:1',
+          ...statusColumns(status),
+        }),
+      ])
+      return PostId(id)
+    }
+    default:
+      return assertNeverContent(content, 'SeedPostContent arm')
   }
-
-  const status = content.status ?? DEFAULT_STATUS
-  const subject = content.subject ?? DEFAULT_SUBJECT
-
-  await database.batch([
-    database.insert(posts).values({
-      id,
-      createdAt,
-      contentKind: 'generation',
-      originJson: JSON.stringify(origin),
-    }),
-    database.insert(generations).values({
-      postId: id,
-      providerId: content.providerId ?? 'fal-flux',
-      providerVersion: content.providerVersion ?? '1.0',
-      paramsJson: JSON.stringify(content.params ?? { prompt: 'a test prompt' }),
-      parentPostId: content.parentId ?? null,
-      styleFamily: content.styleFamily ?? 'photoreal',
-      subjectTemplate: subject.subjectTemplate,
-      slotsJson: JSON.stringify(subject.slots),
-      aspectRatio: content.aspectRatio ?? '1:1',
-      ...statusColumns(status),
-    }),
-  ])
-
-  return PostId(id)
 }
 
 export async function seedVote(

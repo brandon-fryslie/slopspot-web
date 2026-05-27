@@ -137,6 +137,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   try {
     const post = await createPost(
       {
+        kind: 'generation',
         providerId: parent.content.recipe.providerId,
         params: derivedParams,
         styleFamily: parsed.styleFamily,

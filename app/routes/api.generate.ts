@@ -96,6 +96,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   try {
     const post = await createPost(
       {
+        kind: 'generation',
         providerId: ProviderId(parsed.providerId),
         params: parsed.params,
         styleFamily: parsed.styleFamily,

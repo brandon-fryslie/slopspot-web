@@ -70,11 +70,17 @@ export type GenerationStatus =
   | { kind: 'failed'; reason: string; failedAt: Date }
 
 // [LAW:types-are-the-program] Forkability is structural, not a nullable field. Only
-// `kind: 'generation'` carries a recipe; uploads are raw bytes. The compiler refuses
-// to fork an upload.
+// `kind: 'generation'` carries a recipe; uploads are raw bytes; found posts are
+// outbound links (Reddit-style submissions). The compiler refuses to fork a non-
+// generation, and refuses to render a found post as if it owned hosted media.
+// [LAW:one-type-per-behavior] 'found' is distinct from 'upload': we host the
+// thumbnail (if present) but not the linked content itself, so the provenance
+// semantics differ — augmenting 'upload' with a url would collapse two
+// behaviors that need to render differently.
 export type Content =
   | { kind: 'generation'; recipe: Generation; status: GenerationStatus }
   | { kind: 'upload'; asset: Media }
+  | { kind: 'found'; url: string; title: string; description?: string; thumbnail?: Media }
 
 export type Actor =
   | { kind: 'user'; userId: UserId }

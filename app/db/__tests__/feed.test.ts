@@ -278,6 +278,75 @@ describe('app/db/feed.ts - getFeed', () => {
       expect(item.post.content.asset).toEqual(asset)
     })
 
+    it('round-trips a found post with url + title (no description, no thumbnail)', async () => {
+      const id = await seedPost(env, {
+        id: 'post-found-minimal',
+        content: {
+          kind: 'found',
+          url: 'https://civitai.com/images/123',
+          title: 'a found slop image',
+        },
+      })
+
+      const [item] = await getFeed(env)
+      expect(item.post.id).toBe(id)
+      if (item.post.content.kind !== 'found') throw new Error('expected found content')
+      expect(item.post.content.url).toBe('https://civitai.com/images/123')
+      expect(item.post.content.title).toBe('a found slop image')
+      expect(item.post.content.description).toBeUndefined()
+      expect(item.post.content.thumbnail).toBeUndefined()
+    })
+
+    it('round-trips a found post with description and thumbnail Media', async () => {
+      const thumbnail = {
+        kind: 'image' as const,
+        url: '/media/thumb-key',
+        w: 256,
+        h: 256,
+        alt: 'thumbnail',
+      }
+      await seedPost(env, {
+        id: 'post-found-full',
+        content: {
+          kind: 'found',
+          url: 'https://lexica.art/prompt/abc',
+          title: 'a discovered prompt',
+          description: 'a long-ish description that the discovery agent scraped',
+          thumbnail,
+        },
+      })
+
+      const [item] = await getFeed(env)
+      if (item.post.content.kind !== 'found') throw new Error('expected found content')
+      expect(item.post.content.url).toBe('https://lexica.art/prompt/abc')
+      expect(item.post.content.title).toBe('a discovered prompt')
+      expect(item.post.content.description).toBe(
+        'a long-ish description that the discovery agent scraped',
+      )
+      expect(item.post.content.thumbnail).toEqual(thumbnail)
+    })
+
+    it('found posts participate in scoring and ranking alongside generations', async () => {
+      const foundId = await seedPost(env, {
+        id: 'post-found-ranked',
+        createdAt: ms(1000),
+        content: {
+          kind: 'found',
+          url: 'https://example.com/x',
+          title: 'found',
+        },
+      })
+      const genId = await seedPost(env, { id: 'post-gen-ranked', createdAt: ms(2000) })
+      await seedVote(env, { postId: foundId, voterId: 'v1', value: 1 })
+      await seedVote(env, { postId: foundId, voterId: 'v2', value: 1 })
+
+      const feed = await getFeed(env)
+      // found post has score 2, generation has 0 — found wins ranking.
+      expect(feed.map((f) => f.post.id)).toEqual([foundId, genId])
+      expect(feed[0].rank).toBe(1)
+      expect(feed[0].score).toBe(2)
+    })
+
     it('round-trips a generation posts full recipe including parentId', async () => {
       const parent = await seedPost(env, { id: 'post-parent', createdAt: ms(1000) })
       const child = await seedPost(env, {
@@ -444,5 +513,33 @@ describe('app/db/feed.ts - getPostById', () => {
       throw new Error('expected upload')
     }
     expect(result.content.asset).toEqual(asset)
+  })
+
+  it('returns a found post with its url, title, description, and thumbnail', async () => {
+    const thumbnail = {
+      kind: 'image' as const,
+      url: '/media/found-bare-thumb',
+      w: 320,
+      h: 200,
+    }
+    const id = await seedPost(env, {
+      id: 'post-bare-found',
+      content: {
+        kind: 'found',
+        url: 'https://huggingface.co/spaces/foo/bar',
+        title: 'a HF space',
+        description: 'optional description',
+        thumbnail,
+      },
+    })
+
+    const result = await getPostById(env, id)
+    if (!result || result.content.kind !== 'found') {
+      throw new Error('expected found')
+    }
+    expect(result.content.url).toBe('https://huggingface.co/spaces/foo/bar')
+    expect(result.content.title).toBe('a HF space')
+    expect(result.content.description).toBe('optional description')
+    expect(result.content.thumbnail).toEqual(thumbnail)
   })
 })
