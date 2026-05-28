@@ -240,7 +240,13 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
               const next = e.target.value as StyleFamily
               const oldSeed = STYLE_FAMILY_PROMPT_SEEDS[styleFamily]
               const newSeed = STYLE_FAMILY_PROMPT_SEEDS[next]
-              setPrompt(prev => prev.includes(oldSeed) ? prev.replace(oldSeed, newSeed) : prev)
+              // [LAW:types-are-the-program] replaceAll, not replace —
+              // a prompt that mentions the seed more than once would
+              // otherwise end up with both old and new seeds coexisting,
+              // reintroducing the drift this handler exists to prevent.
+              // The post-swap state is "every occurrence of oldSeed is
+              // newSeed" by construction.
+              setPrompt(prev => prev.includes(oldSeed) ? prev.replaceAll(oldSeed, newSeed) : prev)
               setStyleFamily(next)
             }}
             disabled={submitting}
