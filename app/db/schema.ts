@@ -243,6 +243,27 @@ export const challengeQuota = sqliteTable('challenge_quota', {
   count: integer('count').notNull(),
 })
 
+// [LAW:single-enforcer] Per-voter daily quota for the 'found' submission
+// path. app/lib/found-quota.ts is the only writer via D1 batch. Sibling of
+// challenge_quota but keyed by (voter_id, date) rather than date alone —
+// challenge_quota is a global ceiling on generated posts, this one is a
+// per-voter anti-abuse on user-submitted outbound links.
+//
+// [LAW:one-type-per-behavior] Distinct table, not a flag/column on
+// challenge_quota: the two quotas have different keys, different lifecycles,
+// and different operators (admin tuning one knob without disturbing the
+// other). Combining them would require a discriminator column that does
+// nothing useful at read time.
+export const foundSubmissionQuota = sqliteTable(
+  'found_submission_quota',
+  {
+    voterId: text('voter_id').notNull(),
+    date: text('date').notNull(),
+    count: integer('count').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.voterId, t.date] })],
+)
+
 export type DbUser = typeof users.$inferSelect
 export type NewDbUser = typeof users.$inferInsert
 export type DbPost = typeof posts.$inferSelect
@@ -259,3 +280,5 @@ export type DbComment = typeof comments.$inferSelect
 export type NewDbComment = typeof comments.$inferInsert
 export type DbChallengeQuota = typeof challengeQuota.$inferSelect
 export type NewDbChallengeQuota = typeof challengeQuota.$inferInsert
+export type DbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferSelect
+export type NewDbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferInsert

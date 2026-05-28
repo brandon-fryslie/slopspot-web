@@ -7,7 +7,9 @@ export default [
   route("api/posts/:id/vote", "routes/api.posts.$id.vote.ts"),
   route("api/posts/:id/comments", "routes/api.posts.$id.comments.ts"),
   route("api/fork/:id", "routes/api.fork.$id.ts"),
+  route("api/found", "routes/api.found.ts"),
   route("fork/:id", "routes/fork.$id.tsx"),
   route("p/:id", "routes/p.$id.tsx"),
+  route("submit", "routes/submit.tsx"),
   route("media/:key", "routes/media.$key.ts"),
 ] satisfies RouteConfig

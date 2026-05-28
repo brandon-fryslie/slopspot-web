@@ -3,11 +3,9 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { env, fetchMock } from 'cloudflare:test'
 import { ingestImage } from '~/storage/ingest'
 
-// [LAW:types-are-the-program] Tell the type system that the env exposed by
-// cloudflare:test carries the app's MEDIA R2 binding.
-declare module 'cloudflare:test' {
-  interface ProvidedEnv extends Env {}
-}
+// The `ProvidedEnv` augmentation is declared once in
+// app/db/__tests__/setup.ts (loaded via vitest setupFiles); module
+// augmentations are global within a TypeScript compilation.
 
 const ORIGIN = 'https://cdn.example.com'
 
