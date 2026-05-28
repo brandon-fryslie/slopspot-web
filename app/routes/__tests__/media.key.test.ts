@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { env } from 'cloudflare:test'
 import { loader } from '~/routes/media.$key'
 
-declare module 'cloudflare:test' {
-  interface ProvidedEnv extends Env {}
-}
+// The `ProvidedEnv` augmentation is declared once in
+// app/db/__tests__/setup.ts (loaded via vitest setupFiles); module
+// augmentations are global within a TypeScript compilation.
 
 // Constructs a minimal LoaderArgs for the media.$key route.
 // The loader only accesses params.key and context.cloudflare.env.MEDIA. The
