@@ -17,6 +17,15 @@
     "enabled": true
   },
   "upload_source_maps": true,
+  // [LAW:single-enforcer] SLOPSPOT_ENV is the discriminator for "is this the
+  // prod deploy?" used by app/providers/registry.ts:realProviders() to filter
+  // out mock providers in prod. Setting it here (vars block, baked into the
+  // deploy) means a fresh `wrangler deploy` always reasserts it. Local dev
+  // overrides via `.dev.vars` (SLOPSPOT_ENV=dev) so the dev cron can fire
+  // mocks for free testing.
+  "vars": {
+    "SLOPSPOT_ENV": "prod"
+  },
   // [LAW:one-source-of-truth] Cron schedules live in version control, not the
   // Cloudflare dashboard. Every redeploy reasserts them.
   // "* * * * *": slop firehose tick — every-minute granularity, schedule

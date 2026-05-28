@@ -28,6 +28,7 @@ function hash(s: string): number {
 
 export const replicateSdxlMock: GenerationProvider<Params> = {
   id: ProviderId("replicate-sdxl-mock"),
+  kind: 'mock',
   version: "2026-05-24",
   displayName: "Replicate SDXL (mock)",
   paramsSchema: params,
