@@ -111,6 +111,28 @@ describe('POST /api/found - body parse', () => {
     expect(res.status).toBe(400)
   })
 
+  it('rejects non-http(s) URL schemes (javascript:, data:, file:, vbscript:)', async () => {
+    // [LAW:types-are-the-program] z.url({ protocol: /^https?$/ }) constrains
+    // the wire shape to http/https. Without this, a stored `javascript:`
+    // URL would execute on click of the FoundLinkCard anchor — XSS by
+    // storage. Asserting the boundary rejects every XSS-capable scheme.
+    for (const xssUrl of [
+      'javascript:alert(1)',
+      'JAVASCRIPT:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'file:///etc/passwd',
+      'vbscript:msgbox(1)',
+    ]) {
+      const res = await action(
+        actionArgs({
+          body: JSON.stringify({ url: xssUrl, title: 'xss probe' }),
+          contentType: 'application/json',
+        }),
+      )
+      expect(res.status, `should reject ${xssUrl}`).toBe(400)
+    }
+  })
+
   it('returns 400 when title is missing', async () => {
     const res = await action(
       actionArgs({
