@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm'
 import type { ZodError, ZodIssue } from 'zod'
 import { db } from '~/db/client'
 import { found, generations, posts } from '~/db/schema'
+import { emit } from '~/observability/metrics'
 import { getProvider } from '~/providers'
 import { ingestImage } from '~/storage/ingest'
 import type {
@@ -162,6 +163,7 @@ async function createGenerationPost(
 
   let output: Media
   let completedAt: Date
+  const generateStartedMs = Date.now()
   try {
     const generated = await provider.generate(
       { params, aspectRatio: input.aspectRatio },
@@ -179,6 +181,11 @@ async function createGenerationPost(
     const ingested = await ingestImage(generated.url, env)
     output = { ...generated, url: ingested.url }
     completedAt = new Date()
+    emit(
+      'slopspot.provider.generate_duration_ms',
+      { provider_id: provider.id, outcome: 'success' },
+      Date.now() - generateStartedMs,
+    )
   } catch (err) {
     // [LAW:types-are-the-program] running → failed: clear the running arm's column
     // (started_at) and set the failed arm's, satisfying generations_status_shape.
@@ -193,6 +200,12 @@ async function createGenerationPost(
         failedReason: describeError(err),
       })
       .where(eq(generations.postId, id))
+    emit(
+      'slopspot.provider.generate_duration_ms',
+      { provider_id: provider.id, outcome: 'failed' },
+      Date.now() - generateStartedMs,
+    )
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
     throw err
   }
 
@@ -207,6 +220,18 @@ async function createGenerationPost(
       outputJson: JSON.stringify(output),
     })
     .where(eq(generations.postId, id))
+
+  emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'success' }, 1)
+  emit(
+    'slopspot.post.created',
+    {
+      content_kind: 'generation',
+      provider_id: provider.id,
+      style_family: input.styleFamily,
+    },
+    1,
+  )
+  emit('slopspot.provider.cost_usd', { provider_id: provider.id }, provider.capabilities.costEstimateUsd)
 
   return {
     id,
@@ -284,6 +309,17 @@ async function createFoundPost(
       thumbnailJson: thumbnail === undefined ? null : JSON.stringify(thumbnail),
     }),
   ])
+
+  emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'success' }, 1)
+  // 'found' posts have no provider — style_family is generation-only. Use a
+  // sentinel that the dashboard can group/filter by, rather than smuggling a
+  // fake style in (which would skew per-style aggregates). The puller treats
+  // 'n/a' as the explicit "this dimension does not apply" bucket.
+  emit(
+    'slopspot.post.created',
+    { content_kind: 'found', provider_id: 'n/a', style_family: 'n/a' },
+    1,
+  )
 
   return {
     id,
