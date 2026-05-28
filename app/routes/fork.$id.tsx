@@ -11,7 +11,7 @@ import {
   type RecipeSubject,
   type StyleFamily,
 } from "~/lib/domain"
-import { ASPECT_RATIOS, STYLE_FAMILIES, renderTemplate } from "~/lib/variety"
+import { ASPECT_RATIOS, STYLE_FAMILIES, STYLE_FAMILY_PROMPT_SEEDS, renderTemplate } from "~/lib/variety"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
 // submit-side action lives at /api/fork/:id (a resource route), matching the
@@ -236,7 +236,19 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         <Field label="style family">
           <select
             value={styleFamily}
-            onChange={(e) => setStyleFamily(e.target.value as StyleFamily)}
+            onChange={(e) => {
+              const next = e.target.value as StyleFamily
+              const oldSeed = STYLE_FAMILY_PROMPT_SEEDS[styleFamily]
+              const newSeed = STYLE_FAMILY_PROMPT_SEEDS[next]
+              // [LAW:types-are-the-program] replaceAll, not replace —
+              // a prompt that mentions the seed more than once would
+              // otherwise end up with both old and new seeds coexisting,
+              // reintroducing the drift this handler exists to prevent.
+              // The post-swap state is "every occurrence of oldSeed is
+              // newSeed" by construction.
+              setPrompt(prev => prev.includes(oldSeed) ? prev.replaceAll(oldSeed, newSeed) : prev)
+              setStyleFamily(next)
+            }}
             disabled={submitting}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
