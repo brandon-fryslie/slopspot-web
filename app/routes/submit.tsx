@@ -5,6 +5,7 @@ import { createPost } from "~/db/posts"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { tryReserveFoundSubmission, FOUND_DAILY_CAP } from "~/lib/found-quota"
+import { authorLabel } from "~/lib/author-label"
 import type { Origin } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTML form trust boundary for found-content
@@ -111,8 +112,12 @@ export async function action({ request, context }: Route.ActionArgs) {
     } satisfies ActionResult
   }
 
+  // [LAW:single-enforcer] authorLabel() in ~/lib/author-label is the one
+  // place a voter UUID becomes its anonymous display string. Two label
+  // formats coexisting in the posts table would be the same drift the
+  // helper exists to prevent.
   const origin: Origin = {
-    actor: { kind: "anon", label: `anon-${voter.voterId.slice(0, 8)}` },
+    actor: { kind: "anon", label: authorLabel(voter.voterId) },
   }
 
   const post = await createPost(
