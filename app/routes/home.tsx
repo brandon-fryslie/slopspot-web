@@ -1,4 +1,5 @@
 import type { Route } from "./+types/home"
+import { Link } from "react-router"
 import { getFeed } from "~/db/feed"
 import { PostCard } from "~/components/post-card"
 import { readVoterId } from "~/lib/voter-cookie"
@@ -24,12 +25,22 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-10 border-b border-white/10 pb-6">
-        <h1 className="text-6xl font-black tracking-tight text-white">
-          SlopSpot<span className="text-emerald-400">.ai</span>
-        </h1>
-        <p className="mt-3 font-mono text-xs uppercase tracking-[0.25em] text-white/50">
-          the back door of the internet
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-6xl font-black tracking-tight text-white">
+              SlopSpot<span className="text-emerald-400">.ai</span>
+            </h1>
+            <p className="mt-3 font-mono text-xs uppercase tracking-[0.25em] text-white/50">
+              the back door of the internet
+            </p>
+          </div>
+          <Link
+            to="/submit"
+            className="mt-2 rounded bg-emerald-400/20 px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-400/30"
+          >
+            submit
+          </Link>
+        </div>
       </header>
       <div className="mb-10 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-5 text-center">
         <p className="text-3xl font-black tracking-tight leading-tight">
