@@ -62,6 +62,7 @@ const SDXL_DEFAULT_GUIDANCE = 7.5
 
 export const replicateSdxl: GenerationProvider<Params> = {
   id: ProviderId("replicate-sdxl"),
+  kind: 'real',
   version: "2026-05-24",
   displayName: "Replicate SDXL",
   paramsSchema: params,

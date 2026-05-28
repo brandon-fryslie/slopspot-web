@@ -111,6 +111,7 @@ const IDEOGRAM_SEED_MASK = 0x7fffffff
 
 export const replicateIdeogram: GenerationProvider<Params> = {
   id: ProviderId("replicate-ideogram"),
+  kind: 'real',
   version: "2026-05-24",
   displayName: "Replicate Ideogram v2 Turbo",
   paramsSchema: params,

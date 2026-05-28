@@ -5,3 +5,7 @@ SLOPSPOT_REPLICATE_API_KEY=
 SLOPSPOT_CHALLENGE_SECRET=
 SLOPSPOT_ANTHROPIC_API_KEY=
 SLOPSPOT_INTERNAL_SEED_TOKEN=
+# Local override for the SLOPSPOT_ENV var (default in wrangler.jsonc is 'prod').
+# Set to 'dev' here so the local firehose chooser is eligible to pick mock
+# providers (free, deterministic output instead of paid API calls).
+SLOPSPOT_ENV=dev
