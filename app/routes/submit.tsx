@@ -28,10 +28,19 @@ import type { Origin } from "~/lib/domain"
 // error variant exhaustively. There is no implicit success-with-data path,
 // no mixed shape that a renderer has to defensively interpret.
 
+// [LAW:types-are-the-program] description?: empty-after-trim normalized to
+// absent (preprocess → undefined → optional). Identical shape to /api/found's
+// schema, so both routes funnel the same "either absent OR non-empty after
+// trim" state into createPost. The form's pre-Zod normalization (below)
+// only collapsed the "empty literal" case; the preprocess also collapses
+// the "whitespace-only" case.
 const bodySchema = z.object({
   url: z.string().url().max(4096),
   title: z.string().trim().min(1).max(300),
-  description: z.string().trim().max(2000).optional(),
+  description: z.preprocess(
+    (v) => (typeof v === "string" && v.trim().length === 0 ? undefined : v),
+    z.string().trim().max(2000).optional(),
+  ),
 })
 
 // [LAW:types-are-the-program] The error variants are closed. Adding a new
@@ -68,18 +77,11 @@ export async function action({ request, context }: Route.ActionArgs) {
     title: String(formData.get("title") ?? ""),
     description: String(formData.get("description") ?? ""),
   }
-  // [LAW:dataflow-not-control-flow] An empty description field arrives as
-  // "" from the form; the domain treats `description?` as absent. Mapping
-  // empty string to undefined here is the boundary's normalization — the
-  // downstream schema and storage do not see two representations of "no
-  // description."
-  const raw: Record<string, unknown> = {
-    url: values.url,
-    title: values.title,
-  }
-  if (values.description.length > 0) raw.description = values.description
-
-  const parsed = bodySchema.safeParse(raw)
+  // [LAW:single-enforcer] Normalization lives in bodySchema's description
+  // preprocess — empty / whitespace-only strings collapse to undefined
+  // there, so storage never sees a "" description. The route hands the raw
+  // form values to Zod; the schema is the boundary that decides.
+  const parsed = bodySchema.safeParse(values)
   if (!parsed.success) {
     const fieldErrors: Partial<Record<"url" | "title" | "description", string>> = {}
     for (const issue of parsed.error.issues) {
