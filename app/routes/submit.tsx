@@ -28,14 +28,18 @@ import type { Origin } from "~/lib/domain"
 // error variant exhaustively. There is no implicit success-with-data path,
 // no mixed shape that a renderer has to defensively interpret.
 
-// [LAW:types-are-the-program] description?: empty-after-trim normalized to
-// absent (preprocess → undefined → optional). Identical shape to /api/found's
-// schema, so both routes funnel the same "either absent OR non-empty after
-// trim" state into createPost. The form's pre-Zod normalization (below)
-// only collapsed the "empty literal" case; the preprocess also collapses
-// the "whitespace-only" case.
+// [LAW:types-are-the-program] Identical shape to /api/found's schema, so
+// both routes funnel the same constrained state into createPost.
+//   url:   http(s)-only via `z.url({ protocol: /^https?$/ })` — rejects
+//          `javascript:` and friends at the boundary, so the rendered
+//          anchor `href` cannot execute script on click. XSS by storage
+//          is unrepresentable.
+//   description?: empty-after-trim normalized to absent (preprocess →
+//          undefined → optional). The schema's preprocess also collapses
+//          whitespace-only input, so the route no longer needs pre-Zod
+//          length checks.
 const bodySchema = z.object({
-  url: z.string().url().max(4096),
+  url: z.url({ protocol: /^https?$/ }).max(4096),
   title: z.string().trim().min(1).max(300),
   description: z.preprocess(
     (v) => (typeof v === "string" && v.trim().length === 0 ? undefined : v),

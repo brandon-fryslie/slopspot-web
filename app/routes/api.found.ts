@@ -21,8 +21,12 @@ import type { Origin } from "~/lib/domain"
 // createPost. Each layer enforced once here and nowhere else.
 //
 // [LAW:types-are-the-program] The wire shape forbids by construction:
-//   url:   z.string().url() — non-URL strings rejected at the boundary, so
-//          the writer's `url: string` field is always parseable downstream
+//   url:   http(s)-only URL, max 4096. `z.url({ protocol: /^https?$/ })`
+//          rejects `javascript:`, `data:`, `file:`, `vbscript:` — every
+//          XSS-capable scheme — at the boundary, so by the time
+//          `FoundLinkCard` renders `<a href={url}>` no stored value can
+//          execute script on click. The XSS class is unrepresentable
+//          downstream; no defensive renderer guard needed.
 //   title: trimmed, 1..300 — whitespace-only titles fail by length, not by
 //          a separate guard, and the cap stops storage-row bloat
 //   description?: trimmed, max 2000, empty-after-trim normalized to absent
@@ -35,7 +39,7 @@ import type { Origin } from "~/lib/domain"
 // 1..300 is the same shape comments uses for body (z.string().trim().min(1).max(2000));
 // titles are headlines, so the cap is tighter.
 const bodySchema = z.object({
-  url: z.string().url().max(4096),
+  url: z.url({ protocol: /^https?$/ }).max(4096),
   title: z.string().trim().min(1).max(300),
   description: z.preprocess(
     (v) => (typeof v === "string" && v.trim().length === 0 ? undefined : v),
