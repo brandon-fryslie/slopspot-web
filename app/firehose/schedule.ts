@@ -33,9 +33,12 @@ export type Schedule = Readonly<{
 // Total ≈ 77.5 fires/day. Budget cap in app/firehose/budget.ts is the single
 // enforcer for spend — over-budget fires log "skipping" without throwing.
 //
-// Offsets are pairwise distinct and chosen so the three channels do not all
-// align at t=0 (epoch); the only joint-three coincidence is at the LCM, which
-// is ~126 days from any reference point in the integer-minute timeline.
+// Offsets are pairwise distinct so the three channels do not jointly align at
+// t=0 (epoch). The joint-three coincidence is a single CRT residue modulo the
+// LCM; for these offsets the first one after epoch lands at minute 75,012
+// (~52 days), and the gap between consecutive triple coincidences is the LCM
+// itself (~126 days). Pairwise coincidences are more frequent — once every
+// LCM(p1, p2) minutes for the two channels involved.
 export const SCHEDULES: ReadonlyArray<Schedule> = [
   { channel: 'generation-a', periodMinutes: 47, offsetMinutes: 0 },
   { channel: 'generation-b', periodMinutes: 53, offsetMinutes: 17 },

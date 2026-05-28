@@ -120,19 +120,11 @@ describe('runScheduled', () => {
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
     createPostMock.mockResolvedValue({ id: 'post-test-multi' })
 
-    // channel-a (period 47, offset 0) and channel-c (period 73, offset 41)
-    // jointly align when (m - 0) % 47 == 0 AND (m - 41) % 73 == 0.
-    // Solve by CRT: m ≡ 0 (mod 47), m ≡ 41 (mod 73). Smallest positive m=2632.
-    // (47*56=2632; (2632-41)/73=35.49 — recompute: 2632 % 73 = 2632 - 36*73 = 2632 - 2628 = 4 ≠ 41.)
-    // The deterministic alignment we can name without solving CRT in the
-    // test is m = LCM(47, 73) = 47*73 = 3431, shifted by the offset.
-    // Easier: assert behavior using a Schedule-pair coincidence the test
-    // itself constructs, with the actual SCHEDULES.
-    //
-    // Pragmatic approach: find the first minute in 0..LCM that hits ≥2
-    // SCHEDULES entries, then use it. This couples the test to the actual
-    // SCHEDULES list — desirable: if a future edit breaks pairwise
-    // coincidence, this test reports it.
+    // Find the first minute in 0..50,000 that fires ≥2 SCHEDULES entries by
+    // searching against the live chooseFires/SCHEDULES — coupling the test to
+    // the actual schedule is intentional. If a future SCHEDULES edit removes
+    // pairwise coincidences within this window, this test throws and the
+    // regression surfaces here instead of leaking into prod cadence.
     const { SCHEDULES, chooseFires } = await import('./schedule')
     let coincidenceMinute: number | null = null
     for (let m = 1; m < 50_000; m++) {
