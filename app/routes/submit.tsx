@@ -234,9 +234,13 @@ export default function SubmitPage() {
   )
 }
 
-// [LAW:types-are-the-program] Exhaustive switch on the closed ActionError
-// union. Adding a new error variant in the action handler will fail to
-// compile here until handled — same shape PostCard's ContentView uses.
+// [LAW:types-are-the-program] Compile-time exhaustive switch on the closed
+// ActionError union. The `default: const _never: never = error` arm is the
+// enforcement — without it the switch is merely conventional, and a new
+// variant would silently fall through to `undefined` at runtime (this
+// project's tsconfig does not enable `noImplicitReturns`). With it, adding
+// a new ActionError variant fails to narrow to `never` and triggers a
+// compile error at the assignment, so the structure matches the claim.
 function ErrorBanner({ error }: { error: ActionError }) {
   switch (error.kind) {
     case "invalid":
@@ -267,6 +271,10 @@ function ErrorBanner({ error }: { error: ActionError }) {
           cross-origin submission rejected
         </div>
       )
+    default: {
+      const _never: never = error
+      throw new Error(`unhandled ActionError: ${String(_never)}`)
+    }
   }
 }
 
