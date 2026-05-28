@@ -22,7 +22,7 @@ import {
 import { SCHEDULES, chooseFires } from '~/firehose/schedule'
 import { AgentId } from '~/lib/domain'
 import { emit } from '~/observability/metrics'
-import { listProviders } from '~/providers'
+import { realProviders } from '~/providers'
 
 // [LAW:one-source-of-truth] The R5/R6 windows in the design doc are 20; the
 // chooser's anti-rep math operates over the last 20 persisted rows. This
@@ -88,7 +88,12 @@ async function runOneFire(
   let recipe: ChooserOutput
   try {
     const recent = await getRecentRecipes(env, RECENT_WINDOW)
-    const providers = listProviders()
+    // [LAW:single-enforcer] realProviders is the gate: in prod
+    // (env.SLOPSPOT_ENV === 'prod') only kind: 'real' providers are picked;
+    // in dev, mocks remain selectable so the local cron can fire for free.
+    // listProviders() (unfiltered) is reserved for getProvider/render paths
+    // that need to resolve legacy stored mock providerIds.
+    const providers = realProviders(env)
     recipe = chooseNextGeneration({
       scheduledTimeMs: event.scheduledTime,
       recent,

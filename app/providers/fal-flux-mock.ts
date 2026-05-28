@@ -24,6 +24,7 @@ const dims: Record<AspectRatio, { w: number; h: number }> = {
 
 export const falFluxMock: GenerationProvider<Params> = {
   id: ProviderId("fal-flux-mock"),
+  kind: 'mock',
   version: "2026-05-24",
   displayName: "fal.ai FLUX (mock)",
   paramsSchema: params,

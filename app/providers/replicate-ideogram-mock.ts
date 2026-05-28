@@ -31,6 +31,7 @@ function hash(s: string): number {
 
 export const replicateIdeogramMock: GenerationProvider<Params> = {
   id: ProviderId("replicate-ideogram-mock"),
+  kind: 'mock',
   version: "2026-05-24",
   displayName: "Replicate Ideogram (mock)",
   paramsSchema: params,

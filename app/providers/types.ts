@@ -81,6 +81,14 @@ export interface GenerationProvider<P> {
   readonly id: ProviderId
   readonly version: string
   readonly displayName: string
+  // [LAW:types-are-the-program] Provider kind discriminates "real" providers
+  // (paid API call, real model output) from "mock" providers (free local-dev
+  // stub, deterministic placeholder image). The firehose chooser filters by
+  // kind so prod never picks a mock; getProvider remains unfiltered so legacy
+  // stored posts with mock providerIds still render. Without this field,
+  // listProviders() would have to compare against a hardcoded list of mock
+  // ids, scattering the real-vs-mock discriminator across the codebase.
+  readonly kind: 'real' | 'mock'
   readonly paramsSchema: z.ZodType<P>
   readonly capabilities: GenerationCapabilities
   readonly supportedAspectRatios: readonly AspectRatio[]

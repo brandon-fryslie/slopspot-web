@@ -15,5 +15,5 @@ registerProvider(replicateSdxlMock)
 registerProvider(replicateIdeogram)
 registerProvider(replicateIdeogramMock)
 
-export { getProvider, listProviders, UnknownProviderError } from './registry'
+export { getProvider, listProviders, realProviders, UnknownProviderError } from './registry'
 export type { GenerationProvider, GenerationCapabilities } from './types'

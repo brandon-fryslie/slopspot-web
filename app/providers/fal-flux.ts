@@ -63,6 +63,7 @@ const FIREHOSE_STEPS = 4
 
 export const falFlux: GenerationProvider<Params> = {
   id: ProviderId("fal-flux"),
+  kind: 'real',
   version: "2026-05-24",
   displayName: "fal.ai FLUX schnell",
   paramsSchema: params,
