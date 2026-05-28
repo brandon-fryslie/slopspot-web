@@ -5,6 +5,7 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { tryReserveFoundSubmission } from "~/lib/found-quota"
+import { authorLabel } from "~/lib/author-label"
 import type { Origin } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP JSON trust boundary for found-content
@@ -72,12 +73,14 @@ export async function action({ request, context }: Route.ActionArgs) {
     )
   }
 
-  // [LAW:types-are-the-program] Anonymous voter actor — same shape used in
-  // comments/votes attribution. The label is a stable display prefix; the
-  // full voter id never crosses the wire. Persona-attributed submissions
-  // (svq.5) construct a different Actor variant via the same writer.
+  // [LAW:single-enforcer] authorLabel() in ~/lib/author-label is the one
+  // place a voter UUID becomes its anonymous display string. Calling it
+  // here keeps every anon Actor's label uniform with comments/votes
+  // attribution — drift would mean two label formats coexist in the same
+  // database. Persona-attributed submissions (svq.5) construct a different
+  // Actor variant via the same writer.
   const origin: Origin = {
-    actor: { kind: "anon", label: `anon-${voter.voterId.slice(0, 8)}` },
+    actor: { kind: "anon", label: authorLabel(voter.voterId) },
   }
 
   const post = await createPost(
