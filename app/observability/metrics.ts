@@ -1,0 +1,67 @@
+// [LAW:single-enforcer] One module emits all metrics; every call site in the app
+// goes through `emit`. There is no alternate console.log('metric.…') shape elsewhere
+// in the codebase. The puller in ~/code/home-infra reads Cloudflare Logs filtered
+// by the `[metric]` prefix; changing this module is the single point of contact
+// between the app and that pipeline.
+//
+// [LAW:types-are-the-program] Each metric has a fixed label shape. `emit` is
+// typed so the label record for `FIREHOSE_FIRE` (channel + outcome) cannot
+// be confused with the label record for `POST_CREATED` (content_kind + provider_id +
+// style_family). Typo'd label keys, missing labels, and wrong-shape labels are
+// compile errors, not runtime drift. Adding a metric is a one-place change to
+// `MetricLabels`; the rest of the code can't drift because there's nowhere else
+// to express the names.
+//
+// [LAW:one-source-of-truth] The metric NAMES live in `MetricName`; the label
+// SHAPES live in `MetricLabels`. Both are derived from the same union, so
+// adding a metric in one place forces the other to catch up at compile time.
+
+// The puller (homelab-side) parses log lines that start with `[metric]`. Changing
+// this prefix without coordinating with the puller will drop metrics silently.
+const LOG_PREFIX = '[metric]' as const
+
+// [LAW:types-are-the-program] The shape that makes illegal emission unrepresentable:
+// every legal (metric, labels) pair is a key/value entry in one record; nothing
+// outside that record can be emitted, and nothing inside it can be emitted with
+// the wrong labels.
+export type MetricLabels = {
+  'slopspot.firehose.fire': {
+    channel: string
+    outcome: 'fired' | 'skipped-budget' | 'skipped-error'
+  }
+  'slopspot.write.batch_outcome': {
+    content_kind: 'generation' | 'found' | 'upload'
+    outcome: 'success' | 'failed'
+  }
+  'slopspot.write.orphan_detected': {
+    content_kind: 'generation' | 'found' | 'upload'
+  }
+  'slopspot.post.created': {
+    content_kind: 'generation' | 'found' | 'upload'
+    provider_id: string
+    style_family: string
+  }
+  'slopspot.provider.generate_duration_ms': {
+    provider_id: string
+    outcome: 'success' | 'failed'
+  }
+  'slopspot.provider.cost_usd': {
+    provider_id: string
+  }
+}
+
+export type MetricName = keyof MetricLabels
+
+// [LAW:single-enforcer] Every call site goes through `emit`. Disabling metrics
+// is configuration (drop the puller, or filter on the homelab side), never a
+// branch inside callers. [LAW:dataflow-not-control-flow] same code every call.
+export function emit<K extends MetricName>(
+  name: K,
+  labels: MetricLabels[K],
+  value: number,
+): void {
+  // Cloudflare's Workers Logs surfaces console.log with its second argument as a
+  // structured field. The puller reads `message[0]` for the prefix+name and
+  // `message[1]` for the labels+value object, so the shape here is the API.
+  console.log(`${LOG_PREFIX} ${name}`, { ...labels, value })
+}

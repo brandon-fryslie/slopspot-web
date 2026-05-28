@@ -17,6 +17,7 @@ import {
   type ChooserOutput,
 } from '~/firehose/chooseNextGeneration'
 import { AgentId } from '~/lib/domain'
+import { emit } from '~/observability/metrics'
 import { listProviders } from '~/providers'
 
 // [LAW:one-source-of-truth] The R5/R6 windows in the design doc are 20; the
@@ -25,6 +26,11 @@ import { listProviders } from '~/providers'
 const RECENT_WINDOW = 20
 
 const CRON_AGENT_ID = AgentId('sys:slop-cron')
+
+// Placeholder channel label. The prime-ratio schedule redesign (slopspot-
+// firehose-3cn) will replace this constant with a per-fire channel passed in
+// from chooseFires(). Until then, every cron fire emits as 'firehose-default'.
+const FIREHOSE_CHANNEL = 'firehose-default'
 
 export async function runScheduled(
   event: ScheduledController,
@@ -40,6 +46,7 @@ export async function runScheduled(
       ceilingUsd: budget.ceilingUsd,
       scheduledTime: event.scheduledTime,
     })
+    emit('slopspot.firehose.fire', { channel: FIREHOSE_CHANNEL, outcome: 'skipped-budget' }, 1)
     return
   }
 
@@ -71,6 +78,7 @@ export async function runScheduled(
       { scheduledTime: event.scheduledTime },
       err,
     )
+    emit('slopspot.firehose.fire', { channel: FIREHOSE_CHANNEL, outcome: 'skipped-error' }, 1)
     return
   }
 
@@ -94,6 +102,7 @@ export async function runScheduled(
       subjectTemplate: recipe.subject.subjectTemplate,
       aspectRatio: recipe.aspectRatio,
     })
+    emit('slopspot.firehose.fire', { channel: FIREHOSE_CHANNEL, outcome: 'fired' }, 1)
   } catch (err) {
     // [LAW:no-defensive-null-guards] This catch is at a trust boundary — the
     // Workers scheduled handler. createPost has already persisted the failure
@@ -116,5 +125,6 @@ export async function runScheduled(
       },
       err,
     )
+    emit('slopspot.firehose.fire', { channel: FIREHOSE_CHANNEL, outcome: 'skipped-error' }, 1)
   }
 }

@@ -46,6 +46,7 @@ import {
   type RenderablePost,
   type VoteValue,
 } from '~/lib/domain'
+import { emit } from '~/observability/metrics'
 import {
   aspectRatioSchema,
   recipeSubjectSchema,
@@ -83,6 +84,29 @@ function absent(value: unknown, what: string): void {
   if (value !== null) {
     throw new Error(`feed: unexpected ${what} present in storage`)
   }
+}
+
+// [LAW:single-enforcer] Sibling-row check for the contentKind discriminator —
+// the SAME class of violation that produced the slopspot-prod-data-so2 outage
+// (43/43 posts orphan, homepage 500). The fail-loud is `required`'s job; this
+// wrapper adds the metric emission so the puller (homelab) can alert on a
+// non-zero orphan rate long before users notice. The metric fires BEFORE the
+// throw so even an immediately-handled re-throw still leaves a counter
+// breadcrumb. [LAW:dataflow-not-control-flow] same code path every call; the
+// emit is unconditional inside the null arm, never gated by an environment
+// flag.
+function requiredSibling<T>(
+  value: T | null,
+  contentKind: 'generation' | 'found' | 'upload',
+  postId: string,
+): T {
+  if (value === null) {
+    emit('slopspot.write.orphan_detected', { content_kind: contentKind }, 1)
+    throw new Error(
+      `feed: expected ${contentKind} sibling row for post ${postId} but storage has none`,
+    )
+  }
+  return value
 }
 
 // [LAW:types-are-the-program] Exhaustiveness guard for the status discriminator.
@@ -170,7 +194,7 @@ function toContent(row: FeedRow): Content {
     case 'upload': {
       absent(row.generation, `generations row for upload post ${row.post.id}`)
       absent(row.found, `found row for upload post ${row.post.id}`)
-      const u = required(row.upload, `uploads row for post ${row.post.id}`)
+      const u = requiredSibling(row.upload, 'upload', row.post.id)
       return {
         kind: 'upload',
         asset: parseJson<Media>(u.assetJson, `asset_json for post ${row.post.id}`),
@@ -179,7 +203,7 @@ function toContent(row: FeedRow): Content {
     case 'found': {
       absent(row.generation, `generations row for found post ${row.post.id}`)
       absent(row.upload, `uploads row for found post ${row.post.id}`)
-      const f = required(row.found, `found row for post ${row.post.id}`)
+      const f = requiredSibling(row.found, 'found', row.post.id)
       const thumbnail =
         f.thumbnailJson === null
           ? undefined
@@ -195,7 +219,7 @@ function toContent(row: FeedRow): Content {
     case 'generation': {
       absent(row.upload, `uploads row for generation post ${row.post.id}`)
       absent(row.found, `found row for generation post ${row.post.id}`)
-      const g = required(row.generation, `generations row for post ${row.post.id}`)
+      const g = requiredSibling(row.generation, 'generation', row.post.id)
       // Variety fields at the trust boundary: Zod literal-union parses fail loud on
       // any storage value outside the documented enums (style family or aspect
       // ratio that no longer exists, mis-typed). [LAW:no-silent-fallbacks]
