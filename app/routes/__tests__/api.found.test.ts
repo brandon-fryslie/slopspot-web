@@ -175,6 +175,32 @@ describe('POST /api/found - success path', () => {
     expect(setCookie).not.toBeNull()
     expect(setCookie).toContain('slopspot_voter=')
   })
+
+  it('normalizes empty-after-trim description to absent (no "" stored)', async () => {
+    // [LAW:types-are-the-program] The schema's preprocess collapses both
+    // "" and whitespace-only descriptions to undefined so storage never
+    // holds a "present-but-blank" description that PostCard would render
+    // as an empty paragraph. Asserted via round-trip through getPostById.
+    for (const blank of ['', '   ', '\n\t  ']) {
+      const res = await action(
+        actionArgs({
+          body: JSON.stringify({
+            url: `https://example.com/blank-${blank.length}`,
+            title: `blank desc len ${blank.length}`,
+            description: blank,
+          }),
+          contentType: 'application/json',
+        }),
+      )
+      expect(res.status).toBe(201)
+      const { id } = (await res.json()) as { id: string }
+      const post = await getPostById(env, PostId(id))
+      expect(post).not.toBeNull()
+      if (post !== null && post.content.kind === 'found') {
+        expect(post.content.description).toBeUndefined()
+      }
+    }
+  })
 })
 
 describe('POST /api/found - rate limit', () => {

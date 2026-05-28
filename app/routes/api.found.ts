@@ -25,14 +25,22 @@ import type { Origin } from "~/lib/domain"
 //          the writer's `url: string` field is always parseable downstream
 //   title: trimmed, 1..300 — whitespace-only titles fail by length, not by
 //          a separate guard, and the cap stops storage-row bloat
-//   description?: trimmed, max 2000 — optional in the domain, optional here
+//   description?: trimmed, max 2000, empty-after-trim normalized to absent
+//          (preprocess → undefined → optional). The strongest true theorem
+//          about the domain is "description is either absent OR a non-empty
+//          trimmed string"; the preprocess makes the in-between state
+//          (defined but blank) unrepresentable, so getFeed / PostCard cannot
+//          render an empty <p> tag for a "" stored description.
 //
 // 1..300 is the same shape comments uses for body (z.string().trim().min(1).max(2000));
 // titles are headlines, so the cap is tighter.
 const bodySchema = z.object({
   url: z.string().url().max(4096),
   title: z.string().trim().min(1).max(300),
-  description: z.string().trim().max(2000).optional(),
+  description: z.preprocess(
+    (v) => (typeof v === "string" && v.trim().length === 0 ? undefined : v),
+    z.string().trim().max(2000).optional(),
+  ),
 })
 
 export async function action({ request, context }: Route.ActionArgs) {
