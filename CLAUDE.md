@@ -94,6 +94,8 @@ Key seams:
 
 - **`app/components/post-card.tsx`** — `PostCard` switches on `content.kind` and `media.kind` exhaustively (no fallback branches — the unions are closed).
 
+- **`app/observability/metrics.ts`** — `emit(name, labels, value)`: the **single enforcer** for metric emission. Typed — each `MetricName` declares its `MetricLabels` shape, so typo'd label keys / missing labels / wrong-shape labels are compile errors. Emits as `console.log('[metric] <name>', { ...labels, value })` — the puller in `~/code/home-infra` reads Cloudflare Workers Logs filtered by the `[metric]` prefix, parses message arg 0 (name) and arg 1 (labels+value), and pushes to VictoriaMetrics. Coverage today: firehose fire (channel + outcome), write batch outcome, orphan detected, post created, provider generate duration, provider cost. Adding a metric is a one-place change to `MetricLabels`; call sites can't drift because there's no other shape to emit. Do not write `console.log('metric.…')` ad-hoc anywhere else — the puller's contract is this module.
+
 ## Conventions specific to this codebase
 
 - **Path alias:** `~/*` → `app/*` (RR7 convention). Configured in `tsconfig.cloudflare.json` and resolved by `vite-tsconfig-paths`. The Next-era `@/*` → `src/*` alias is gone.

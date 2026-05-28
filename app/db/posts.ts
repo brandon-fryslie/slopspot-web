@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm'
 import type { ZodError, ZodIssue } from 'zod'
 import { db } from '~/db/client'
 import { found, generations, posts } from '~/db/schema'
+import { emit } from '~/observability/metrics'
 import { getProvider } from '~/providers'
 import { ingestImage } from '~/storage/ingest'
 import type {
@@ -162,6 +163,7 @@ async function createGenerationPost(
 
   let output: Media
   let completedAt: Date
+  const generateStartedMs = Date.now()
   try {
     const generated = await provider.generate(
       { params, aspectRatio: input.aspectRatio },
@@ -179,6 +181,11 @@ async function createGenerationPost(
     const ingested = await ingestImage(generated.url, env)
     output = { ...generated, url: ingested.url }
     completedAt = new Date()
+    emit(
+      'slopspot.provider.generate_duration_ms',
+      { provider_id: provider.id, outcome: 'success' },
+      Date.now() - generateStartedMs,
+    )
   } catch (err) {
     // [LAW:types-are-the-program] running → failed: clear the running arm's column
     // (started_at) and set the failed arm's, satisfying generations_status_shape.
@@ -193,20 +200,52 @@ async function createGenerationPost(
         failedReason: describeError(err),
       })
       .where(eq(generations.postId, id))
+    emit(
+      'slopspot.provider.generate_duration_ms',
+      { provider_id: provider.id, outcome: 'failed' },
+      Date.now() - generateStartedMs,
+    )
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
     throw err
   }
 
   // [LAW:types-are-the-program] running → succeeded: clear started_at, set the
-  // succeeded arm (completed_at + output_json).
-  await database
-    .update(generations)
-    .set({
-      status: 'succeeded',
-      startedAt: null,
-      completedAt,
-      outputJson: JSON.stringify(output),
-    })
-    .where(eq(generations.postId, id))
+  // succeeded arm (completed_at + output_json). Wrapped so a D1 outage between
+  // the provider's success and the row's transition is observable as
+  // `batch_outcome=failed` instead of metric silence (the success path simply
+  // not emitting). Without this wrapper the row is stuck in 'running' state
+  // AND no metric records the catastrophic write — a phantom call in the
+  // puller (`provider.generate_duration_ms` succeeded, no batch outcome).
+  // [LAW:single-enforcer] this is the writer's job, not the cron handler's:
+  // scheduled.ts's `firehose.fire = skipped-error` catches the propagated
+  // exception, but per-write coverage belongs here next to the row state it
+  // describes.
+  try {
+    await database
+      .update(generations)
+      .set({
+        status: 'succeeded',
+        startedAt: null,
+        completedAt,
+        outputJson: JSON.stringify(output),
+      })
+      .where(eq(generations.postId, id))
+  } catch (err) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw err
+  }
+
+  emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'success' }, 1)
+  emit(
+    'slopspot.post.created',
+    {
+      content_kind: 'generation',
+      provider_id: provider.id,
+      style_family: input.styleFamily,
+    },
+    1,
+  )
+  emit('slopspot.provider.cost_usd', { provider_id: provider.id }, provider.capabilities.costEstimateUsd)
 
   return {
     id,
@@ -269,21 +308,40 @@ async function createFoundPost(
   // its found sibling. The cross-table cardinality (a content_kind='found'
   // post has exactly one matching found row) is the writer's invariant, the
   // same shape as the generation arm.
-  await database.batch([
-    database.insert(posts).values({
-      id,
-      createdAt,
-      contentKind: 'found',
-      originJson: JSON.stringify(input.origin),
-    }),
-    database.insert(found).values({
-      postId: id,
-      url: input.url,
-      title: input.title,
-      description: input.description ?? null,
-      thumbnailJson: thumbnail === undefined ? null : JSON.stringify(thumbnail),
-    }),
-  ])
+  // Wrapped so a D1 outage at the batch is observable as
+  // `batch_outcome=failed` instead of metric silence. Mirrors the same shape
+  // used in createGenerationPost for the success-path update.
+  try {
+    await database.batch([
+      database.insert(posts).values({
+        id,
+        createdAt,
+        contentKind: 'found',
+        originJson: JSON.stringify(input.origin),
+      }),
+      database.insert(found).values({
+        postId: id,
+        url: input.url,
+        title: input.title,
+        description: input.description ?? null,
+        thumbnailJson: thumbnail === undefined ? null : JSON.stringify(thumbnail),
+      }),
+    ])
+  } catch (err) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
+    throw err
+  }
+
+  emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'success' }, 1)
+  // 'found' posts have no provider — style_family is generation-only. Use a
+  // sentinel that the dashboard can group/filter by, rather than smuggling a
+  // fake style in (which would skew per-style aggregates). The puller treats
+  // 'n/a' as the explicit "this dimension does not apply" bucket.
+  emit(
+    'slopspot.post.created',
+    { content_kind: 'found', provider_id: 'n/a', style_family: 'n/a' },
+    1,
+  )
 
   return {
     id,
