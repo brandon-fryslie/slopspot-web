@@ -19,11 +19,18 @@
   "upload_source_maps": true,
   // [LAW:one-source-of-truth] Cron schedules live in version control, not the
   // Cloudflare dashboard. Every redeploy reasserts them.
-  // "0 */6 * * *": slop firehose — 4 posts/day at $0.003/post ≈ $0.36/month.
+  // "* * * * *": slop firehose tick — every-minute granularity, schedule
+  //   semantics live in app/firehose/schedule.ts (prime-period channels at
+  //   47/53/73 minutes, joint pattern repeats every ~126 days). The cron must
+  //   be every-minute because prime periods share no divisor with any coarser
+  //   cron expression; a */5 cron would only hit prime-aligned minutes that
+  //   happen to land on multiples of 5, collapsing the schedule shape.
+  //   ~77 firing-minutes/day × $0.003/post ≈ $7/month, capped at $1/day by
+  //   the budget enforcer in app/firehose/budget.ts.
   // "0 3 * * *": bank-gen — ~1000 BankEntry records daily at 03:00 UTC with
   //   48h TTL overlap. Model: claude-haiku-4-5-20251001 (cost-efficient bulk gen).
   "triggers": {
-    "crons": ["0 */6 * * *", "0 3 * * *"]
+    "crons": ["* * * * *", "0 3 * * *"]
   },
   // [LAW:one-source-of-truth] Apex domain binding lives in config, not in the
   // dashboard. `custom_domain: true` makes wrangler the single owner of the A/AAAA
