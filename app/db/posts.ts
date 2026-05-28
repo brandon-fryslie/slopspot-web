@@ -210,16 +210,30 @@ async function createGenerationPost(
   }
 
   // [LAW:types-are-the-program] running → succeeded: clear started_at, set the
-  // succeeded arm (completed_at + output_json).
-  await database
-    .update(generations)
-    .set({
-      status: 'succeeded',
-      startedAt: null,
-      completedAt,
-      outputJson: JSON.stringify(output),
-    })
-    .where(eq(generations.postId, id))
+  // succeeded arm (completed_at + output_json). Wrapped so a D1 outage between
+  // the provider's success and the row's transition is observable as
+  // `batch_outcome=failed` instead of metric silence (the success path simply
+  // not emitting). Without this wrapper the row is stuck in 'running' state
+  // AND no metric records the catastrophic write — a phantom call in the
+  // puller (`provider.generate_duration_ms` succeeded, no batch outcome).
+  // [LAW:single-enforcer] this is the writer's job, not the cron handler's:
+  // scheduled.ts's `firehose.fire = skipped-error` catches the propagated
+  // exception, but per-write coverage belongs here next to the row state it
+  // describes.
+  try {
+    await database
+      .update(generations)
+      .set({
+        status: 'succeeded',
+        startedAt: null,
+        completedAt,
+        outputJson: JSON.stringify(output),
+      })
+      .where(eq(generations.postId, id))
+  } catch (err) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw err
+  }
 
   emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'success' }, 1)
   emit(
@@ -294,21 +308,29 @@ async function createFoundPost(
   // its found sibling. The cross-table cardinality (a content_kind='found'
   // post has exactly one matching found row) is the writer's invariant, the
   // same shape as the generation arm.
-  await database.batch([
-    database.insert(posts).values({
-      id,
-      createdAt,
-      contentKind: 'found',
-      originJson: JSON.stringify(input.origin),
-    }),
-    database.insert(found).values({
-      postId: id,
-      url: input.url,
-      title: input.title,
-      description: input.description ?? null,
-      thumbnailJson: thumbnail === undefined ? null : JSON.stringify(thumbnail),
-    }),
-  ])
+  // Wrapped so a D1 outage at the batch is observable as
+  // `batch_outcome=failed` instead of metric silence. Mirrors the same shape
+  // used in createGenerationPost for the success-path update.
+  try {
+    await database.batch([
+      database.insert(posts).values({
+        id,
+        createdAt,
+        contentKind: 'found',
+        originJson: JSON.stringify(input.origin),
+      }),
+      database.insert(found).values({
+        postId: id,
+        url: input.url,
+        title: input.title,
+        description: input.description ?? null,
+        thumbnailJson: thumbnail === undefined ? null : JSON.stringify(thumbnail),
+      }),
+    ])
+  } catch (err) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
+    throw err
+  }
 
   emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'success' }, 1)
   // 'found' posts have no provider — style_family is generation-only. Use a
