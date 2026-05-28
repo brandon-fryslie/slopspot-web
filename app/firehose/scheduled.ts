@@ -60,10 +60,15 @@ export async function runScheduled(
   }
 
   // [LAW:dataflow-not-control-flow] Same select+execute pipeline per channel.
-  // Channel is metadata on the metric and log line; the chooser does not yet
-  // vary content per channel (that is variety-chooser territory, deferred to a
-  // later ticket). Sequential await: D1 single-writer cadence + back-to-back
-  // provider calls are cheap relative to the cron interval.
+  // Channel is metadata on the metric and log line; the chooser has no per-
+  // channel weight tables (that's variety-chooser territory, deferred). But
+  // because each channel's getRecentRecipes runs AFTER the prior channel's
+  // createPost in the same tick, the just-written row sits at recent[0] for
+  // the second channel — so R1/R3 (hard-reject most-recent style/provider)
+  // and R2/R4 (subject/aspect rules) actively push the second channel's
+  // recipe away from the first. Sequential await is what wires the anti-rep
+  // machinery across channels; parallelizing would break that, not just be
+  // a perf choice.
   for (const channel of channels) {
     await runOneFire(channel, event, env)
   }

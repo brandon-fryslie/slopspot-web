@@ -107,9 +107,11 @@ describe('SCHEDULES (invariants)', () => {
     for (const s of SCHEDULES) {
       const expected = 1440 / s.periodMinutes
       const actual = counts.get(s.channel)!
-      // Floor or ceiling of the ratio depending on offset placement.
+      // A periodic schedule fires exactly floor(1440/period) or ceil(1440/period)
+      // times in a 1440-minute window depending on offset alignment; anything
+      // outside that range is an off-by-one in the modular check.
       expect(actual).toBeGreaterThanOrEqual(Math.floor(expected))
-      expect(actual).toBeLessThanOrEqual(Math.ceil(expected) + 1)
+      expect(actual).toBeLessThanOrEqual(Math.ceil(expected))
     }
   })
 })
