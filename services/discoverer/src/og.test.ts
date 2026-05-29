@@ -54,6 +54,16 @@ describe('safeHttpUrl — scheme gate', () => {
   })
 })
 
+describe('safeHttpUrl — hostname normalization', () => {
+  it('rejects localhost. with trailing dot (FQDN notation)', () => {
+    expect(safeHttpUrl('http://localhost./admin')).toBeNull()
+  })
+
+  it('rejects 127.0.0.1. with trailing dot', () => {
+    expect(safeHttpUrl('http://127.0.0.1./')).toBeNull()
+  })
+})
+
 describe('safeHttpUrl — IPv4 private-host gate', () => {
   it('rejects localhost', () => {
     expect(safeHttpUrl('http://localhost/admin')).toBeNull()

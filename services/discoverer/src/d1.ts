@@ -30,6 +30,7 @@ export async function d1Query<T>(
       Authorization: `Bearer ${cfg.apiToken}`,
     },
     body: JSON.stringify({ sql, params }),
+    signal: AbortSignal.timeout(15_000),
   })
   if (!resp.ok) {
     const body = await resp.text().catch(() => '(unreadable)')

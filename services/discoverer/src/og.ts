@@ -25,11 +25,15 @@ export function safeHttpUrl(raw: string): string | null {
 }
 
 function isPrivateHost(hostname: string): boolean {
-  if (hostname === 'localhost') return true
+  // Normalize: strip trailing dot (FQDN notation — "localhost." resolves to loopback
+  // identically to "localhost" but bypasses a literal equality check without this).
+  const h = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname
+
+  if (h === 'localhost') return true
 
   // IPv6 in brackets: [::1], [fe80::1], [fc00::], [fd00::], [::ffff:10.0.0.1], etc.
-  if (hostname.startsWith('[') && hostname.endsWith(']')) {
-    const ipv6 = hostname.slice(1, -1).toLowerCase()
+  if (h.startsWith('[') && h.endsWith(']')) {
+    const ipv6 = h.slice(1, -1).toLowerCase()
     if (ipv6 === '::1') return true                      // loopback
     if (ipv6.startsWith('fe80:')) return true            // link-local
     if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return true  // unique-local RFC 4193
@@ -38,7 +42,7 @@ function isPrivateHost(hostname: string): boolean {
   }
 
   // Numeric IPv4 — check against RFC 1918, loopback, link-local ranges.
-  const parts = hostname.split('.').map(Number)
+  const parts = h.split('.').map(Number)
   if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
     const [a, b] = parts
     if (a === 127) return true                       // loopback
