@@ -13,6 +13,8 @@ export default [
       ".next/**",
       "node_modules/**",
       "worker-configuration.d.ts",
+      "services/**/dist/**",
+      "services/**/node_modules/**",
     ],
   },
   js.configs.recommended,

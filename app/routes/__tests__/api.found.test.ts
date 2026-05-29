@@ -198,6 +198,32 @@ describe('POST /api/found - success path', () => {
     expect(setCookie).toContain('slopspot_voter=')
   })
 
+  it('stores agent origin when agentId is supplied', async () => {
+    // [LAW:behavior-not-structure] Asserts the agentId wire field produces
+    // { kind: 'agent', agentId } origin in storage — the contract this route
+    // owns. Without this test a regression could silently fall back to anon.
+    const res = await action(
+      actionArgs({
+        body: JSON.stringify({
+          url: 'https://civitai.com/images/99999',
+          title: 'discoverer submission',
+          agentId: 'agent:tasteful-curator',
+        }),
+        contentType: 'application/json',
+      }),
+    )
+    expect(res.status).toBe(201)
+    const { id } = (await res.json()) as { id: string }
+    const post = await getPostById(env, PostId(id))
+    expect(post).not.toBeNull()
+    if (post !== null) {
+      expect(post.origin.actor.kind).toBe('agent')
+      if (post.origin.actor.kind === 'agent') {
+        expect(post.origin.actor.agentId).toBe('agent:tasteful-curator')
+      }
+    }
+  })
+
   it('normalizes empty-after-trim description to absent (no "" stored)', async () => {
     // [LAW:types-are-the-program] The schema's preprocess collapses both
     // "" and whitespace-only descriptions to undefined so storage never

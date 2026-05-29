@@ -6,7 +6,7 @@ import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { tryReserveFoundSubmission } from "~/lib/found-quota"
 import { authorLabel } from "~/lib/author-label"
-import type { Origin } from "~/lib/domain"
+import { AgentId, type Origin } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP JSON trust boundary for found-content
 // submission. The HTML form at /submit has its own action handler that owns
@@ -21,23 +21,14 @@ import type { Origin } from "~/lib/domain"
 // createPost. Each layer enforced once here and nowhere else.
 //
 // [LAW:types-are-the-program] The wire shape forbids by construction:
-//   url:   http(s)-only URL, max 4096. `z.url({ protocol: /^https?$/ })`
-//          rejects `javascript:`, `data:`, `file:`, `vbscript:` — every
-//          XSS-capable scheme — at the boundary, so by the time
-//          `FoundLinkCard` renders `<a href={url}>` no stored value can
-//          execute script on click. The XSS class is unrepresentable
-//          downstream; no defensive renderer guard needed.
-//   title: trimmed, 1..300 — whitespace-only titles fail by length, not by
-//          a separate guard, and the cap stops storage-row bloat
-//   description?: trimmed, max 2000, empty-after-trim normalized to absent
-//          (preprocess → undefined → optional). The strongest true theorem
-//          about the domain is "description is either absent OR a non-empty
-//          trimmed string"; the preprocess makes the in-between state
-//          (defined but blank) unrepresentable, so getFeed / PostCard cannot
-//          render an empty <p> tag for a "" stored description.
-//
-// 1..300 is the same shape comments uses for body (z.string().trim().min(1).max(2000));
-// titles are headlines, so the cap is tighter.
+//   url:      http(s)-only URL, max 4096. `z.url({ protocol: /^https?$/ })`
+//             rejects `javascript:`, `data:`, `file:`, `vbscript:` — every
+//             XSS-capable scheme — at the boundary.
+//   title:    trimmed, 1..300.
+//   description?: trimmed, max 2000, empty-after-trim normalized to absent.
+//   agentId?: self-reported attribution metadata from homelab discovery agents
+//             (same pattern as /api/generate). Not an auth claim — attribution
+//             only. Absent means anon-cookie origin; present means agent origin.
 const bodySchema = z.object({
   url: z.url({ protocol: /^https?$/ }).max(4096),
   title: z.string().trim().min(1).max(300),
@@ -45,6 +36,8 @@ const bodySchema = z.object({
     (v) => (typeof v === "string" && v.trim().length === 0 ? undefined : v),
     z.string().trim().max(2000).optional(),
   ),
+  // agentId is self-reported, untrusted metadata — attribution only, not identity proof.
+  agentId: z.string().min(1).max(256).optional(),
 })
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -65,7 +58,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   } catch (e) {
     return invalidBodyResponse(
       e,
-      "POST { url: string (URL), title: string (1..300 after trim), description?: string (<=2000 after trim) }",
+      "POST { url: string (URL), title: string (1..300 after trim), description?: string (<=2000 after trim), agentId?: string (attribution, <=256) }",
     )
   }
 
@@ -85,15 +78,14 @@ export async function action({ request, context }: Route.ActionArgs) {
     )
   }
 
-  // [LAW:single-enforcer] authorLabel() in ~/lib/author-label is the one
-  // place a voter UUID becomes its anonymous display string. Calling it
-  // here keeps every anon Actor's label uniform with comments/votes
-  // attribution — drift would mean two label formats coexist in the same
-  // database. Persona-attributed submissions (svq.5) construct a different
-  // Actor variant via the same writer.
-  const origin: Origin = {
-    actor: { kind: "anon", label: authorLabel(voter.voterId) },
-  }
+  // [LAW:types-are-the-program] agentId present → agent origin; absent → anon.
+  // The discriminator lives in the value (parsed.agentId), not in a branch that
+  // conditionally builds a different origin shape.
+  // [LAW:single-enforcer] authorLabel() is the one place a voter UUID becomes
+  // its anon display string — calling it here keeps all anon labels uniform.
+  const origin: Origin = parsed.agentId
+    ? { actor: { kind: "agent", agentId: AgentId(parsed.agentId) } }
+    : { actor: { kind: "anon", label: authorLabel(voter.voterId) } }
 
   const post = await createPost(
     {
