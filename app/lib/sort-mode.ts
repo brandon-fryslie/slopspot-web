@@ -152,6 +152,19 @@ export function serializeSortMode(sort: SortMode): string {
   }
 }
 
+// [LAW:single-enforcer] Primary selectable modes for the UI selector (jc6.6).
+// Extend this array to add a future mode arm (Rising, Controversial, etc.);
+// the selector renders from this list — no component edits required.
+// 'top' entry uses window:'all' as the default when switching into top.
+export const selectableSortModes: SortMode[] = [
+  { mode: 'hot' },
+  { mode: 'new' },
+  { mode: 'top', window: 'all' },
+]
+
+// [LAW:single-enforcer] Selectable window variants for the top sub-selector.
+export const selectableTopWindows: Array<'day' | 'week' | 'all'> = ['day', 'week', 'all']
+
 // [LAW:single-enforcer] Human-readable labels for the UI selector (jc6.6). One place.
 export function sortModeLabel(sort: SortMode): string {
   switch (sort.mode) {
