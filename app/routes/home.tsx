@@ -2,6 +2,7 @@ import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
 import { getFeed } from "~/db/feed"
 import { PostCard } from "~/components/post-card"
+import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
 import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
 import { defaultSortMode, parseSortMode, serializeSortMode } from "~/lib/sort-mode"
@@ -42,7 +43,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items } = loaderData
+  const { items, sort } = loaderData
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-10 border-b border-white/10 pb-6">
@@ -63,6 +64,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </Link>
         </div>
       </header>
+      <div className="mb-6">
+        <SortSelector current={sort} />
+      </div>
       <div className="mb-10 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-5 text-center">
         <p className="text-3xl font-black tracking-tight leading-tight">
           <span className="text-white">Your </span>
