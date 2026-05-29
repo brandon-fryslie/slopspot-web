@@ -19,8 +19,9 @@ import { createPost } from '~/db/posts'
 import { getRecentRecipes } from '~/db/recent'
 import { pickPersona } from '~/agents/persona'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
+import { composePrompt } from '~/firehose/composer'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
-import { realProviders } from '~/providers'
+import { getProvider, realProviders } from '~/providers'
 
 const RECENT_WINDOW = 20
 
@@ -89,13 +90,34 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
 
   const recipe = chooseNextGeneration({ scheduledTimeMs, recent, providers, bias })
 
+  // [LAW:single-enforcer] composePrompt is the one place prompt text is
+  // generated from a recipe; promptPrefix from the persona's config flows here.
+  const prompt = await composePrompt(
+    {
+      styleFamily: recipe.styleFamily,
+      subject: recipe.subject,
+      aspectRatio: recipe.aspectRatio,
+      promptPrefix: config?.promptPrefix,
+    },
+    env,
+  )
+
+  // Build provider-native params now that the composed prompt is available.
+  // [LAW:locality-or-seam] per-provider param knowledge stays in the provider.
+  const provider = getProvider(recipe.providerId)
+  const params = provider.defaultParamsForRecipe({
+    prompt,
+    styleFamily: recipe.styleFamily,
+    seed: recipe.paramsSeed,
+  })
+
   const agentId = persona?.agentId ?? SYSTEM_AGENT_ID
 
   const post = await createPost(
     {
       kind: 'generation',
       providerId: recipe.providerId,
-      params: recipe.params,
+      params,
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,

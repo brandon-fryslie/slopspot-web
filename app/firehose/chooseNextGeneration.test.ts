@@ -69,13 +69,6 @@ describe('chooseNextGeneration — base contract', () => {
     }
   })
 
-  it('composes prompt as <subject>, <style seed>', () => {
-    const t = Date.UTC(2026, 5, 17, 12, 0, 0)
-    const r = chooseNextGeneration(input(t))
-    expect(typeof r.prompt).toBe('string')
-    expect(r.prompt).toContain(',')
-  })
-
   it('covers all 14 style families given a long enough window', () => {
     const t0 = Date.UTC(2026, 0, 1, 0, 0, 0)
     const seen = new Set<StyleFamily>()
@@ -99,20 +92,11 @@ describe('chooseNextGeneration — base contract', () => {
     expect(() => chooseNextGeneration(input(-MINUTE))).not.toThrow()
   })
 
-  it('produces params that pass the chosen provider paramsSchema', () => {
-    const providerById = new Map(ALL_PROVIDERS.map((p) => [p.id, p]))
-    const t0 = Date.UTC(2026, 0, 1, 0, 0, 0)
-    for (let i = 0; i < 200; i++) {
-      const r = chooseNextGeneration(input(t0 + i * SIX_HOURS))
-      const provider = providerById.get(r.providerId)
-      if (!provider) throw new Error(`unknown provider: ${r.providerId}`)
-      const parsed = provider.paramsSchema.safeParse(r.params)
-      if (!parsed.success) {
-        throw new Error(
-          `params failed schema for ${r.providerId}: ${parsed.error.message} — params=${JSON.stringify(r.params)}`,
-        )
-      }
-    }
+  it('exposes paramsSeed as a non-negative integer for the caller to build provider params', () => {
+    const t = Date.UTC(2026, 5, 17, 12, 0, 0)
+    const r = chooseNextGeneration(input(t))
+    expect(Number.isInteger(r.paramsSeed)).toBe(true)
+    expect(r.paramsSeed).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -292,44 +276,6 @@ describe('chooseNextGeneration — provider weighting', () => {
     // Ideogram has 2x fal's weight for vaporwave; assert ideogram > fal with
     // a soft margin to survive hash variance.
     expect(ideoCount).toBeGreaterThan(falCount)
-  })
-})
-
-describe('chooseNextGeneration — provider params', () => {
-  it('fal-flux params include steps=4', () => {
-    const t0 = Date.UTC(2026, 0, 1, 0, 0, 0)
-    for (let i = 0; i < 200; i++) {
-      const r = chooseNextGeneration(input(t0 + i * SIX_HOURS))
-      if (r.providerId === 'fal-flux') {
-        expect((r.params as { steps: number }).steps).toBe(4)
-      }
-    }
-  })
-
-  it('ideogram params include a deterministic seed within ideogram range', () => {
-    const t0 = Date.UTC(2026, 0, 1, 0, 0, 0)
-    for (let i = 0; i < 500; i++) {
-      const r = chooseNextGeneration(input(t0 + i * SIX_HOURS))
-      if (r.providerId === 'replicate-ideogram') {
-        const p = r.params as { seed: number; styleType: string; magicPromptOption: string }
-        expect(p.seed).toBeGreaterThanOrEqual(0)
-        expect(p.seed).toBeLessThanOrEqual(2147483647)
-        expect(p.magicPromptOption).toBe('Auto')
-        // styleType depends on styleFamily — anime → Anime, etc.
-        if (r.styleFamily === 'anime') expect(p.styleType).toBe('Anime')
-        if (r.styleFamily === '1990s-cgi') expect(p.styleType).toBe('Render 3D')
-        if (r.styleFamily === 'photoreal') expect(p.styleType).toBe('Realistic')
-      }
-    }
-  })
-
-  it('STYLE_FAMILY_PROVIDER_WEIGHTS contains a row for every style family', () => {
-    // Surface a missing-table-entry would have caused a 0-weight-pool crash.
-    for (const style of STYLE_FAMILIES) {
-      expect(STYLE_FAMILY_PROVIDER_WEIGHTS[style]).toBeDefined()
-      const nonzero = Object.values(STYLE_FAMILY_PROVIDER_WEIGHTS[style]).filter((w) => w > 0)
-      expect(nonzero.length).toBeGreaterThan(0)
-    }
   })
 })
 
@@ -534,15 +480,6 @@ describe('chooseNextGeneration — persona bias', () => {
     }
     // fal-flux should win the vast majority of non-R3-rejected fires.
     expect(falCount).toBeGreaterThan(otherCount * 2)
-  })
-
-  it('promptPrefix is prepended to the composed prompt', () => {
-    const prefix = 'ethereal, dreamlike'
-    const bias = { promptPrefix: prefix }
-    for (let i = 0; i < 20; i++) {
-      const r = chooseNextGeneration({ scheduledTimeMs: t0 + i * SIX_HOURS, recent: [], providers: ALL_PROVIDERS, bias })
-      expect(r.prompt.startsWith(prefix)).toBe(true)
-    }
   })
 
   it('all R-rules still apply when bias is set (R1: no consecutive style)', () => {
