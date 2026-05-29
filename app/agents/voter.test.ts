@@ -96,6 +96,7 @@ const STUB_ENV = {
 describe('runVoterPass', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(setVote).mockResolvedValue({ ok: true, score: 1, value: 1 })
   })
 
   it('upvote / downvote / abstain matrix — correct setVote calls', async () => {
@@ -295,5 +296,32 @@ describe('runVoterPass', () => {
       expect.objectContaining({ postId: PostId('good-post') }),
       expect.anything(),
     )
+  })
+
+  it('does not emit vote metric when setVote returns post_not_found', async () => {
+    const { emit } = await import('~/observability/metrics')
+
+    vi.mocked(getFeed).mockResolvedValue([makeFeedItem('deleted-post')])
+    vi.mocked(chat).mockResolvedValueOnce('90')
+    vi.mocked(setVote).mockResolvedValueOnce({ ok: false, reason: 'post_not_found' })
+
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
+
+    expect(setVote).toHaveBeenCalledTimes(1)
+    expect(emit).not.toHaveBeenCalledWith('slopspot.voter.vote', expect.anything(), expect.anything())
+  })
+
+  it('schema rejects inverted thresholds (downvoteThreshold >= upvoteThreshold)', async () => {
+    vi.mocked(getFeed).mockResolvedValue([])
+
+    const invertedPersona = {
+      ...STUB_PERSONA,
+      config: { upvoteThreshold: 20, downvoteThreshold: 80, votesPerPass: 5 },
+    }
+
+    await expect(runVoterPass(STUB_ENV, invertedPersona)).rejects.toThrow(
+      'downvoteThreshold must be less than upvoteThreshold',
+    )
+    expect(setVote).not.toHaveBeenCalled()
   })
 })

@@ -22,6 +22,9 @@ import type { FeedItem, VoteIntent } from '~/lib/domain'
 
 // [LAW:types-are-the-program] Fail loud on a bad D1 row — a missing field
 // crashes here at the trust boundary, not silently as NaN in the score map.
+// The cross-field refinement encodes the invariant that the abstain band must
+// be non-empty: downvoteThreshold < upvoteThreshold. Inverted thresholds
+// collapse the band and make mid-range scores produce incorrect intents.
 const voterConfigSchema = z
   .object({
     upvoteThreshold: z.number().min(0).max(100),
@@ -30,6 +33,9 @@ const voterConfigSchema = z
     votesPerPass: z.number().int().positive().default(5),
   })
   .strict()
+  .refine((d) => d.downvoteThreshold < d.upvoteThreshold, {
+    message: 'downvoteThreshold must be less than upvoteThreshold',
+  })
 
 export type VoterPersonaConfig = z.infer<typeof voterConfigSchema>
 
@@ -158,11 +164,21 @@ async function judgeAndVote(
     intent: intentLabel,
   })
 
-  emit('slopspot.voter.vote', { agent_id: persona.agentId, intent: intentLabel }, 1)
-
   // [LAW:single-enforcer] setVote is the votes-table writer. Abstain (0) is a
   // real semantic outcome — skip the write, not a null-guard on a missing value.
+  // Metric emits only after confirming the write succeeded; post_not_found (race
+  // between getFeed and setVote) is logged and skipped rather than counted.
   if (intent !== 0) {
-    await setVote({ postId, voterId: persona.agentId, value: intent }, { env })
+    const result = await setVote({ postId, voterId: persona.agentId, value: intent }, { env })
+    if (!result.ok) {
+      console.warn('voter-pass: setVote failed; vote not recorded', {
+        agentId: persona.agentId,
+        postId,
+        reason: result.reason,
+      })
+      return
+    }
   }
+
+  emit('slopspot.voter.vote', { agent_id: persona.agentId, intent: intentLabel }, 1)
 }
