@@ -186,6 +186,8 @@ async function downloadImageToTemp(url: string): Promise<string | null> {
     await writeFile(tmpPath, buf)
     return tmpPath
   } catch (err) {
+    // Clean up any partial file before returning — a failed write may leave bytes in /tmp.
+    await unlink(tmpPath).catch(() => undefined)
     console.warn('discoverer: image write failed', { url, err: String(err) })
     return null
   }
@@ -294,10 +296,13 @@ async function runPersonaPass(persona: Persona, cfg: PipelineConfig): Promise<vo
     }
   }
 
+  // submitted > 0: value = count of posts submitted.
+  // submit_failed: value = 1, consistent with all other terminal outcomes that
+  // emit 1. A zero-valued metric is invisible to sum/count alerts.
   await pushMetric(cfg.metricsEndpoint, 'slopspot.discoverer.pass', {
     agent_id: agentId,
     outcome: submitted > 0 ? 'submitted' : 'submit_failed',
-  }, submitted)
+  }, submitted > 0 ? submitted : 1)
 }
 
 // Run all discoverer personas sequentially — keeps z.ai call rate predictable
