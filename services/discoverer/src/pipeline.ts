@@ -178,17 +178,29 @@ async function downloadImageToTemp(url: string): Promise<string | null> {
   const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpeg'
   const tmpPath = join(tmpdir(), `slopspot-${randomUUID()}.${ext}`)
   try {
-    const buf = Buffer.from(await resp.arrayBuffer())
-    if (buf.byteLength > MAX_IMAGE_BYTES) {
-      console.warn('discoverer: image too large after download, skipping', { url, size: buf.byteLength })
-      return null
+    // Stream the body with an incremental cap so a server that omits Content-Length
+    // cannot force allocation beyond MAX_IMAGE_BYTES before the guard fires.
+    const chunks: Buffer[] = []
+    let totalBytes = 0
+    const reader = resp.body!.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      totalBytes += value.length
+      if (totalBytes > MAX_IMAGE_BYTES) {
+        reader.cancel().catch(() => undefined)
+        console.warn('discoverer: image too large, aborting stream', { url, bytesRead: totalBytes })
+        return null
+      }
+      chunks.push(Buffer.from(value))
     }
+    const buf = Buffer.concat(chunks)
     await writeFile(tmpPath, buf)
     return tmpPath
   } catch (err) {
     // Clean up any partial file before returning — a failed write may leave bytes in /tmp.
     await unlink(tmpPath).catch(() => undefined)
-    console.warn('discoverer: image write failed', { url, err: String(err) })
+    console.warn('discoverer: image write or stream failed', { url, err: String(err) })
     return null
   }
 }
