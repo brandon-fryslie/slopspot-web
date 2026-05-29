@@ -24,7 +24,11 @@
   // overrides via `.dev.vars` (SLOPSPOT_ENV=dev) so the dev cron can fire
   // mocks for free testing.
   "vars": {
-    "SLOPSPOT_ENV": "prod"
+    "SLOPSPOT_ENV": "prod",
+    // [LAW:one-source-of-truth] The public-facing base URL for voter image
+    // links sent to z.ai vision. Must match the custom_domain in `routes`
+    // below so that generated image URLs are publicly reachable.
+    "SLOPSPOT_SITE_URL": "https://slopspot.ai"
   },
   // [LAW:one-source-of-truth] Cron schedules live in version control, not the
   // Cloudflare dashboard. Every redeploy reasserts them.
@@ -38,8 +42,12 @@
   //   the budget enforcer in app/firehose/budget.ts.
   // "0 3 * * *": bank-gen — ~1000 BankEntry records daily at 03:00 UTC with
   //   48h TTL overlap. Model: claude-haiku-4-5-20251001 (cost-efficient bulk gen).
+  // "0 */4 * * *": voter passes — one AI voter evaluates the feed every 4h.
+  //   Persona rotates deterministically by scheduled time (same algorithm as the
+  //   firehose chooser). 19s.3 will replace this fixed cadence with organic
+  //   per-persona scheduling once the voter population grows.
   "triggers": {
-    "crons": ["* * * * *", "0 3 * * *"]
+    "crons": ["* * * * *", "0 3 * * *", "0 */4 * * *"]
   },
   // [LAW:one-source-of-truth] Apex domain binding lives in config, not in the
   // dashboard. `custom_domain: true` makes wrangler the single owner of the A/AAAA
