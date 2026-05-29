@@ -15,17 +15,27 @@
 
 import { desc, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
 
-// [LAW:types-are-the-program] jc6.5 adds { mode: 'hot' }.
-export type SortMode = { mode: 'top'; window: 'day' | 'week' | 'all' } | { mode: 'new' }
+export type SortMode = { mode: 'top'; window: 'day' | 'week' | 'all' } | { mode: 'new' } | { mode: 'hot' }
 
-// [LAW:single-enforcer] The canonical default. jc6.5 flips this to { mode: 'hot' }.
-export const defaultSortMode: SortMode = { mode: 'top', window: 'all' }
+// [LAW:single-enforcer] The canonical default — Hot for lively first-time experience.
+export const defaultSortMode: SortMode = { mode: 'hot' }
 
 // [LAW:one-source-of-truth] Window durations in ms. 'hour' is Tier-2 (future epic).
 export const TOP_WINDOW_MS = {
   day: 24 * 60 * 60 * 1000,
   week: 7 * 24 * 60 * 60 * 1000,
 } as const
+
+// [LAW:one-source-of-truth] Hotness constants. REFERENCE_EPOCH is project-start (Jan 1
+// 2026 UTC) — stable anchor that never changes after launch. DECAY_CONSTANT is 6h (=
+// cron interval): a new fire reaches parity with the previous in one decay period.
+// Calibrate DECAY_CONSTANT against real vote velocity once traffic grows.
+// D1 SQLite has no log10(); use log(x) * LOG10_E (= 1/ln(10)).
+export const HOTNESS_REFERENCE_EPOCH = 1_735_689_600 // Jan 1 2026 00:00:00 UTC, seconds
+export const HOTNESS_DECAY_S = 21_600 // 6h in seconds
+// [LAW:one-source-of-truth] 1/ln(10) ≈ 0.4342944819032518; used to convert ln→log10
+// in SQLite expressions since D1 exposes only `log(x)` (natural log).
+const LOG10_E = 0.4342944819032518
 
 // Context the caller supplies: the three expressions that differ across call sites.
 // `score` differs between the CTE inner query (rankScore subquery) and the outer query
@@ -59,6 +69,16 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
       }
     case 'new':
       return [desc(ctx.createdAt), desc(ctx.id)]
+    case 'hot': {
+      // [LAW:one-source-of-truth] Reddit hotness formula, adapted for SQLite:
+      //   log10(max(|score|,1)) * sign(score) + (createdAt_s - REFERENCE_EPOCH) / DECAY_S
+      // D1 has no log10; log(x) is ln(x), so log10(x) = log(x) * LOG10_E.
+      // createdAt is stored as Unix ms (timestamp_ms mode) — divide by 1000 for seconds.
+      const hotnessExpr = sql<number>`
+        ${LOG10_E} * log(max(abs(${ctx.score}), 1)) * sign(${ctx.score})
+        + (${ctx.createdAt} / 1000 - ${HOTNESS_REFERENCE_EPOCH}) / ${HOTNESS_DECAY_S}`
+      return [desc(hotnessExpr), desc(ctx.createdAt), desc(ctx.id)]
+    }
     default:
       return assertNever(sort)
   }
@@ -80,6 +100,7 @@ export function windowFilter(sort: SortMode, createdAt: SQLWrapper, now: number)
         default: return assertNever(sort.window)
       }
     case 'new': return undefined
+    case 'hot': return undefined
     default: return assertNever(sort)
   }
 }
@@ -106,6 +127,7 @@ export function parseSortMode(sortParam: string | null, windowParam?: string | n
   if (sortParam === 'top/day') return { mode: 'top', window: 'day' }
   if (sortParam === 'top/week') return { mode: 'top', window: 'week' }
   if (sortParam === 'new') return { mode: 'new' }
+  if (sortParam === 'hot') return { mode: 'hot' }
   return null
 }
 
@@ -123,6 +145,8 @@ export function serializeSortMode(sort: SortMode): string {
       }
     case 'new':
       return 'new'
+    case 'hot':
+      return 'hot'
     default:
       return assertNever(sort)
   }
@@ -140,6 +164,8 @@ export function sortModeLabel(sort: SortMode): string {
       }
     case 'new':
       return 'New'
+    case 'hot':
+      return 'Hot'
     default:
       return assertNever(sort)
   }
