@@ -168,8 +168,20 @@ async function judgeAndVote(
   // real semantic outcome — skip the write, not a null-guard on a missing value.
   // Metric emits only after confirming the write succeeded; post_not_found (race
   // between getFeed and setVote) is logged and skipped rather than counted.
+  // D1/Drizzle I/O failures throw — catch per-candidate so one DB error doesn't
+  // abort remaining candidates (mirrors the z.ai try-catch above).
   if (intent !== 0) {
-    const result = await setVote({ postId, voterId: persona.agentId, value: intent }, { env })
+    let result
+    try {
+      result = await setVote({ postId, voterId: persona.agentId, value: intent }, { env })
+    } catch (err) {
+      console.error('voter-pass: setVote threw; skipping candidate', {
+        agentId: persona.agentId,
+        postId,
+        err,
+      })
+      return
+    }
     if (!result.ok) {
       console.warn('voter-pass: setVote failed; vote not recorded', {
         agentId: persona.agentId,

@@ -311,6 +311,26 @@ describe('runVoterPass', () => {
     expect(emit).not.toHaveBeenCalledWith('slopspot.voter.vote', expect.anything(), expect.anything())
   })
 
+  it('continues remaining candidates when setVote throws a D1 error', async () => {
+    vi.mocked(getFeed).mockResolvedValue([
+      makeFeedItem('post-db-error'),
+      makeFeedItem('post-ok'),
+    ])
+    vi.mocked(chat).mockResolvedValue('90')
+    vi.mocked(setVote)
+      .mockRejectedValueOnce(new Error('D1_ERROR: connection timeout'))
+      .mockResolvedValueOnce({ ok: true, score: 1, value: 1 })
+
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
+
+    expect(setVote).toHaveBeenCalledTimes(2)
+    // Second candidate still voted despite first throwing
+    expect(setVote).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: PostId('post-ok') }),
+      expect.anything(),
+    )
+  })
+
   it('schema rejects inverted thresholds (downvoteThreshold >= upvoteThreshold)', async () => {
     vi.mocked(getFeed).mockResolvedValue([])
 
