@@ -1,8 +1,10 @@
 import type { Route } from "./+types/home"
-import { Link } from "react-router"
+import { data, Link } from "react-router"
 import { getFeed } from "~/db/feed"
 import { PostCard } from "~/components/post-card"
 import { readVoterId } from "~/lib/voter-cookie"
+import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
+import { defaultSortMode, parseSortMode, serializeSortMode } from "~/lib/sort-mode"
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -15,9 +17,28 @@ export function meta(_args: Route.MetaArgs) {
   ]
 }
 
+// [LAW:dataflow-not-control-flow] Resolution is a fold: URL param overrides
+// cookie, cookie overrides default. Same code path every request; the values
+// pick the result, not conditional branches.
+// [LAW:single-enforcer] parseSortMode / serializeSortMode are the only codecs
+// for the sort wire format — URL param and cookie payload both round-trip
+// through them; no sort strings are constructed here.
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const items = await getFeed(context.cloudflare.env, readVoterId(request))
-  return { items }
+  const url = new URL(request.url)
+  const urlSort = parseSortMode(url.searchParams.get('sort'))
+  const cookieRaw = readSortCookieRaw(request)
+  const cookieSort = parseSortMode(cookieRaw)
+  const sort = urlSort ?? cookieSort ?? defaultSortMode
+
+  const items = await getFeed(context.cloudflare.env, readVoterId(request), sort)
+
+  const serialized = serializeSortMode(sort)
+  const headers: HeadersInit | undefined =
+    serialized !== cookieRaw
+      ? { 'Set-Cookie': serializeSortCookie(sort, url.protocol === 'https:') }
+      : undefined
+
+  return data({ items, sort }, { headers })
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
