@@ -3,9 +3,11 @@
 // home.tsx URL parser, the future UI selector) import from here. No sort literal
 // strings live in callers.
 //
-// [LAW:types-are-the-program] SortMode is a closed discriminated union. Adding a mode
-// is one new arm here; failing to handle it in applySortMode/serializeSortMode/
-// sortModeLabel breaks tsc -b via the assertNever in the default branch.
+// [LAW:types-are-the-program] SortMode is a two-level closed discriminated union:
+// `mode` is the outer discriminant; each mode arm has its own inner discriminants
+// (e.g. `window` for 'top'). Adding a mode or a window variant requires extending
+// the exhaustive switches in applySortMode/serializeSortMode/sortModeLabel —
+// the nested assertNever gates enforce this at tsc -b time.
 //
 // [LAW:dataflow-not-control-flow] applySortMode runs the same way every call —
 // the SortMode value picks the ORDER BY expressions; the caller spreads them into
@@ -13,8 +15,10 @@
 
 import { desc, type SQL, type SQLWrapper } from 'drizzle-orm'
 
-// [LAW:types-are-the-program] Single arm now; jc6.2 adds { mode: 'new' }, jc6.4
-// widens 'top' window to 'day' | 'week' | 'all', jc6.5 adds { mode: 'hot' }.
+// [LAW:types-are-the-program] Single mode arm now; jc6.2 adds { mode: 'new' }, jc6.5
+// adds { mode: 'hot' }. jc6.4 widens 'top' window to 'day' | 'week' | 'all' — the
+// nested switch (sort.window) inside the 'top' arm then forces jc6.4 to handle the
+// new windows or break tsc -b.
 export type SortMode = { mode: 'top'; window: 'all' }
 
 // [LAW:single-enforcer] The canonical default. jc6.5 flips this to { mode: 'hot' }.
@@ -28,18 +32,27 @@ export const defaultSortMode: SortMode = { mode: 'top', window: 'all' }
 // mode's expression lives in this function's switch.
 type SortCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
 
-function assertNever(mode: never): never {
-  throw new Error(`sort-mode: unhandled SortMode mode ${String(mode)}`)
+function assertNever(discriminant: never): never {
+  throw new Error(`sort-mode: unhandled discriminant ${String(discriminant)}`)
 }
 
 // [LAW:dataflow-not-control-flow] Returns the ORDER BY SQL expressions for the given
 // mode. The caller spreads these into .orderBy(). Both the CTE inner query (which
 // picks the visible-post ids) and the outer hydration query call this with their
 // respective score expression — same code path, different data in ctx.score.
+// [LAW:types-are-the-program] Nested switch: the outer gate on sort.mode is
+// exhaustive over modes; the inner gate on sort.window is exhaustive over that
+// mode's sub-variants. When jc6.4 widens 'top'.window, the inner default arm
+// forces the implementor to add the new window handling.
 export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
   switch (sort.mode) {
     case 'top':
-      return [desc(ctx.score), desc(ctx.createdAt), desc(ctx.id)]
+      switch (sort.window) {
+        case 'all':
+          return [desc(ctx.score), desc(ctx.createdAt), desc(ctx.id)]
+        default:
+          return assertNever(sort.window)
+      }
     default:
       return assertNever(sort.mode)
   }
@@ -56,7 +69,12 @@ export function parseSortMode(input: string | null): SortMode | null {
 export function serializeSortMode(sort: SortMode): string {
   switch (sort.mode) {
     case 'top':
-      return 'top'
+      switch (sort.window) {
+        case 'all':
+          return 'top'
+        default:
+          return assertNever(sort.window)
+      }
     default:
       return assertNever(sort.mode)
   }
@@ -66,7 +84,12 @@ export function serializeSortMode(sort: SortMode): string {
 export function sortModeLabel(sort: SortMode): string {
   switch (sort.mode) {
     case 'top':
-      return 'Top'
+      switch (sort.window) {
+        case 'all':
+          return 'Top'
+        default:
+          return assertNever(sort.window)
+      }
     default:
       return assertNever(sort.mode)
   }

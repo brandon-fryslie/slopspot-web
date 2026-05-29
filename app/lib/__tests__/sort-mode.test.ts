@@ -1,8 +1,10 @@
 // [LAW:types-are-the-program] The compile-time half of this suite is the
 // exhaustiveness switch below — its real verifier is `tsc -b` in pnpm typecheck,
-// not the vitest runner. Adding a mode to SortMode without extending the switch
-// makes the default branch reachable with a non-never value, which the compiler
-// refuses. The runtime assertions verify the parse/serialize round-trip contract.
+// not the vitest runner. The nested structure mirrors the nested discriminated union
+// in sort-mode.ts: outer switch on s.mode, inner switch on the mode's own
+// sub-discriminants (e.g. s.window for 'top'). When jc6.4 widens 'top'.window or
+// jc6.2/jc6.5 add new modes, the `: never` assignments below fail tsc -b until
+// updated. The runtime assertions verify the parse/serialize round-trip contract.
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -13,14 +15,22 @@ import {
   type SortMode,
 } from '~/lib/sort-mode'
 
-// [LAW:types-are-the-program] Exhaustiveness gate — same pattern as domain-exhaustiveness.test.ts.
-// Fails tsc -b when a new SortMode arm is added without extending this switch.
+// [LAW:types-are-the-program] Nested exhaustiveness gate. Outer switch on s.mode;
+// inner switch on mode-specific sub-discriminants. Adding a mode or a window variant
+// without extending these switches makes the corresponding default branch reachable
+// with a non-never value, which the compiler refuses.
 function sortModeExhaustive(s: SortMode): string {
   switch (s.mode) {
     case 'top':
-      return 'top'
+      switch (s.window) {
+        case 'all':
+          return 'top-all'
+        default: {
+          const _exhaustive: never = s.window
+          return _exhaustive
+        }
+      }
     default: {
-      // Switch on s.mode; the discriminant narrows to never when all arms are handled.
       const _exhaustive: never = s.mode
       return _exhaustive
     }
@@ -53,8 +63,8 @@ describe('app/lib/sort-mode.ts', () => {
   })
 
   describe('exhaustiveness (compile-time gate)', () => {
-    it('sortModeExhaustive covers every arm', () => {
-      expect(sortModeExhaustive(defaultSortMode)).toBe('top')
+    it('sortModeExhaustive covers every arm including window sub-discriminant', () => {
+      expect(sortModeExhaustive(defaultSortMode)).toBe('top-all')
     })
   })
 })
