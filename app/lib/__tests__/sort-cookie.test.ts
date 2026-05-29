@@ -30,6 +30,14 @@ describe('app/lib/sort-cookie.ts', () => {
       expect(readSortCookie(makeRequest('top'))).toEqual({ mode: 'top', window: 'all' })
     })
 
+    it('parses "top/day" cookie (slash form)', () => {
+      expect(readSortCookie(makeRequest('top/day'))).toEqual({ mode: 'top', window: 'day' })
+    })
+
+    it('parses "top/week" cookie (slash form)', () => {
+      expect(readSortCookie(makeRequest('top/week'))).toEqual({ mode: 'top', window: 'week' })
+    })
+
     it('ignores unrelated cookies and reads slopspot_sort', () => {
       const req = new Request('https://slopspot.ai/', {
         headers: { Cookie: 'other=x; slopspot_sort=new; third=y' },
@@ -53,7 +61,12 @@ describe('app/lib/sort-cookie.ts', () => {
   })
 
   describe('serializeSortCookie round-trip', () => {
-    const modes: SortMode[] = [defaultSortMode, { mode: 'new' }]
+    const modes: SortMode[] = [
+      defaultSortMode,
+      { mode: 'new' },
+      { mode: 'top', window: 'day' },
+      { mode: 'top', window: 'week' },
+    ]
     for (const mode of modes) {
       it(`round-trips ${serializeSortMode(mode)}`, () => {
         const header = serializeSortCookie(mode, false)
