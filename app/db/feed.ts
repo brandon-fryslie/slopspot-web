@@ -492,7 +492,7 @@ export async function getFeed(
   const { voteScore: rankVoteScore, score: rankScore } = voteScoreSubquery(database, undefined)
 
   // [LAW:dataflow-not-control-flow] applySortMode returns the ORDER BY expressions;
-  // same call every fire, the SortMode value picks the expressions.
+  // same call every invocation, the SortMode value picks the expressions.
   const feedIds = database.$with('feed_ids').as(
     database
       .select({ id: posts.id, score: rankScore.as('score') })
