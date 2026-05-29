@@ -35,7 +35,10 @@ function isPrivateHost(hostname: string): boolean {
   if (h.startsWith('[') && h.endsWith(']')) {
     const ipv6 = h.slice(1, -1).toLowerCase()
     if (ipv6 === '::1') return true                      // loopback
-    if (ipv6.startsWith('fe80:')) return true            // link-local
+    // fe80::/10 link-local: first hextet spans 0xfe80–0xfebf (not just 0xfe80).
+    // Addresses like fe90::1 and febf::1 are link-local but don't start with 'fe80:'.
+    const firstHextet = parseInt(ipv6.split(':')[0], 16)
+    if (!isNaN(firstHextet) && firstHextet >= 0xfe80 && firstHextet <= 0xfebf) return true
     if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return true  // unique-local RFC 4193
     if (ipv6.startsWith('::ffff:')) return true          // IPv4-mapped (may embed private range)
     return false
@@ -143,7 +146,11 @@ export async function safeFetch(
   url: string,
   init: Omit<RequestInit, 'redirect'>,
 ): Promise<Response> {
-  let current = url
+  // Validate the initial URL through the same SSRF gate as redirect destinations —
+  // the first hop must be as safe as every subsequent one.
+  const initialSafe = safeHttpUrl(url)
+  if (!initialSafe) throw new Error(`initial URL is disallowed: ${url}`)
+  let current = initialSafe
   for (let hops = 0; hops < MAX_REDIRECT_HOPS; hops++) {
     const resp = await fetch(current, { ...init, redirect: 'manual' })
     if (resp.status < 300 || resp.status >= 400) return resp

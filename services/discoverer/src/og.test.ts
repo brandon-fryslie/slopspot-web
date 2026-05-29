@@ -111,6 +111,18 @@ describe('safeHttpUrl — IPv6 private-host gate', () => {
     expect(safeHttpUrl('http://[fe80::1]/')).toBeNull()
   })
 
+  it('rejects fe90:: (link-local, fe80::/10 range)', () => {
+    expect(safeHttpUrl('http://[fe90::1]/')).toBeNull()
+  })
+
+  it('rejects febf:: (link-local, fe80::/10 range boundary)', () => {
+    expect(safeHttpUrl('http://[febf::1]/')).toBeNull()
+  })
+
+  it('passes fec0:: (outside link-local range)', () => {
+    expect(safeHttpUrl('http://[fec0::1]/')).not.toBeNull()
+  })
+
   it('rejects fc00:: unique-local', () => {
     expect(safeHttpUrl('http://[fc00::1]/')).toBeNull()
   })
@@ -199,6 +211,22 @@ describe('safeFetch — redirect validation', () => {
     const resp = await safeFetch('https://example.com/image.jpg', {})
     expect(resp.status).toBe(200)
     expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('throws on the initial URL if it is a private IP (no fetch attempted)', async () => {
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(safeFetch('http://10.0.0.1/internal', {})).rejects.toThrow('disallowed')
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('throws on the initial URL if it uses a non-http(s) scheme', async () => {
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(safeFetch('ftp://files.example.com/img.jpg', {})).rejects.toThrow('disallowed')
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 
   it('throws after MAX_REDIRECT_HOPS redirects', async () => {

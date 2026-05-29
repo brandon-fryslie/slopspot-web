@@ -60,7 +60,7 @@ async function loadDiscovererPersonas(d1: D1Config): Promise<Persona[]> {
     d1,
     "SELECT agent_id, display_name, persona_prompt, model_id, config_json FROM personas WHERE role = 'discoverer' ORDER BY agent_id",
   )
-  return rows.flatMap((row) => {
+  const personas = rows.flatMap((row) => {
     let raw: unknown
     try {
       raw = JSON.parse(row.config_json)
@@ -84,6 +84,14 @@ async function loadDiscovererPersonas(d1: D1Config): Promise<Persona[]> {
       },
     ]
   })
+  // Distinguish "no rows in D1" from "rows exist but all failed config validation".
+  // The latter is a hard configuration error — Nomad log/alerting must see it.
+  if (rows.length > 0 && personas.length === 0) {
+    console.error(
+      `discoverer: all ${rows.length} discoverer persona row(s) failed config validation — check config_json in D1`,
+    )
+  }
+  return personas
 }
 
 async function knownFoundUrls(d1: D1Config, urls: string[]): Promise<Set<string>> {
