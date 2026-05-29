@@ -159,10 +159,21 @@ async function downloadImageToTemp(url: string): Promise<string | null> {
     console.warn('discoverer: image download non-image content-type', { url, contentType })
     return null
   }
+  // GLM rejects images over 5MB; also guards Nomad job memory from oversized external responses.
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+  const contentLength = resp.headers.get('content-length')
+  if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_BYTES) {
+    console.warn('discoverer: image too large, skipping', { url, contentLength })
+    return null
+  }
   const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpeg'
   const tmpPath = join(tmpdir(), `slopspot-${randomUUID()}.${ext}`)
   try {
     const buf = Buffer.from(await resp.arrayBuffer())
+    if (buf.byteLength > MAX_IMAGE_BYTES) {
+      console.warn('discoverer: image too large after download, skipping', { url, size: buf.byteLength })
+      return null
+    }
     await writeFile(tmpPath, buf)
     return tmpPath
   } catch (err) {

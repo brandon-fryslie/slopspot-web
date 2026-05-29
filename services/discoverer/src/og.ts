@@ -8,15 +8,33 @@ export type Candidate = {
 
 // [LAW:single-enforcer] All URL safety enforcement for extracted strings flows
 // through safeHttpUrl. Candidate URLs come from untrusted HTML/JSON; rejecting
-// non-http(s) schemes here ensures javascript:/data:/file: can never reach the
-// /api/found submission or the z.ai vision call.
+// non-http(s) schemes and private/loopback hosts prevents SSRF from the homelab
+// runner against internal services (Vault, Ollama, VictoriaMetrics, etc.).
 export function safeHttpUrl(raw: string): string | null {
   try {
     const u = new URL(raw)
-    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    if (isPrivateHost(u.hostname)) return null
+    return u.href
   } catch {
     return null
   }
+}
+
+function isPrivateHost(hostname: string): boolean {
+  if (hostname === 'localhost') return true
+  // Numeric IPv4 — check against RFC 1918, loopback, link-local ranges.
+  const parts = hostname.split('.').map(Number)
+  if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
+    const [a, b] = parts
+    if (a === 127) return true                       // loopback
+    if (a === 10) return true                        // RFC 1918
+    if (a === 192 && b === 168) return true          // RFC 1918
+    if (a === 172 && b >= 16 && b <= 31) return true // RFC 1918
+    if (a === 169 && b === 254) return true          // link-local
+    if (a === 0) return true                         // reserved
+  }
+  return false
 }
 
 // Extract an og:image, og:url, and og:title from an HTML string.

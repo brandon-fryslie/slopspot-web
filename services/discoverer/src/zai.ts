@@ -1,6 +1,6 @@
 // Vision judgment via the @z_ai/mcp-server MCP package (stdio transport).
 // [LAW:single-enforcer] All vision calls in this service go through
-// judgeCandidate — spawning the MCP server and calling image_analysis happens
+// judgeCandidate — spawning the MCP server and calling analyze_image happens
 // exactly once, here.
 //
 // The GLM Coding Plan is for use within supported coding tools ONLY. We invoke
@@ -15,7 +15,7 @@ export type JudgmentResult = {
   reaction: string
 }
 
-// Spawn @z_ai/mcp-server, send one image_analysis call via stdio MCP protocol,
+// Spawn @z_ai/mcp-server, send one analyze_image call via stdio MCP protocol,
 // return the parsed score+reaction. Returns null on any failure so the pipeline
 // treats the candidate as below-threshold rather than aborting the pass.
 export async function judgeCandidate(opts: {
@@ -59,7 +59,7 @@ export async function judgeCandidate(opts: {
   return { score, reaction }
 }
 
-// Spawn @z_ai/mcp-server, send initialize + tools/call(image_analysis), collect
+// Spawn @z_ai/mcp-server, send initialize + tools/call(analyze_image), collect
 // the text response. The process is killed after the response arrives.
 async function callMcpImageAnalysis(opts: {
   imageUrl: string
@@ -68,8 +68,8 @@ async function callMcpImageAnalysis(opts: {
 }): Promise<string> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
-      'npx',
-      ['--yes', '@z_ai/mcp-server@latest'],
+      'node_modules/.bin/zai-mcp-server',
+      [],
       {
         env: {
           ...process.env,
