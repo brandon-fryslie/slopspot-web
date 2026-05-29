@@ -8,6 +8,7 @@ import {
   STORED_SUBJECT_TEMPLATE_IDS,
   STYLE_FAMILIES,
   STYLE_FAMILY_PROMPT_SEEDS,
+  STYLE_FAMILY_PROVIDER_WEIGHTS,
   TEMPLATE_PHRASES,
   TEMPLATE_SLOT_KEYS,
   type StyleFamily,
@@ -183,5 +184,15 @@ describe('style family enumeration sanity', () => {
     const families = new Set<StyleFamily>(STYLE_FAMILIES)
     const seedKeys = new Set(Object.keys(STYLE_FAMILY_PROMPT_SEEDS))
     expect([...families].sort()).toEqual([...seedKeys].sort())
+  })
+})
+
+describe('provider weight table sanity', () => {
+  it('STYLE_FAMILY_PROVIDER_WEIGHTS has a row for every style family with at least one nonzero entry', () => {
+    for (const style of STYLE_FAMILIES) {
+      expect(STYLE_FAMILY_PROVIDER_WEIGHTS[style]).toBeDefined()
+      const nonzero = Object.values(STYLE_FAMILY_PROVIDER_WEIGHTS[style]).filter((w) => w > 0)
+      expect(nonzero.length).toBeGreaterThan(0)
+    }
   })
 })

@@ -1,7 +1,7 @@
-// [LAW:single-enforcer] The firehose's recipe chooser. The function name and
-// return-shape contract are stable since pl6.2; this iteration (pl6.5) widens
-// the input and adds providerId+params to the output, while preserving the
-// same call shape from `scheduled.ts`.
+// [LAW:single-enforcer] The firehose's recipe chooser. Pure function — takes
+// (scheduledTimeMs, recent, providers) and returns a recipe with all variety
+// fields. Prompt composition and params building are downstream concerns that
+// require env/I/O (composer.ts) and belong in the caller (generator.ts).
 //
 // [LAW:types-are-the-program] `chooseNextGeneration` is a pure function: it
 // takes (scheduledTimeMs, recent, providers) and returns a complete recipe.
@@ -15,11 +15,9 @@ import {
   ASPECT_RATIO_BASE_WEIGHTS,
   CHOOSER_SUBJECT_TEMPLATE_IDS,
   recipeSubjectSchema,
-  renderTemplate,
   SLOT_VOCABS,
   STYLE_FAMILIES,
   STYLE_FAMILY_ASPECT_BIAS,
-  STYLE_FAMILY_PROMPT_SEEDS,
   STYLE_FAMILY_PROVIDER_WEIGHTS,
   TEMPLATE_SLOT_KEYS,
   type AspectRatio,
@@ -60,18 +58,17 @@ export type ChooserInput = {
 }
 
 // [LAW:types-are-the-program] ChooserOutput.subject narrows to
-// ChooserRecipeSubject (T00 excluded by construction). `params: unknown`
-// holds the chosen provider's native params; createPost re-validates via
-// the provider's paramsSchema, so the unknown is a structural acknowledgment
-// that the chooser doesn't carry per-provider types out of the orchestrator —
-// the provider's defaultParamsForRecipe is the single typed seam.
+// ChooserRecipeSubject (T00 excluded by construction). `paramsSeed` is the
+// pre-computed entropy for defaultParamsForRecipe — the caller (generator.ts)
+// uses it after composing the prompt via composer.ts. Params and prompt are
+// absent: the chooser has no env, so it cannot call Haiku; prompt composition
+// is the single concern of composer.ts.
 export type ChooserOutput = {
   providerId: ProviderId
-  params: unknown
+  paramsSeed: number
   styleFamily: StyleFamily
   subject: ChooserRecipeSubject
   aspectRatio: AspectRatio
-  prompt: string
 }
 
 // [LAW:one-source-of-truth] Window sizes and downweight factors are the doc's
@@ -251,10 +248,15 @@ function sampleSlots(
 }
 
 // [LAW:dataflow-not-control-flow] Same operations every fire — sample style →
-// sample subject → sample slots → sample provider → sample aspect → compose
-// prompt → build provider params. R-rules feed weights, never branches.
-// Persona bias multipliers flow through the weight functions; absent bias = 1.0
-// on every dimension, making persona=null and persona=all-ones identical code paths.
+// sample subject → sample slots → sample provider → sample aspect. R-rules
+// feed weights, never branches. Persona bias multipliers flow through the
+// weight functions; absent bias = 1.0 on every dimension, making persona=null
+// and persona=all-ones identical code paths.
+//
+// Prompt composition and params building are the caller's responsibility:
+// the caller awaits composePrompt (composer.ts), then calls
+// provider.defaultParamsForRecipe({ prompt, styleFamily, seed: paramsSeed }).
+// [LAW:one-way-deps] chooser stays pure — no env, no I/O.
 export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
   const { scheduledTimeMs, recent, providers, bias } = input
 
@@ -296,24 +298,15 @@ export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
   const parsed = recipeSubjectSchema.parse({ subjectTemplate, slots })
   const subject = parsed as ChooserRecipeSubject
 
-  const basePrompt = `${renderTemplate(subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[styleFamily]}`
-  const prompt = bias?.promptPrefix ? `${bias.promptPrefix}, ${basePrompt}` : basePrompt
-
   // Separate seed-kind tag for params so a future provider that varies params
   // by entropy can sample independently of the style/aspect/subject draws.
   const paramsSeed = fnv1a32(`params:${scheduledTimeMs}`)
-  const params = provider.defaultParamsForRecipe({
-    prompt,
-    styleFamily,
-    seed: paramsSeed,
-  })
 
   return {
     providerId: provider.id,
-    params,
+    paramsSeed,
     styleFamily,
     subject,
     aspectRatio,
-    prompt,
   }
 }

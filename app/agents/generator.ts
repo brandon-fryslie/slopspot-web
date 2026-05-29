@@ -19,8 +19,9 @@ import { createPost } from '~/db/posts'
 import { getRecentRecipes } from '~/db/recent'
 import { pickPersona } from '~/agents/persona'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
+import { composePrompt } from '~/firehose/composer'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
-import { realProviders } from '~/providers'
+import { getProvider, realProviders } from '~/providers'
 
 const RECENT_WINDOW = 20
 
@@ -89,13 +90,37 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
 
   const recipe = chooseNextGeneration({ scheduledTimeMs, recent, providers, bias })
 
+  // Build params after prompt composition — provider needed for both maxLength
+  // and defaultParamsForRecipe. [LAW:locality-or-seam] per-provider knowledge
+  // (max prompt length, native params shape) stays in the provider file.
+  const provider = getProvider(recipe.providerId)
+
+  // [LAW:single-enforcer] composePrompt is the one place prompt text is
+  // generated from a recipe; promptPrefix and maxLength flow from the provider's
+  // declared constraint so paramsSchema validation never rejects a too-long prompt.
+  const prompt = await composePrompt(
+    {
+      styleFamily: recipe.styleFamily,
+      subject: recipe.subject,
+      aspectRatio: recipe.aspectRatio,
+      promptPrefix: config?.promptPrefix,
+      maxLength: provider.promptMaxLength,
+    },
+    env,
+  )
+  const params = provider.defaultParamsForRecipe({
+    prompt,
+    styleFamily: recipe.styleFamily,
+    seed: recipe.paramsSeed,
+  })
+
   const agentId = persona?.agentId ?? SYSTEM_AGENT_ID
 
   const post = await createPost(
     {
       kind: 'generation',
       providerId: recipe.providerId,
-      params: recipe.params,
+      params,
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
