@@ -18,7 +18,7 @@
 // vote score is a separate aggregate) and the domain shape (Content/GenerationStatus
 // are closed discriminated unions). Everything below is the residue of that one map.
 
-import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
@@ -54,7 +54,7 @@ import {
   styleFamilySchema,
   type RecipeSubject,
 } from '~/lib/variety'
-import { applySortMode, defaultSortMode, type SortMode } from '~/lib/sort-mode'
+import { applySortMode, defaultSortMode, windowFilter, type SortMode } from '~/lib/sort-mode'
 
 // One flat join row. The sibling tables are nullable because the DB does not
 // enforce cross-table cardinality (that is createPost's transactional invariant);
@@ -492,12 +492,14 @@ export async function getFeed(
   const { voteScore: rankVoteScore, score: rankScore } = voteScoreSubquery(database, undefined)
 
   // [LAW:dataflow-not-control-flow] applySortMode returns the ORDER BY expressions;
-  // same call every invocation, the SortMode value picks the expressions.
+  // windowFilter returns the WHERE predicate (or undefined = no filter); both are
+  // called unconditionally — the SortMode value picks the expressions and predicate.
   const feedIds = database.$with('feed_ids').as(
     database
       .select({ id: posts.id, score: rankScore.as('score') })
       .from(posts)
       .leftJoin(rankVoteScore, eq(rankVoteScore.postId, posts.id))
+      .where(windowFilter(sort, posts.createdAt, Date.now()))
       .orderBy(...applySortMode(sort, { score: rankScore, createdAt: posts.createdAt, id: posts.id }))
       .limit(50),
   )

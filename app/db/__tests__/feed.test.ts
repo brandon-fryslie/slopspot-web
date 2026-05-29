@@ -124,6 +124,64 @@ describe('app/db/feed.ts - getFeed', () => {
     })
   })
 
+  describe('top window filtering (jc6.4)', () => {
+    // Three posts seeded relative to now: 1h ago (in day and week), 3d ago
+    // (in week only), 30d ago (in neither). The actual cutoff is computed by
+    // getFeed via Date.now(), which is a few ms later than the test's `now` —
+    // the hour/day/week boundaries give enough headroom that clock drift
+    // between seeding and querying is irrelevant.
+    it('window: "all" returns all posts regardless of age', async () => {
+      const now = Date.now()
+      const h1 = await seedPost(env, { id: 'window-1h', createdAt: new Date(now - 60 * 60 * 1000) })
+      const d3 = await seedPost(env, { id: 'window-3d', createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000) })
+      const d30 = await seedPost(env, { id: 'window-30d', createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000) })
+
+      const result = await getFeed(env, undefined, { mode: 'top', window: 'all' })
+      const ids = result.map((f) => f.post.id)
+      expect(ids).toContain(h1)
+      expect(ids).toContain(d3)
+      expect(ids).toContain(d30)
+    })
+
+    it('window: "day" excludes posts older than 24h', async () => {
+      const now = Date.now()
+      const h1 = await seedPost(env, { id: 'daywin-1h', createdAt: new Date(now - 60 * 60 * 1000) })
+      const d3 = await seedPost(env, { id: 'daywin-3d', createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000) })
+      const d30 = await seedPost(env, { id: 'daywin-30d', createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000) })
+
+      const result = await getFeed(env, undefined, { mode: 'top', window: 'day' })
+      const ids = result.map((f) => f.post.id)
+      expect(ids).toContain(h1)
+      expect(ids).not.toContain(d3)
+      expect(ids).not.toContain(d30)
+    })
+
+    it('window: "week" includes up to 7d, excludes older', async () => {
+      const now = Date.now()
+      const h1 = await seedPost(env, { id: 'weekwin-1h', createdAt: new Date(now - 60 * 60 * 1000) })
+      const d3 = await seedPost(env, { id: 'weekwin-3d', createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000) })
+      const d30 = await seedPost(env, { id: 'weekwin-30d', createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000) })
+
+      const result = await getFeed(env, undefined, { mode: 'top', window: 'week' })
+      const ids = result.map((f) => f.post.id)
+      expect(ids).toContain(h1)
+      expect(ids).toContain(d3)
+      expect(ids).not.toContain(d30)
+    })
+
+    it('window: "day" orders by score DESC among posts in window', async () => {
+      const now = Date.now()
+      const low = await seedPost(env, { id: 'dayord-low', createdAt: new Date(now - 30 * 60 * 1000) })
+      const high = await seedPost(env, { id: 'dayord-high', createdAt: new Date(now - 60 * 60 * 1000) })
+      await seedVote(env, { postId: high, voterId: 'v1', value: 1 })
+      await seedVote(env, { postId: high, voterId: 'v2', value: 1 })
+
+      const result = await getFeed(env, undefined, { mode: 'top', window: 'day' })
+      const ids = result.map((f) => f.post.id)
+      expect(ids.indexOf(high)).toBeLessThan(ids.indexOf(low))
+    })
+  })
+
   describe('ordering and rank derivation', () => {
     it('orders by (score DESC, createdAt DESC, posts.id DESC) and assigns rank 1..N', async () => {
       // Three posts: high score wins regardless of age; among equal-score
