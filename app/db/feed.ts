@@ -422,53 +422,65 @@ function rowToRenderablePost(row: FeedRowWithAggregates): RenderablePost {
   }
 }
 
-// [LAW:dataflow-not-control-flow] The two-phase shape (pick ids → hydrate) is
-// not a branch — it's the data flow. Phase 1 emits a value (the visible-id
-// set); phase 2 consumes it. The same code runs every call, regardless of
-// table size or vote distribution. Phase 1 is the irreducible cost of
-// score-based ordering: ranking requires the score for every post, so this
-// query is the one place the full SUM(votes) over all posts can live. Phase 2
-// then bounds every per-post aggregate to the 50 ids it received.
+// [LAW:one-source-of-truth] A CTE computes the ranked visible post set and
+// their scores in one place. Vote score lives inside the CTE (COALESCE of
+// the vote-sum over all votes for each post). The comments aggregate subquery
+// references the CTE via `SELECT id FROM feed_ids` — a SQL subquery, not a
+// bind-param list. The previous two-phase design (pickFeedIds → selectFeedRows)
+// re-passed the same 50 ids as bind params three times (votes IN, comments IN,
+// WHERE IN = 151 params), exceeding D1's 100-variable limit past ~32 posts.
 //
-// Returning ids before hydrating, rather than joining everything in one query,
-// is what lets selectFeedRows's aggregate subqueries be filtered by `inArray`
-// — phase 2 already knows the visible set, so the SUM/COUNT subqueries
-// never scan rows outside it.
-//
-// `desc(posts.id)` is the deterministic tie-breaker. Without it, two posts
-// with equal score and createdAt could come back in different relative
-// orders across the two phases (SQLite makes no order guarantee for tied
-// rows), which would make ranks 1..50 flicker between requests.
-async function pickFeedIds(
-  database: ReturnType<typeof db>,
-  limit: number,
-): Promise<string[]> {
-  const { voteScore, score } = voteScoreSubquery(database, undefined)
-
-  const rows = await database
-    .select({ id: posts.id })
-    .from(posts)
-    .leftJoin(voteScore, eq(voteScore.postId, posts.id))
-    .orderBy(desc(score), desc(posts.createdAt), desc(posts.id))
-    .limit(limit)
-
-  return rows.map((r) => r.id)
-}
-
+// `desc(posts.id)` is the deterministic tie-breaker for equal score+createdAt.
 export async function getFeed(
   env: Env,
   voterId?: string,
 ): Promise<FeedItem[]> {
   const database = db(env)
-  const ids = await pickFeedIds(database, 50)
-  const { query, score } = selectFeedRows(database, ids, voterId)
 
-  const rows = await query.orderBy(desc(score), desc(posts.createdAt), desc(posts.id))
+  const { voteScore: rankVoteScore, score: rankScore } = voteScoreSubquery(database, undefined)
 
-  // rank is the post-sort position — derived per query, meaningful only in
-  // the list view. Added here by spread, not by the shared helper, because
-  // it's the one field whose semantics belong to "post in a ranked list"
-  // rather than "renderable post".
+  const feedIds = database.$with('feed_ids').as(
+    database
+      .select({ id: posts.id, score: rankScore.as('score') })
+      .from(posts)
+      .leftJoin(rankVoteScore, eq(rankVoteScore.postId, posts.id))
+      .orderBy(desc(rankScore), desc(posts.createdAt), desc(posts.id))
+      .limit(50),
+  )
+
+  const visibleIds = database.select({ id: feedIds.id }).from(feedIds)
+
+  const commentCount = database
+    .select({ postId: comments.postId, count: sql<number>`count(*)`.as('count') })
+    .from(comments)
+    .where(inArray(comments.postId, visibleIds))
+    .groupBy(comments.postId)
+    .as('comment_count')
+
+  const cCount = sql<number>`coalesce(${commentCount.count}, 0)`
+  const myVote = alias(votes, 'my_vote')
+  const myVoterId = voterId ?? ''
+
+  const rows = await database
+    .with(feedIds)
+    .select({
+      post: posts,
+      generation: generations,
+      upload: uploads,
+      found,
+      score: sql<number>`coalesce(${feedIds.score}, 0)`,
+      myVote: myVote.value,
+      commentCount: cCount,
+    })
+    .from(feedIds)
+    .innerJoin(posts, eq(posts.id, feedIds.id))
+    .leftJoin(generations, eq(generations.postId, posts.id))
+    .leftJoin(uploads, eq(uploads.postId, posts.id))
+    .leftJoin(found, eq(found.postId, posts.id))
+    .leftJoin(commentCount, eq(commentCount.postId, posts.id))
+    .leftJoin(myVote, and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)))
+    .orderBy(desc(feedIds.score), desc(posts.createdAt), desc(posts.id))
+
   return rows.map((row, i): FeedItem => ({
     ...rowToRenderablePost(row),
     rank: i + 1,
