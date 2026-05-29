@@ -8,8 +8,11 @@ export type Candidate = {
 
 // [LAW:single-enforcer] All URL safety enforcement for extracted strings flows
 // through safeHttpUrl. Candidate URLs come from untrusted HTML/JSON; rejecting
-// non-http(s) schemes and private/loopback hosts prevents SSRF from the homelab
-// runner against internal services (Vault, Ollama, VictoriaMetrics, etc.).
+// non-http(s) schemes and literal private/loopback hostnames blocks the most
+// common SSRF vector (explicit private-IP in feed data). Note: DNS rebinding
+// (a public hostname resolving to a private IP at fetch time) is a separate
+// attack that requires async DNS pre-resolution to defend against and is
+// out of scope for this sync guard.
 export function safeHttpUrl(raw: string): string | null {
   try {
     const u = new URL(raw)
@@ -142,7 +145,10 @@ export async function safeFetch(
     if (resp.status < 300 || resp.status >= 400) return resp
     const location = resp.headers.get('location')
     if (!location) return resp
-    const safe = safeHttpUrl(location)
+    // Location may be relative (e.g. "/images/foo") — resolve against current
+    // before SSRF validation so valid same-host redirects are followed.
+    const resolved = new URL(location, current).href
+    const safe = safeHttpUrl(resolved)
     if (!safe) throw new Error(`redirect to disallowed URL: ${location}`)
     current = safe
   }
