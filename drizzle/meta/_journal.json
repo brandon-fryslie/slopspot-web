@@ -43,6 +43,20 @@
       "when": 1779955711265,
       "tag": "0005_found_submission_quota",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1780022303100,
+      "tag": "0006_personas",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1780022303200,
+      "tag": "0007_persona_seeds",
+      "breakpoints": true
     }
   ]
 }

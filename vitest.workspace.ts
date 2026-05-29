@@ -42,6 +42,7 @@ export default defineWorkspace([
         'app/storage/__tests__/**/*.test.ts',
         'app/routes/__tests__/**/*.test.ts',
         'app/db/__tests__/**/*.test.ts',
+        'app/agents/__tests__/**/*.test.ts',
       ],
       // [LAW:single-enforcer] Migration application lives in one place,
       // applied once per test file via beforeAll. With isolatedStorage on,
