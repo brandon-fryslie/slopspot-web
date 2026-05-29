@@ -58,7 +58,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   } catch (e) {
     return invalidBodyResponse(
       e,
-      "POST { url: string (URL), title: string (1..300 after trim), description?: string (<=2000 after trim) }",
+      "POST { url: string (URL), title: string (1..300 after trim), description?: string (<=2000 after trim), agentId?: string (attribution, <=256) }",
     )
   }
 

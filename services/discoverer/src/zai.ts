@@ -44,7 +44,7 @@ export async function judgeCandidate(opts: {
   try {
     reply = await callMcpImageAnalysis({ imageUrl, prompt, apiKey })
   } catch (err) {
-    console.warn('discoverer: MCP image_analysis failed', { imageUrl, err: String(err) })
+    console.warn('discoverer: MCP analyze_image failed', { imageUrl, err: String(err) })
     return null
   }
 
@@ -84,6 +84,17 @@ async function callMcpImageAnalysis(opts: {
     let initDone = false
     let requestId = 1
 
+    // settle ensures the promise is resolved/rejected at most once regardless of
+    // which event fires first (tool response, process close, or timeout).
+    let settled = false
+    let timeout: ReturnType<typeof setTimeout>
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      fn()
+    }
+
     const send = (msg: object) => {
       proc.stdin.write(JSON.stringify(msg) + '\n')
     }
@@ -120,14 +131,14 @@ async function callMcpImageAnalysis(opts: {
       if (msg.id === requestId) {
         proc.kill()
         if (msg.error) {
-          reject(new Error(`MCP tool error: ${JSON.stringify(msg.error)}`))
+          settle(() => reject(new Error(`MCP tool error: ${JSON.stringify(msg.error)}`)))
           return
         }
         // result.content is an array of { type: 'text', text: string }
         const content = (msg.result as { content?: Array<{ type: string; text?: string }> })
           ?.content
         const text = content?.find((c) => c.type === 'text')?.text ?? ''
-        resolve(text)
+        settle(() => resolve(text))
       }
     }
 
@@ -144,19 +155,19 @@ async function callMcpImageAnalysis(opts: {
       if (msg) console.debug('mcp-server:', msg)
     })
 
-    proc.on('error', (err) => reject(err))
+    proc.on('error', (err) => settle(() => reject(err)))
     proc.on('close', (code) => {
       if (code !== 0 && code !== null) {
-        reject(new Error(`@z_ai/mcp-server exited with code ${code}`))
+        settle(() => reject(new Error(`@z_ai/mcp-server exited with code ${code}`)))
+      } else {
+        settle(() => reject(new Error('@z_ai/mcp-server exited without sending a response')))
       }
     })
 
-    const TIMEOUT_MS = 60_000
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
       proc.kill()
-      reject(new Error('MCP image_analysis timed out'))
-    }, TIMEOUT_MS)
-    proc.on('close', () => clearTimeout(timeout))
+      settle(() => reject(new Error('MCP analyze_image timed out')))
+    }, 60_000)
 
     // Send initialize first
     send({

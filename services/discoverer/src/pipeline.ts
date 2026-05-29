@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { type D1Config, d1Query } from './d1.js'
-import { fetchCandidates } from './og.js'
+import { fetchCandidates, safeFetch } from './og.js'
 import { judgeCandidate } from './zai.js'
 import { pushMetric } from './metrics.js'
 
@@ -141,8 +141,9 @@ async function submitFoundPost(
 async function downloadImageToTemp(url: string): Promise<string | null> {
   let resp: Response
   try {
-    resp = await fetch(url, {
-      redirect: 'follow',
+    // [LAW:single-enforcer] safeFetch validates every redirect hop through
+    // safeHttpUrl — a CDN redirect to a private IP is rejected at the boundary.
+    resp = await safeFetch(url, {
       signal: AbortSignal.timeout(15_000),
       headers: { 'User-Agent': 'SlopSpot-Discoverer/1.0 (https://slopspot.ai)' },
     })

@@ -23,6 +23,17 @@ export function safeHttpUrl(raw: string): string | null {
 
 function isPrivateHost(hostname: string): boolean {
   if (hostname === 'localhost') return true
+
+  // IPv6 in brackets: [::1], [fe80::1], [fc00::], [fd00::], [::ffff:10.0.0.1], etc.
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    const ipv6 = hostname.slice(1, -1).toLowerCase()
+    if (ipv6 === '::1') return true                      // loopback
+    if (ipv6.startsWith('fe80:')) return true            // link-local
+    if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return true  // unique-local RFC 4193
+    if (ipv6.startsWith('::ffff:')) return true          // IPv4-mapped (may embed private range)
+    return false
+  }
+
   // Numeric IPv4 — check against RFC 1918, loopback, link-local ranges.
   const parts = hostname.split('.').map(Number)
   if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
@@ -115,14 +126,36 @@ export function parseLexicaResponse(data: unknown): Candidate[] {
   return candidates
 }
 
+const MAX_REDIRECT_HOPS = 5
+
+// [LAW:single-enforcer] safeFetch enforces SSRF-safe redirect following for
+// all outbound fetches in this service. Every Location header is validated
+// through safeHttpUrl before being followed — a redirect to an RFC 1918 or
+// loopback address is rejected rather than silently reached.
+export async function safeFetch(
+  url: string,
+  init: Omit<RequestInit, 'redirect'>,
+): Promise<Response> {
+  let current = url
+  for (let hops = 0; hops < MAX_REDIRECT_HOPS; hops++) {
+    const resp = await fetch(current, { ...init, redirect: 'manual' })
+    if (resp.status < 300 || resp.status >= 400) return resp
+    const location = resp.headers.get('location')
+    if (!location) return resp
+    const safe = safeHttpUrl(location)
+    if (!safe) throw new Error(`redirect to disallowed URL: ${location}`)
+    current = safe
+  }
+  throw new Error(`too many redirects fetching ${url}`)
+}
+
 // [LAW:dataflow-not-control-flow] fetchCandidates always runs the same steps;
 // content-type decides which parser runs — not whether parsing runs.
 export async function fetchCandidates(seedUrl: string): Promise<Candidate[]> {
   let resp: Response
   try {
-    resp = await fetch(seedUrl, {
+    resp = await safeFetch(seedUrl, {
       headers: { 'User-Agent': 'SlopSpot-Discoverer/1.0 (https://slopspot.ai)' },
-      redirect: 'follow',
       signal: AbortSignal.timeout(10_000),
     })
   } catch (err) {
