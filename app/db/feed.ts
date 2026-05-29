@@ -422,12 +422,13 @@ function rowToRenderablePost(row: FeedRowWithAggregates): RenderablePost {
   }
 }
 
-// [LAW:one-source-of-truth] A CTE defines the visible post set exactly once.
-// The votes and comments aggregate subqueries reference it via `SELECT id FROM
-// feed_ids` — a SQL subquery, not a bind-param list. The previous two-phase
-// design (pickFeedIds → selectFeedRows) re-passed the same 50 ids as bind
-// params three times (votes IN, comments IN, WHERE IN = 151 params), exceeding
-// D1's 100-variable limit as the post count grew past ~32.
+// [LAW:one-source-of-truth] A CTE computes the ranked visible post set and
+// their scores in one place. Vote score lives inside the CTE (COALESCE of
+// the vote-sum over all votes for each post). The comments aggregate subquery
+// references the CTE via `SELECT id FROM feed_ids` — a SQL subquery, not a
+// bind-param list. The previous two-phase design (pickFeedIds → selectFeedRows)
+// re-passed the same 50 ids as bind params three times (votes IN, comments IN,
+// WHERE IN = 151 params), exceeding D1's 100-variable limit past ~32 posts.
 //
 // `desc(posts.id)` is the deterministic tie-breaker for equal score+createdAt.
 export async function getFeed(
