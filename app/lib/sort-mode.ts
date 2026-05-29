@@ -132,7 +132,7 @@ export function parseSortMode(sortParam: string | null, windowParam?: string | n
 }
 
 // [LAW:one-source-of-truth] URL query string for a sort mode. Two-param form for
-// windowed top (?sort=top&window=day) so URLs match the documented URL path shape
+// windowed top (?sort=top&window=day) so URLs match the documented query-string shape
 // in parseSortMode. Cookie payload uses serializeSortMode's slash form instead;
 // the two surfaces are intentionally different codecs with different semantics.
 export function sortModeUrlQuery(sort: SortMode): string {

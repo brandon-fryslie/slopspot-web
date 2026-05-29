@@ -18,7 +18,9 @@ import {
   parseSortMode,
   serializeSortMode,
   sortModeLabel,
+  sortModeUrlQuery,
   windowFilter,
+  windowLabel,
   type SortMode,
 } from '~/lib/sort-mode'
 
@@ -251,6 +253,49 @@ describe('app/lib/sort-mode.ts', () => {
       expect(sqlStr).toBe('"created_at" >= ?')
       expect(params).toEqual([NOW - TOP_WINDOW_MS.week])
     })
+  })
+
+  describe('sortModeUrlQuery', () => {
+    it('hot → "sort=hot"', () => {
+      expect(sortModeUrlQuery({ mode: 'hot' })).toBe('sort=hot')
+    })
+
+    it('new → "sort=new"', () => {
+      expect(sortModeUrlQuery({ mode: 'new' })).toBe('sort=new')
+    })
+
+    it('top/all → "sort=top" (no window param for all-time)', () => {
+      expect(sortModeUrlQuery({ mode: 'top', window: 'all' })).toBe('sort=top')
+    })
+
+    it('top/day → "sort=top&window=day" (two-param URL form)', () => {
+      expect(sortModeUrlQuery({ mode: 'top', window: 'day' })).toBe('sort=top&window=day')
+    })
+
+    it('top/week → "sort=top&window=week" (two-param URL form)', () => {
+      expect(sortModeUrlQuery({ mode: 'top', window: 'week' })).toBe('sort=top&window=week')
+    })
+
+    it('round-trips through parseSortMode for all modes', () => {
+      const modes: SortMode[] = [
+        { mode: 'hot' },
+        { mode: 'new' },
+        { mode: 'top', window: 'all' },
+        { mode: 'top', window: 'day' },
+        { mode: 'top', window: 'week' },
+      ]
+      for (const m of modes) {
+        const qs = sortModeUrlQuery(m)
+        const params = new URLSearchParams(qs)
+        expect(parseSortMode(params.get('sort'), params.get('window'))).toEqual(m)
+      }
+    })
+  })
+
+  describe('windowLabel', () => {
+    it('day → "Day"', () => expect(windowLabel('day')).toBe('Day'))
+    it('week → "Week"', () => expect(windowLabel('week')).toBe('Week'))
+    it('all → "All"', () => expect(windowLabel('all')).toBe('All'))
   })
 
   describe('exhaustiveness (compile-time gate)', () => {
