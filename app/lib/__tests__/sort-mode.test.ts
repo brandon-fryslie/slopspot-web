@@ -10,6 +10,8 @@ import { sql } from 'drizzle-orm'
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import {
+  HOTNESS_DECAY_S,
+  HOTNESS_REFERENCE_EPOCH,
   TOP_WINDOW_MS,
   applySortMode,
   defaultSortMode,
@@ -48,6 +50,8 @@ function sortModeExhaustive(s: SortMode): string {
       }
     case 'new':
       return 'new'
+    case 'hot':
+      return 'hot'
     default: {
       const _exhaustive: never = s
       return String(_exhaustive)
@@ -63,9 +67,9 @@ describe('app/lib/sort-mode.ts', () => {
     })
 
     it('returns null for unknown input', () => {
-      expect(parseSortMode('hot')).toBeNull()
       expect(parseSortMode('')).toBeNull()
       expect(parseSortMode(null)).toBeNull()
+      expect(parseSortMode('rising')).toBeNull()
     })
 
     it('parseSortMode("top") yields { mode: "top", window: "all" }', () => {
@@ -123,6 +127,19 @@ describe('app/lib/sort-mode.ts', () => {
       expect(serializeSortMode({ mode: 'top', window: 'day' })).toBe('top/day')
       expect(serializeSortMode({ mode: 'top', window: 'week' })).toBe('top/week')
     })
+
+    it('parseSortMode("hot") yields { mode: "hot" }', () => {
+      expect(parseSortMode('hot')).toEqual({ mode: 'hot' })
+    })
+
+    it('{ mode: "hot" } round-trips through serialize → parse', () => {
+      const mode: SortMode = { mode: 'hot' }
+      expect(parseSortMode(serializeSortMode(mode))).toEqual(mode)
+    })
+
+    it('serializeSortMode({ mode: "hot" }) → "hot"', () => {
+      expect(serializeSortMode({ mode: 'hot' })).toBe('hot')
+    })
   })
 
   describe('sortModeLabel', () => {
@@ -140,6 +157,10 @@ describe('app/lib/sort-mode.ts', () => {
 
     it('returns "New" for new', () => {
       expect(sortModeLabel({ mode: 'new' })).toBe('New')
+    })
+
+    it('returns "Hot" for hot', () => {
+      expect(sortModeLabel({ mode: 'hot' })).toBe('Hot')
     })
   })
 
@@ -160,6 +181,46 @@ describe('app/lib/sort-mode.ts', () => {
         expect(dialect.sqlToQuery(exprs[2]).sql).toBe('"id" desc')
       }
     })
+
+    it('{ mode: "hot" } emits hotness DESC, createdAt DESC, id DESC (3 exprs)', () => {
+      const exprs = applySortMode({ mode: 'hot' }, mockCtx)
+      expect(exprs).toHaveLength(3)
+      // Secondary and tertiary tiebreakers stay the same as other modes.
+      expect(dialect.sqlToQuery(exprs[1]).sql).toBe('"created_at" desc')
+      expect(dialect.sqlToQuery(exprs[2]).sql).toBe('"id" desc')
+      // Primary: the hotness expression embeds the constants from sort-mode.ts.
+      const primary = dialect.sqlToQuery(exprs[0]).sql
+      expect(primary).toContain('log(')
+      expect(primary).toContain('sign(')
+    })
+
+    // Hotness-ordering unit test: three posts with hand-calculated hotness values.
+    //
+    // Formula: log10(max(|score|,1)) * sign(score) + (createdAt_s - REFERENCE_EPOCH) / DECAY_S
+    // where log10(x) = log(x) * LOG10_E in SQLite (ln-based log).
+    //
+    // Post A: score=1,   createdAt_s = REFERENCE_EPOCH + 4*DECAY_S  → 0 + 4 = 4.0
+    // Post B: score=100, createdAt_s = REFERENCE_EPOCH              → 2 + 0 = 2.0
+    // Post C: score=10,  createdAt_s = REFERENCE_EPOCH              → 1 + 0 = 1.0
+    // Expected order: A (4.0) > B (2.0) > C (1.0)
+    it('hotness ordering: age can outrank score per formula', () => {
+      const LOG10_E = 0.4342944819032518
+      const hotness = (score: number, createdAtS: number): number => {
+        const logPart = LOG10_E * Math.log(Math.max(Math.abs(score), 1)) * Math.sign(score)
+        const agePart = (createdAtS - HOTNESS_REFERENCE_EPOCH) / HOTNESS_DECAY_S
+        return logPart + agePart
+      }
+
+      const postA = hotness(1, HOTNESS_REFERENCE_EPOCH + 4 * HOTNESS_DECAY_S) // 0 + 4 = 4.0
+      const postB = hotness(100, HOTNESS_REFERENCE_EPOCH)                      // 2 + 0 = 2.0
+      const postC = hotness(10, HOTNESS_REFERENCE_EPOCH)                       // 1 + 0 = 1.0
+
+      expect(postA).toBeCloseTo(4.0, 5)
+      expect(postB).toBeCloseTo(2.0, 5)
+      expect(postC).toBeCloseTo(1.0, 5)
+      expect(postA).toBeGreaterThan(postB)
+      expect(postB).toBeGreaterThan(postC)
+    })
   })
 
   describe('windowFilter', () => {
@@ -171,6 +232,10 @@ describe('app/lib/sort-mode.ts', () => {
 
     it('returns undefined for { mode: "new" }', () => {
       expect(windowFilter({ mode: 'new' }, mockCtx.createdAt, NOW)).toBeUndefined()
+    })
+
+    it('returns undefined for { mode: "hot" } — no time window filter', () => {
+      expect(windowFilter({ mode: 'hot' }, mockCtx.createdAt, NOW)).toBeUndefined()
     })
 
     it('{ mode: "top", window: "day" } emits createdAt >= cutoff with day offset', () => {
@@ -190,10 +255,15 @@ describe('app/lib/sort-mode.ts', () => {
 
   describe('exhaustiveness (compile-time gate)', () => {
     it('sortModeExhaustive covers every arm including window sub-discriminant', () => {
-      expect(sortModeExhaustive(defaultSortMode)).toBe('top-all')
+      expect(sortModeExhaustive({ mode: 'top', window: 'all' })).toBe('top-all')
       expect(sortModeExhaustive({ mode: 'top', window: 'day' })).toBe('top-day')
       expect(sortModeExhaustive({ mode: 'top', window: 'week' })).toBe('top-week')
       expect(sortModeExhaustive({ mode: 'new' })).toBe('new')
+      expect(sortModeExhaustive({ mode: 'hot' })).toBe('hot')
+    })
+
+    it('defaultSortMode is { mode: "hot" }', () => {
+      expect(defaultSortMode).toEqual({ mode: 'hot' })
     })
   })
 })
