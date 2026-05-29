@@ -84,7 +84,10 @@ export type Content =
 
 export type Actor =
   | { kind: 'user'; userId: UserId }
-  | { kind: 'agent'; agentId: AgentId }
+  // [LAW:types-are-the-program] displayName is optional — absent when the agentId
+  // does not map to a persona (e.g. sys:slop-cron). Feed readers resolve it via
+  // a personas join; callers that skip the join see agentId as fallback label.
+  | { kind: 'agent'; agentId: AgentId; displayName?: string }
   | { kind: 'anon'; label: string }
 
 // `onBehalfOf` captures real delegation (agent acting for a user, etc.). Depth-1 by

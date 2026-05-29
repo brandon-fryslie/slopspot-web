@@ -25,6 +25,7 @@ import {
   comments,
   found,
   generations,
+  personas,
   posts,
   uploads,
   votes,
@@ -269,6 +270,50 @@ function normalizeOrigin(raw: Origin): Origin {
   }
 }
 
+// [LAW:one-source-of-truth] Persona displayNames are authoritative in the
+// personas table. Feed readers resolve them here rather than storing a
+// redundant copy in origin_json. One batch query per feed load regardless
+// of how many posts have agent origins.
+async function fetchPersonaDisplayNames(
+  database: ReturnType<typeof db>,
+  agentIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (agentIds.length === 0) return new Map()
+  const rows = await database
+    .select({ agentId: personas.agentId, displayName: personas.displayName })
+    .from(personas)
+    .where(inArray(personas.agentId, agentIds))
+  return new Map(rows.map((r) => [r.agentId, r.displayName]))
+}
+
+function enrichActor(actor: Actor, names: Map<string, string>): Actor {
+  if (actor.kind !== 'agent') return actor
+  const displayName = names.get(actor.agentId)
+  return displayName !== undefined ? { ...actor, displayName } : actor
+}
+
+function enrichOrigin(origin: Origin, names: Map<string, string>): Origin {
+  return {
+    actor: enrichActor(origin.actor, names),
+    ...(origin.onBehalfOf !== undefined
+      ? { onBehalfOf: enrichActor(origin.onBehalfOf, names) }
+      : {}),
+  }
+}
+
+function enrichPost(post: Post, names: Map<string, string>): Post {
+  return { ...post, origin: enrichOrigin(post.origin, names) }
+}
+
+function collectAgentIds(posts: readonly Post[]): string[] {
+  const ids = new Set<string>()
+  for (const p of posts) {
+    if (p.origin.actor.kind === 'agent') ids.add(p.origin.actor.agentId)
+    if (p.origin.onBehalfOf?.kind === 'agent') ids.add(p.origin.onBehalfOf.agentId)
+  }
+  return [...ids]
+}
+
 function toPost(row: FeedRow): Post {
   return {
     id: PostId(row.post.id),
@@ -481,8 +526,15 @@ export async function getFeed(
     .leftJoin(myVote, and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)))
     .orderBy(desc(feedIds.score), desc(posts.createdAt), desc(posts.id))
 
-  return rows.map((row, i): FeedItem => ({
-    ...rowToRenderablePost(row),
+  const renderables = rows.map((row) => rowToRenderablePost(row))
+  const agentIds = collectAgentIds(renderables.map((r) => r.post))
+  const names = await fetchPersonaDisplayNames(database, agentIds)
+
+  return renderables.map((r, i): FeedItem => ({
+    post: enrichPost(r.post, names),
+    score: r.score,
+    myVote: r.myVote,
+    commentCount: r.commentCount,
     rank: i + 1,
   }))
 }
@@ -507,9 +559,12 @@ export async function getFeedItemById(
   const { query } = selectFeedRows(database, [id], voterId)
 
   const rows = await query.limit(1)
-
   if (rows.length === 0) return null
-  return rowToRenderablePost(rows[0])
+
+  const renderable = rowToRenderablePost(rows[0])
+  const agentIds = collectAgentIds([renderable.post])
+  const names = await fetchPersonaDisplayNames(database, agentIds)
+  return { ...renderable, post: enrichPost(renderable.post, names) }
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels

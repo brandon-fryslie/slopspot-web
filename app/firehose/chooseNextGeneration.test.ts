@@ -488,3 +488,69 @@ describe('chooseNextGeneration — sustained chain (c37.3 distribution AC)', () 
     expect(land16).toBeGreaterThan(port9)
   })
 })
+
+// [LAW:behavior-not-structure] Persona bias tests assert the *contract* of bias
+// injection: absent bias = all-ones (regression guard), strong bias = measurable
+// skew, promptPrefix = prefix in output. Implementation details (how multipliers
+// are applied) are not asserted — only observable distribution outcomes.
+describe('chooseNextGeneration — persona bias', () => {
+  const t0 = Date.UTC(2026, 0, 1, 0, 0, 0)
+
+  it('absent bias produces identical output to empty bias (regression guard)', () => {
+    for (let i = 0; i < 100; i++) {
+      const t = t0 + i * SIX_HOURS
+      const withoutBias = chooseNextGeneration({ scheduledTimeMs: t, recent: [], providers: ALL_PROVIDERS })
+      const withEmptyBias = chooseNextGeneration({ scheduledTimeMs: t, recent: [], providers: ALL_PROVIDERS, bias: {} })
+      expect(withoutBias).toEqual(withEmptyBias)
+    }
+  })
+
+  it('styleFamilyBias upweight pushes distribution toward that style', () => {
+    // Strong bias toward 'photoreal' should make it appear far more often
+    // than baseline over many fires. R1 still hard-rejects consecutive repeats,
+    // so 'photoreal' can't win every time — but it should win far more than 1/14.
+    const bias = { styleFamilyBias: { photoreal: 10.0 } }
+    let photoCount = 0
+    let otherCount = 0
+    for (let i = 0; i < 200; i++) {
+      const r = chooseNextGeneration({ scheduledTimeMs: t0 + i * SIX_HOURS, recent: [], providers: ALL_PROVIDERS, bias })
+      if (r.styleFamily === 'photoreal') photoCount++
+      else otherCount++
+    }
+    // Baseline without bias: photoreal ≈ 1/14 ≈ 7%.
+    // With 10× bias: photoreal weight dominates until R1 prevents consecutive.
+    // Even with R1, should win >>7% of fires. Expect at least 3× baseline rate.
+    expect(photoCount).toBeGreaterThan(otherCount * 0.3)
+  })
+
+  it('providerBias upweight pushes distribution toward that provider', () => {
+    const bias = { providerBias: { 'fal-flux': 20.0, 'replicate-sdxl': 0.01, 'replicate-ideogram': 0.01 } }
+    let falCount = 0
+    let otherCount = 0
+    for (let i = 0; i < 200; i++) {
+      const r = chooseNextGeneration({ scheduledTimeMs: t0 + i * SIX_HOURS, recent: [], providers: ALL_PROVIDERS, bias })
+      if (r.providerId === 'fal-flux') falCount++
+      else otherCount++
+    }
+    // fal-flux should win the vast majority of non-R3-rejected fires.
+    expect(falCount).toBeGreaterThan(otherCount * 2)
+  })
+
+  it('promptPrefix is prepended to the composed prompt', () => {
+    const prefix = 'ethereal, dreamlike'
+    const bias = { promptPrefix: prefix }
+    for (let i = 0; i < 20; i++) {
+      const r = chooseNextGeneration({ scheduledTimeMs: t0 + i * SIX_HOURS, recent: [], providers: ALL_PROVIDERS, bias })
+      expect(r.prompt.startsWith(prefix)).toBe(true)
+    }
+  })
+
+  it('all R-rules still apply when bias is set (R1: no consecutive style)', () => {
+    const bias = { styleFamilyBias: { photoreal: 10.0 } }
+    const recent: RecentRecipe[] = [makeRecent({ styleFamily: 'photoreal' })]
+    for (let i = 0; i < 100; i++) {
+      const r = chooseNextGeneration({ scheduledTimeMs: t0 + i * SIX_HOURS, recent, providers: ALL_PROVIDERS, bias })
+      expect(r.styleFamily).not.toBe('photoreal')
+    }
+  })
+})
