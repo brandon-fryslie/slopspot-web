@@ -40,10 +40,23 @@ import type { GenerationProvider } from '~/providers/types'
 // from the head: `recent.slice(0, 1)` for R1, `recent.slice(0, 5)` for R2,
 // etc. An empty slice contributes no rejections and no downweights, so the
 // bootstrap case is the same code path as steady-state. [LAW:dataflow-not-control-flow]
+//
+// `bias` carries persona-flavor multipliers. Absent keys default to 1.0 (no-op).
+// Absent `bias` = all-ones on every dimension. Same chooser body every fire;
+// the bias values flow through the weight functions, never gating the body.
+// [LAW:dataflow-not-control-flow]
+export type PersonaBias = {
+  styleFamilyBias?: Partial<Record<StyleFamily, number>>
+  providerBias?: Partial<Record<string, number>>
+  aspectRatioBias?: Partial<Record<AspectRatio, number>>
+  promptPrefix?: string
+}
+
 export type ChooserInput = {
   scheduledTimeMs: number
   recent: readonly RecentRecipe[]
   providers: readonly GenerationProvider<unknown>[]
+  bias?: PersonaBias
 }
 
 // [LAW:types-are-the-program] ChooserOutput.subject narrows to
@@ -125,13 +138,18 @@ function countBy<T>(items: readonly T[]): Map<T, number> {
 // R1 hard-rejects the most-recent style family (window 1).
 // R5 soft-downweights any style family appearing ≥R5_REPEAT_THRESHOLD times in
 // the last R5_WINDOW. Empty `recent` → both rules contribute nothing.
-function styleFamilyWeights(recent: readonly RecentRecipe[]): number[] {
+// `biasMult` multiplies per-family — absent key = 1.0 (no-op). [LAW:dataflow-not-control-flow]
+function styleFamilyWeights(
+  recent: readonly RecentRecipe[],
+  biasMult?: Partial<Record<StyleFamily, number>>,
+): number[] {
   const r1Reject = recent[0]?.styleFamily
   const r5Counts = countBy(recent.slice(0, R5_WINDOW).map((r) => r.styleFamily))
   return STYLE_FAMILIES.map((s) => {
     if (s === r1Reject) return 0
     const heavy = (r5Counts.get(s) ?? 0) >= R5_REPEAT_THRESHOLD
-    return heavy ? R5_DOWNWEIGHT : 1.0
+    const base = heavy ? R5_DOWNWEIGHT : 1.0
+    return base * (biasMult?.[s] ?? 1.0)
   })
 }
 
@@ -168,14 +186,16 @@ function slotWeights(
 // reject would empty the pool. Matches the doc's "if ≥2 providers are
 // registered" intent: with the current STYLE_FAMILY_PROVIDER_WEIGHTS having
 // 3 nonzero entries per style, this fires uniformly.
+// `biasMult` multiplies per-provider — absent key = 1.0. [LAW:dataflow-not-control-flow]
 function providerWeights(
   providers: readonly GenerationProvider<unknown>[],
   styleFamily: StyleFamily,
   recent: readonly RecentRecipe[],
+  biasMult?: Partial<Record<string, number>>,
 ): number[] {
   const table = STYLE_FAMILY_PROVIDER_WEIGHTS[styleFamily]
   const r3Reject = recent[0]?.providerId
-  const raw = providers.map((p) => table[p.id as string] ?? 0)
+  const raw = providers.map((p) => (table[p.id as string] ?? 0) * (biasMult?.[p.id as string] ?? 1.0))
   const nonzero = raw.filter((w) => w > 0).length
   if (nonzero >= 2 && r3Reject !== undefined) {
     return providers.map((p, i) => (p.id === r3Reject ? 0 : raw[i]!))
@@ -189,12 +209,15 @@ function providerWeights(
 // variety.ts. Provider's supportedAspectRatios is the per-provider gate —
 // any ratio not in the provider's set gets 0 weight, so the chooser cannot
 // hand a provider a ratio it can't serve.
+// `biasMult` is the persona's aspect-ratio preference — multiplies the base weight.
+// [LAW:dataflow-not-control-flow] same code path every fire; absent key = 1.0.
 function aspectRatioWeights(
   styleFamily: StyleFamily,
   provider: GenerationProvider<unknown>,
   recent: readonly RecentRecipe[],
+  biasMult?: Partial<Record<AspectRatio, number>>,
 ): number[] {
-  const bias = STYLE_FAMILY_ASPECT_BIAS[styleFamily]
+  const sfBias = STYLE_FAMILY_ASPECT_BIAS[styleFamily]
   const last2 = recent.slice(0, 2)
   const r4Reject =
     last2.length === 2 && last2[0]!.aspectRatio === last2[1]!.aspectRatio
@@ -204,7 +227,7 @@ function aspectRatioWeights(
   return ASPECT_RATIOS.map((a) => {
     if (!supported.has(a)) return 0
     if (a === r4Reject) return 0
-    return ASPECT_RATIO_BASE_WEIGHTS[a] * (bias[a] ?? 1.0)
+    return ASPECT_RATIO_BASE_WEIGHTS[a] * (sfBias[a] ?? 1.0) * (biasMult?.[a] ?? 1.0)
   })
 }
 
@@ -230,12 +253,14 @@ function sampleSlots(
 // [LAW:dataflow-not-control-flow] Same operations every fire — sample style →
 // sample subject → sample slots → sample provider → sample aspect → compose
 // prompt → build provider params. R-rules feed weights, never branches.
+// Persona bias multipliers flow through the weight functions; absent bias = 1.0
+// on every dimension, making persona=null and persona=all-ones identical code paths.
 export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
-  const { scheduledTimeMs, recent, providers } = input
+  const { scheduledTimeMs, recent, providers, bias } = input
 
   const styleFamily = pickWeighted(
     STYLE_FAMILIES,
-    styleFamilyWeights(recent),
+    styleFamilyWeights(recent, bias?.styleFamilyBias),
     scheduledTimeMs,
     'style',
   )
@@ -251,14 +276,14 @@ export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
 
   const provider = pickWeighted(
     providers,
-    providerWeights(providers, styleFamily, recent),
+    providerWeights(providers, styleFamily, recent, bias?.providerBias),
     scheduledTimeMs,
     'provider',
   )
 
   const aspectRatio = pickWeighted(
     ASPECT_RATIOS,
-    aspectRatioWeights(styleFamily, provider, recent),
+    aspectRatioWeights(styleFamily, provider, recent, bias?.aspectRatioBias),
     scheduledTimeMs,
     'aspect',
   )
@@ -271,7 +296,8 @@ export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
   const parsed = recipeSubjectSchema.parse({ subjectTemplate, slots })
   const subject = parsed as ChooserRecipeSubject
 
-  const prompt = `${renderTemplate(subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[styleFamily]}`
+  const basePrompt = `${renderTemplate(subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[styleFamily]}`
+  const prompt = bias?.promptPrefix ? `${bias.promptPrefix}, ${basePrompt}` : basePrompt
 
   // Separate seed-kind tag for params so a future provider that varies params
   // by entropy can sample independently of the style/aspect/subject draws.

@@ -1,26 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // [LAW:behavior-not-structure] These tests assert the scheduled handler's
 // contract: over-budget short-circuits before any post is created; within-
-// budget produces one post per channel returned by chooseFires; the chooser
-// drives provider / styleFamily / aspectRatio / subjectTemplate; failure
-// surfaces via console.error but doesn't crash the worker. They do not assert
-// *how* the handler composes those calls — only the observable outcomes a
-// future refactor must preserve.
+// budget fires runGeneratorPass once per channel; failure surfaces via
+// console.error but doesn't crash the worker. They do not assert *how*
+// runGeneratorPass composes persona/chooser/createPost — that is
+// runGeneratorPass's own contract, tested in generator.ts unit tests.
+// The observable outcomes here are metric emissions and per-channel call counts.
 
 const checkBudgetMock = vi.fn()
-const createPostMock = vi.fn()
-const getRecentRecipesMock = vi.fn()
+const runGeneratorPassMock = vi.fn()
 const emitMock = vi.fn()
 
 vi.mock('~/firehose/budget', () => ({
   checkBudget: (...args: unknown[]) => checkBudgetMock(...args),
 }))
-vi.mock('~/db/posts', () => ({
-  createPost: (...args: unknown[]) => createPostMock(...args),
-}))
-vi.mock('~/db/recent', () => ({
-  getRecentRecipes: (...args: unknown[]) => getRecentRecipesMock(...args),
+vi.mock('~/agents/generator', () => ({
+  runGeneratorPass: (...args: unknown[]) => runGeneratorPassMock(...args),
 }))
 vi.mock('~/observability/metrics', () => ({
   emit: (...args: unknown[]) => emitMock(...args),
@@ -48,13 +44,21 @@ function fakeEvent(scheduledTime: number): ScheduledController {
 }
 
 describe('runScheduled', () => {
+  // [LAW:behavior-not-structure] Import once in beforeAll — the dynamic-import
+  // pattern was causing the first-test timeout because vitest's module resolver
+  // takes >5s on cold load for this module's dependency graph. Cached from
+  // beforeAll, every test uses the same instance without re-resolving.
+  let runScheduled: Awaited<typeof import('./scheduled')>['runScheduled']
+  beforeAll(async () => {
+    runScheduled = (await import('./scheduled')).runScheduled
+  }, 30_000)
+
   beforeEach(() => {
     checkBudgetMock.mockReset()
-    createPostMock.mockReset()
-    getRecentRecipesMock.mockReset()
+    runGeneratorPassMock.mockReset()
     emitMock.mockReset()
-    // Default: no anti-rep history (chooser samples freely).
-    getRecentRecipesMock.mockResolvedValue([])
+    // Default: runGeneratorPass succeeds (creates a post without returning a value).
+    runGeneratorPassMock.mockResolvedValue(undefined)
     vi.spyOn(console, 'log').mockImplementation(() => {})
   })
 
@@ -63,23 +67,21 @@ describe('runScheduled', () => {
   })
 
   it('no-fire tick: no budget check, no post, no metric emit', async () => {
-    const { runScheduled } = await import('./scheduled')
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
 
     await runScheduled(fakeEvent(NO_FIRE_MINUTE), fakeEnv)
 
     expect(checkBudgetMock).not.toHaveBeenCalled()
-    expect(createPostMock).not.toHaveBeenCalled()
+    expect(runGeneratorPassMock).not.toHaveBeenCalled()
     expect(emitMock).not.toHaveBeenCalled()
   })
 
   it('skips post creation when over budget — emits skipped-budget per channel', async () => {
-    const { runScheduled } = await import('./scheduled')
     checkBudgetMock.mockResolvedValue({ withinBudget: false, spentUsd: 1.0, ceilingUsd: 1.0 })
 
     await runScheduled(fakeEvent(channelAMinute(0)), fakeEnv)
 
-    expect(createPostMock).not.toHaveBeenCalled()
+    expect(runGeneratorPassMock).not.toHaveBeenCalled()
     // Channel-a fires at minute 0 → one skipped-budget emit for that channel.
     expect(emitMock).toHaveBeenCalledWith(
       'slopspot.firehose.fire',
@@ -88,26 +90,17 @@ describe('runScheduled', () => {
     )
   })
 
-  it('within-budget: creates one post per firing channel, attributed to sys:slop-cron, emits fired', async () => {
-    const { runScheduled } = await import('./scheduled')
+  it('within-budget: calls runGeneratorPass once per firing channel, emits fired', async () => {
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
-    createPostMock.mockResolvedValue({ id: 'post-test-1' })
 
     await runScheduled(fakeEvent(channelAMinute(1)), fakeEnv)
 
-    expect(createPostMock).toHaveBeenCalledTimes(1)
-    const [input, ctx] = createPostMock.mock.calls[0]!
-    expect(['fal-flux', 'replicate-sdxl', 'replicate-ideogram']).toContain(input.providerId)
-    expect(typeof input.params).toBe('object')
-    // aspectRatio is a top-level recipe field, not in params.
-    expect(input.params.aspectRatio).toBeUndefined()
-    expect(typeof input.aspectRatio).toBe('string')
-    expect(typeof input.styleFamily).toBe('string')
-    expect(input.subject.subjectTemplate).not.toBe('T00')
-    expect(input.origin).toEqual({
-      actor: { kind: 'agent', agentId: 'sys:slop-cron' },
-    })
-    expect(ctx).toEqual({ env: fakeEnv })
+    // runGeneratorPass owns the persona + chooser + createPost pipeline.
+    // runScheduled's contract is: one call per channel, correct env + scheduledTime.
+    expect(runGeneratorPassMock).toHaveBeenCalledTimes(1)
+    const [env, scheduledTime] = runGeneratorPassMock.mock.calls[0]!
+    expect(env).toBe(fakeEnv)
+    expect(scheduledTime).toBe(channelAMinute(1))
     expect(emitMock).toHaveBeenCalledWith(
       'slopspot.firehose.fire',
       { channel: 'generation-a', outcome: 'fired' },
@@ -115,16 +108,9 @@ describe('runScheduled', () => {
     )
   })
 
-  it('multi-channel tick: one post + one fired emit per channel', async () => {
-    const { runScheduled } = await import('./scheduled')
+  it('multi-channel tick: one runGeneratorPass call + one fired emit per channel', async () => {
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
-    createPostMock.mockResolvedValue({ id: 'post-test-multi' })
 
-    // Find the first minute in 0..50,000 that fires ≥2 SCHEDULES entries by
-    // searching against the live chooseFires/SCHEDULES — coupling the test to
-    // the actual schedule is intentional. If a future SCHEDULES edit removes
-    // pairwise coincidences within this window, this test throws and the
-    // regression surfaces here instead of leaking into prod cadence.
     const { SCHEDULES, chooseFires } = await import('./schedule')
     let coincidenceMinute: number | null = null
     for (let m = 1; m < 50_000; m++) {
@@ -140,7 +126,7 @@ describe('runScheduled', () => {
 
     await runScheduled(fakeEvent(coincidenceMinute * MIN), fakeEnv)
 
-    expect(createPostMock).toHaveBeenCalledTimes(firingChannels.length)
+    expect(runGeneratorPassMock).toHaveBeenCalledTimes(firingChannels.length)
     const firedEmits = emitMock.mock.calls.filter(
       (call) =>
         call[0] === 'slopspot.firehose.fire' &&
@@ -151,36 +137,17 @@ describe('runScheduled', () => {
     expect(firedChannels).toEqual(firingChannels)
   })
 
-  it('does not throw when createPost rejects — keeps the worker alive, emits skipped-error', async () => {
-    const { runScheduled } = await import('./scheduled')
+  it('does not throw when runGeneratorPass rejects — keeps the worker alive, emits skipped-error', async () => {
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
-    createPostMock.mockRejectedValue(new Error('upstream provider failed'))
+    runGeneratorPassMock.mockRejectedValue(new Error('upstream provider failed'))
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await expect(runScheduled(fakeEvent(channelAMinute(2)), fakeEnv)).resolves.toBeUndefined()
     expect(errSpy).toHaveBeenCalled()
-    expect(emitMock).toHaveBeenCalledWith(
-      'slopspot.firehose.fire',
-      { channel: 'generation-a', outcome: 'skipped-error' },
-      1,
-    )
-  })
-
-  it('does not throw when getRecentRecipes rejects — logs select-phase failure with channel + scheduledTime', async () => {
-    const { runScheduled } = await import('./scheduled')
-    checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
-    getRecentRecipesMock.mockRejectedValue(new Error('D1 read failed'))
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const t = channelAMinute(3)
-    await expect(runScheduled(fakeEvent(t), fakeEnv)).resolves.toBeUndefined()
-    expect(errSpy).toHaveBeenCalled()
-    // Select-phase failure → createPost is never reached.
-    expect(createPostMock).not.toHaveBeenCalled()
-    // The structured log carries scheduledTime + channel so the failed fire is locatable.
+    // The error log carries channel + scheduledTime for locatability.
     const call = errSpy.mock.calls[0]!
-    expect(call[0]).toBe('firehose.scheduled: recipe selection failed')
-    expect(call[1]).toEqual({ scheduledTime: t, channel: 'generation-a' })
+    expect(call[0]).toBe('firehose.scheduled: fire failed')
+    expect(call[1]).toEqual({ channel: 'generation-a', scheduledTime: channelAMinute(2) })
     expect(emitMock).toHaveBeenCalledWith(
       'slopspot.firehose.fire',
       { channel: 'generation-a', outcome: 'skipped-error' },
@@ -188,45 +155,12 @@ describe('runScheduled', () => {
     )
   })
 
-  it('drives provider selection from the chooser — providers vary across fires', async () => {
-    const { runScheduled } = await import('./scheduled')
+  it('passes scheduledTime and env to runGeneratorPass on each channel fire', async () => {
     checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
-    createPostMock.mockResolvedValue({ id: 'post-test-1' })
 
-    const providersSeen = new Set<string>()
-    for (let i = 0; i < 100; i++) {
-      createPostMock.mockClear()
-      await runScheduled(fakeEvent(channelAMinute(i)), fakeEnv)
-      providersSeen.add(createPostMock.mock.calls[0]![0].providerId)
-    }
-    expect(providersSeen.size).toBeGreaterThan(1)
-  })
+    const t = channelAMinute(5)
+    await runScheduled(fakeEvent(t), fakeEnv)
 
-  it('passes the event scheduledTime through chooseNextGeneration: different ticks → different prompts', async () => {
-    const { runScheduled } = await import('./scheduled')
-    checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
-    createPostMock.mockResolvedValue({ id: 'post-test-1' })
-
-    const prompts = new Set<string>()
-    for (let i = 0; i < 50; i++) {
-      createPostMock.mockClear()
-      await runScheduled(fakeEvent(channelAMinute(i)), fakeEnv)
-      prompts.add(createPostMock.mock.calls[0]![0].params.prompt)
-    }
-    expect(prompts.size).toBeGreaterThan(1)
-  })
-
-  it('passes the RECENT_WINDOW to getRecentRecipes', async () => {
-    const { runScheduled } = await import('./scheduled')
-    checkBudgetMock.mockResolvedValue({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 })
-    createPostMock.mockResolvedValue({ id: 'post-test-1' })
-
-    await runScheduled(fakeEvent(channelAMinute(0)), fakeEnv)
-
-    expect(getRecentRecipesMock).toHaveBeenCalledTimes(1)
-    const [env, n] = getRecentRecipesMock.mock.calls[0]!
-    expect(env).toBe(fakeEnv)
-    // Window size is the R5/R6 design-doc value of 20.
-    expect(n).toBe(20)
+    expect(runGeneratorPassMock).toHaveBeenCalledWith(fakeEnv, t)
   })
 })

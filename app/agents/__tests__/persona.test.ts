@@ -41,8 +41,8 @@ describe('persona registry', () => {
   })
 
   it('listPersonas filters by role', async () => {
-    // discoverer and generator have no seed data, so exact-length checks hold.
-    // voter has 5 seed rows; we test role isolation not count.
+    // discoverer has no seed data; generator has 3 seed rows from 0008_generator_personas.sql.
+    // voter has 5 seed rows. We test role isolation, not exact count.
     await seedPersona('agent:d1', 'discoverer')
     await seedPersona('agent:g1', 'generator')
 
@@ -50,7 +50,9 @@ describe('persona registry', () => {
     const generators = await listPersonas(env, 'generator')
 
     expect(discoverers.map((p) => p.agentId)).toEqual(['agent:d1'])
-    expect(generators.map((p) => p.agentId)).toEqual(['agent:g1'])
+    // 3 seeds + the one we inserted; all must be role='generator'
+    expect(generators.some((p) => p.agentId === 'agent:g1')).toBe(true)
+    expect(generators.every((p) => p.role === 'generator')).toBe(true)
 
     // voters should only contain voter-role rows
     const voters = await listPersonas(env, 'voter')
@@ -64,8 +66,8 @@ describe('persona registry', () => {
   })
 
   it('pickPersona returns null when pool is empty', async () => {
-    // generator has no seed data — should yield null
-    const result = await pickPersona(env, 'generator', Date.now())
+    // discoverer has no seed data — should yield null
+    const result = await pickPersona(env, 'discoverer', Date.now())
     expect(result).toBeNull()
   })
 
