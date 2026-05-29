@@ -54,6 +54,7 @@ import {
   styleFamilySchema,
   type RecipeSubject,
 } from '~/lib/variety'
+import { applySortMode, defaultSortMode, type SortMode } from '~/lib/sort-mode'
 
 // One flat join row. The sibling tables are nullable because the DB does not
 // enforce cross-table cardinality (that is createPost's transactional invariant);
@@ -476,20 +477,28 @@ function rowToRenderablePost(row: FeedRowWithAggregates): RenderablePost {
 // WHERE IN = 151 params), exceeding D1's 100-variable limit past ~32 posts.
 //
 // `desc(posts.id)` is the deterministic tie-breaker for equal score+createdAt.
+//
+// [LAW:single-enforcer] sort defaults to defaultSortMode (top/all) — today's
+// behavior. Both the CTE inner query (rank candidates) and the outer hydration
+// query spread applySortMode's result; keeping them in sync is enforced by
+// calling the same function in both places.
 export async function getFeed(
   env: Env,
   voterId?: string,
+  sort: SortMode = defaultSortMode,
 ): Promise<FeedItem[]> {
   const database = db(env)
 
   const { voteScore: rankVoteScore, score: rankScore } = voteScoreSubquery(database, undefined)
 
+  // [LAW:dataflow-not-control-flow] applySortMode returns the ORDER BY expressions;
+  // same call every fire, the SortMode value picks the expressions.
   const feedIds = database.$with('feed_ids').as(
     database
       .select({ id: posts.id, score: rankScore.as('score') })
       .from(posts)
       .leftJoin(rankVoteScore, eq(rankVoteScore.postId, posts.id))
-      .orderBy(desc(rankScore), desc(posts.createdAt), desc(posts.id))
+      .orderBy(...applySortMode(sort, { score: rankScore, createdAt: posts.createdAt, id: posts.id }))
       .limit(50),
   )
 
@@ -524,7 +533,7 @@ export async function getFeed(
     .leftJoin(found, eq(found.postId, posts.id))
     .leftJoin(commentCount, eq(commentCount.postId, posts.id))
     .leftJoin(myVote, and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)))
-    .orderBy(desc(feedIds.score), desc(posts.createdAt), desc(posts.id))
+    .orderBy(...applySortMode(sort, { score: feedIds.score, createdAt: posts.createdAt, id: posts.id }))
 
   const renderables = rows.map((row) => rowToRenderablePost(row))
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
