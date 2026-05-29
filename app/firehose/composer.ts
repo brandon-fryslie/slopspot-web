@@ -23,6 +23,10 @@ export type ComposerInput = {
   subject: RecipeSubject
   aspectRatio: AspectRatio
   promptPrefix?: string
+  // [LAW:single-enforcer] The chosen provider's authoritative max prompt
+  // length. Passed from generator.ts via provider.promptMaxLength so the
+  // constraint travels from its declaration site to the composition step.
+  maxLength?: number
 }
 
 // [LAW:dataflow-not-control-flow] The fallback is data flowing through the
@@ -30,7 +34,7 @@ export type ComposerInput = {
 // unconditionally; a failure swaps the value to the renderTemplate output
 // without changing the return signature.
 export async function composePrompt(input: ComposerInput, env: Env): Promise<string> {
-  const { styleFamily, subject, aspectRatio, promptPrefix } = input
+  const { styleFamily, subject, aspectRatio, promptPrefix, maxLength } = input
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
 
   const rendered = renderTemplate(subject)
@@ -60,6 +64,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
     `Aspect ratio: ${aspectLabel}.`,
     `Style notes: ${styleSeed}.`,
     promptPrefix ? `Voice / tone: ${promptPrefix}.` : null,
+    maxLength ? `Keep the prompt under ${maxLength} characters.` : null,
     'Output only the prompt text itself — no preamble, no quotes, no explanation.',
   ]
     .filter(Boolean)
@@ -99,7 +104,10 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
 
     if (!text) throw new Error('empty text block in Anthropic response')
 
-    return text
+    // Hard-truncate as a safeguard: the instruction above targets the model,
+    // but we own the constraint and must not pass an over-length string to
+    // defaultParamsForRecipe / paramsSchema.
+    return maxLength && text.length > maxLength ? text.slice(0, maxLength) : text
   } catch (err) {
     console.error('composer: Haiku call failed; using renderTemplate fallback', {
       styleFamily,

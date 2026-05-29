@@ -90,21 +90,24 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
 
   const recipe = chooseNextGeneration({ scheduledTimeMs, recent, providers, bias })
 
+  // Build params after prompt composition — provider needed for both maxLength
+  // and defaultParamsForRecipe. [LAW:locality-or-seam] per-provider knowledge
+  // (max prompt length, native params shape) stays in the provider file.
+  const provider = getProvider(recipe.providerId)
+
   // [LAW:single-enforcer] composePrompt is the one place prompt text is
-  // generated from a recipe; promptPrefix from the persona's config flows here.
+  // generated from a recipe; promptPrefix and maxLength flow from the provider's
+  // declared constraint so paramsSchema validation never rejects a too-long prompt.
   const prompt = await composePrompt(
     {
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
       promptPrefix: config?.promptPrefix,
+      maxLength: provider.promptMaxLength,
     },
     env,
   )
-
-  // Build provider-native params now that the composed prompt is available.
-  // [LAW:locality-or-seam] per-provider param knowledge stays in the provider.
-  const provider = getProvider(recipe.providerId)
   const params = provider.defaultParamsForRecipe({
     prompt,
     styleFamily: recipe.styleFamily,

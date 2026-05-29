@@ -110,4 +110,40 @@ describe('composePrompt', () => {
     const result = await composePrompt(makeInput(), mockEnv('test-key'))
     expect(result).toBe('padded response')
   })
+
+  it('truncates the Haiku response to maxLength if it exceeds it', async () => {
+    const longText = 'x'.repeat(600)
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: [{ type: 'text', text: longText }] }),
+    } as Response)
+
+    const result = await composePrompt(makeInput({ maxLength: 500 }), mockEnv('test-key'))
+    expect(result).toHaveLength(500)
+  })
+
+  it('does not truncate when response is within maxLength', async () => {
+    const text = 'x'.repeat(400)
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: [{ type: 'text', text }] }),
+    } as Response)
+
+    const result = await composePrompt(makeInput({ maxLength: 500 }), mockEnv('test-key'))
+    expect(result).toHaveLength(400)
+  })
+
+  it('maxLength is included as a constraint in the meta-prompt sent to Haiku', async () => {
+    let capturedBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      capturedBody = typeof init?.body === 'string' ? init.body : undefined
+      return {
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      } as Response
+    })
+
+    await composePrompt(makeInput({ maxLength: 500 }), mockEnv('test-key'))
+    expect(capturedBody).toContain('500')
+  })
 })
