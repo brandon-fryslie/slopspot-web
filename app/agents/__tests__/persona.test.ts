@@ -41,34 +41,44 @@ describe('persona registry', () => {
   })
 
   it('listPersonas filters by role', async () => {
-    // discoverer has no seed data; generator has 3 seed rows from 0008_generator_personas.sql.
-    // voter has 5 seed rows. We test role isolation, not exact count.
+    // generator has 3 seed rows from 0008, discoverer has 2 from 0009, voter has 5.
+    // We test role isolation, not exact count.
     await seedPersona('agent:d1', 'discoverer')
     await seedPersona('agent:g1', 'generator')
 
     const discoverers = await listPersonas(env, 'discoverer')
     const generators = await listPersonas(env, 'generator')
 
-    expect(discoverers.map((p) => p.agentId)).toEqual(['agent:d1'])
-    // 3 seeds + the one we inserted; all must be role='generator'
+    expect(discoverers.some((p) => p.agentId === 'agent:d1')).toBe(true)
+    expect(discoverers.every((p) => p.role === 'discoverer')).toBe(true)
     expect(generators.some((p) => p.agentId === 'agent:g1')).toBe(true)
     expect(generators.every((p) => p.role === 'generator')).toBe(true)
 
-    // voters should only contain voter-role rows
     const voters = await listPersonas(env, 'voter')
     expect(voters.every((p) => p.role === 'voter')).toBe(true)
   })
 
-  it('listPersonas returns [] when no personas match the role', async () => {
-    // discoverer has no seed data — empty by construction after migrations
-    const result = await listPersonas(env, 'discoverer')
-    expect(result).toEqual([])
+  it('listPersonas: seed rows are role-correct for all three roles', async () => {
+    // Verify 0007/0008/0009 seeds landed in the right buckets.
+    const voters = await listPersonas(env, 'voter')
+    const generators = await listPersonas(env, 'generator')
+    const discoverers = await listPersonas(env, 'discoverer')
+
+    expect(voters.length).toBeGreaterThan(0)
+    expect(generators.length).toBeGreaterThan(0)
+    expect(discoverers.length).toBeGreaterThan(0)
+    expect(voters.every((p) => p.role === 'voter')).toBe(true)
+    expect(generators.every((p) => p.role === 'generator')).toBe(true)
+    expect(discoverers.every((p) => p.role === 'discoverer')).toBe(true)
   })
 
-  it('pickPersona returns null when pool is empty', async () => {
-    // discoverer has no seed data — should yield null
-    const result = await pickPersona(env, 'discoverer', Date.now())
-    expect(result).toBeNull()
+  it('pickPersona does not bleed roles: voter-seeded ID absent from generator pool', async () => {
+    await seedPersona('agent:bleed-check-voter', 'voter')
+
+    const result = await pickPersona(env, 'generator', Date.now())
+
+    // result may be null if generator pool is empty, but must never be the voter we just seeded
+    expect(result?.agentId).not.toBe('agent:bleed-check-voter')
   })
 
   it('pickPersona returns a persona from the pool', async () => {
@@ -78,7 +88,7 @@ describe('persona registry', () => {
     const result = await pickPersona(env, 'discoverer', 1234567890)
 
     expect(result).not.toBeNull()
-    expect(['agent:pv1', 'agent:pv2']).toContain(result!.agentId)
+    expect(result!.role).toBe('discoverer')
   })
 
   it('pickPersona is deterministic: same time → same persona', async () => {
