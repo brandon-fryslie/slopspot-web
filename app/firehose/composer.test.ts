@@ -3,10 +3,14 @@
 //   - Fallback path: when Anthropic fetch throws, returns renderTemplate output.
 //   - promptPrefix inclusion: meta-prompt includes the prefix when set.
 //   - Missing API key: falls back without calling Anthropic.
+//   - Metric: slopspot.composer.result emitted with correct outcome/reason.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { recipeSubjectSchema, renderTemplate, STYLE_FAMILY_PROMPT_SEEDS } from '~/lib/variety'
 import { composePrompt, type ComposerInput } from './composer'
+
+vi.mock('~/observability/metrics', () => ({ emit: vi.fn() }))
+import { emit } from '~/observability/metrics'
 
 function mockEnv(apiKey: string | undefined): Env {
   return { SLOPSPOT_ANTHROPIC_API_KEY: apiKey } as unknown as Env
@@ -28,6 +32,7 @@ function makeInput(overrides: Partial<ComposerInput> = {}): ComposerInput {
 describe('composePrompt', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
+    vi.mocked(emit).mockClear()
   })
 
   afterEach(() => {
@@ -45,6 +50,7 @@ describe('composePrompt', () => {
 
     const result = await composePrompt(makeInput(), mockEnv('test-key'))
     expect(result).toBe(mockText)
+    expect(emit).toHaveBeenCalledWith('slopspot.composer.result', { outcome: 'haiku' }, 1)
   })
 
   it('falls back to renderTemplate output when fetch throws', async () => {
@@ -54,6 +60,11 @@ describe('composePrompt', () => {
     const result = await composePrompt(input, mockEnv('test-key'))
     const expected = `${renderTemplate(input.subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]}`
     expect(result).toBe(expected)
+    expect(emit).toHaveBeenCalledWith(
+      'slopspot.composer.result',
+      { outcome: 'fallback', reason: 'api_error' },
+      1,
+    )
   })
 
   it('falls back when Anthropic returns a non-OK status', async () => {
@@ -67,6 +78,11 @@ describe('composePrompt', () => {
     const result = await composePrompt(input, mockEnv('test-key'))
     const expected = `${renderTemplate(input.subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]}`
     expect(result).toBe(expected)
+    expect(emit).toHaveBeenCalledWith(
+      'slopspot.composer.result',
+      { outcome: 'fallback', reason: 'api_error' },
+      1,
+    )
   })
 
   it('falls back when SLOPSPOT_ANTHROPIC_API_KEY is absent (no fetch call)', async () => {
@@ -75,6 +91,11 @@ describe('composePrompt', () => {
     const expected = `${renderTemplate(input.subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]}`
     expect(result).toBe(expected)
     expect(fetch).not.toHaveBeenCalled()
+    expect(emit).toHaveBeenCalledWith(
+      'slopspot.composer.result',
+      { outcome: 'fallback', reason: 'missing_key' },
+      1,
+    )
   })
 
   it('promptPrefix is prepended in the fallback output', async () => {
