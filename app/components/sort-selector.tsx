@@ -5,13 +5,7 @@
 
 import { Link } from 'react-router'
 import type { SortMode } from '~/lib/sort-mode'
-import { selectableSortModes, selectableTopWindows, serializeSortMode, sortModeLabel } from '~/lib/sort-mode'
-
-const WINDOW_LABELS: Record<'day' | 'week' | 'all', string> = {
-  day: 'Day',
-  week: 'Week',
-  all: 'All',
-}
+import { selectableSortModes, selectableTopWindows, serializeSortMode, sortModeLabel, windowLabel } from '~/lib/sort-mode'
 
 function pillClass(active: boolean) {
   return active
@@ -32,8 +26,8 @@ export function SortSelector({ current }: { current: SortMode }) {
               key={mode.mode}
               to={`/?sort=${serializeSortMode(target)}`}
               className={pillClass(active)}
+              aria-current={active ? 'page' : undefined}
             >
-              {/* [LAW:single-enforcer] sortModeLabel({mode:'top',window:'all'}) === 'Top' */}
               {sortModeLabel(mode)}
             </Link>
           )
@@ -43,13 +37,15 @@ export function SortSelector({ current }: { current: SortMode }) {
         <div className="flex gap-1 border-l border-white/10 pl-2 ml-1">
           {selectableTopWindows.map((w) => {
             const mode: SortMode = { mode: 'top', window: w }
+            const active = current.window === w
             return (
               <Link
                 key={w}
                 to={`/?sort=${serializeSortMode(mode)}`}
-                className={pillClass(current.window === w)}
+                className={pillClass(active)}
+                aria-current={active ? 'page' : undefined}
               >
-                {WINDOW_LABELS[w]}
+                {windowLabel(w)}
               </Link>
             )
           })}

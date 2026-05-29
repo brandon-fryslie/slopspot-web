@@ -156,14 +156,14 @@ export function serializeSortMode(sort: SortMode): string {
 // Extend this array to add a future mode arm (Rising, Controversial, etc.);
 // the selector renders from this list — no component edits required.
 // 'top' entry uses window:'all' as the default when switching into top.
-export const selectableSortModes: SortMode[] = [
+export const selectableSortModes = [
   { mode: 'hot' },
   { mode: 'new' },
   { mode: 'top', window: 'all' },
-]
+] as const satisfies readonly SortMode[]
 
 // [LAW:single-enforcer] Selectable window variants for the top sub-selector.
-export const selectableTopWindows: Array<'day' | 'week' | 'all'> = ['day', 'week', 'all']
+export const selectableTopWindows = ['day', 'week', 'all'] as const satisfies ReadonlyArray<'day' | 'week' | 'all'>
 
 // [LAW:single-enforcer] Human-readable labels for the UI selector (jc6.6). One place.
 export function sortModeLabel(sort: SortMode): string {
@@ -181,5 +181,16 @@ export function sortModeLabel(sort: SortMode): string {
       return 'Hot'
     default:
       return assertNever(sort)
+  }
+}
+
+// [LAW:single-enforcer] Human-readable label for a top-mode window variant.
+// Kept here so all sort-selector label strings are owned by sort-mode.ts.
+export function windowLabel(window: 'day' | 'week' | 'all'): string {
+  switch (window) {
+    case 'day': return 'Day'
+    case 'week': return 'Week'
+    case 'all': return 'All'
+    default: return assertNever(window)
   }
 }
