@@ -20,8 +20,12 @@ const ZAI_BASE = 'https://api.z.ai/v1'
 // or verbose JSON error objects on failure paths.
 const MAX_ERROR_BODY = 500
 
+// [LAW:types-are-the-program] system role is excluded — callers cannot inject
+// a system message; the persona prompt is always the only system message.
+// Admitting 'system' here would make the contract ambiguous and allow callers
+// to accidentally override or duplicate the persona context.
 export type ChatMessage = {
-  role: 'system' | 'user' | 'assistant'
+  role: 'user' | 'assistant'
   content: string
 }
 
@@ -29,7 +33,7 @@ export type ChatInput = {
   persona: Persona
   messages: ChatMessage[]
   vision?: {
-    /** Base-64 encoded image bytes, or a URL the model can fetch. */
+    /** URL the model can fetch (http/https), or a data: URI for base64 content. */
     imageUrl: string
   }
 }

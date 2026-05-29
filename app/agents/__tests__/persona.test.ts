@@ -7,12 +7,9 @@ import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
 import { db } from '~/db/client'
 import { personas } from '~/db/schema'
-import { listPersonas, pickPersona } from '../persona'
+import { listPersonas, pickPersona, type PersonaRole } from '../persona'
 
-async function seedPersona(
-  agentId: string,
-  role: 'voter' | 'discoverer' | 'generator',
-) {
+async function seedPersona(agentId: string, role: PersonaRole) {
   await db(env)
     .insert(personas)
     .values({

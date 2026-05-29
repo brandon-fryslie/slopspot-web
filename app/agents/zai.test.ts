@@ -6,9 +6,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { chat, ZaiError } from './zai'
 import type { Persona } from './persona'
+import { AgentId } from '~/lib/domain'
 
 const STUB_PERSONA: Persona = {
-  agentId: 'agent:test' as ReturnType<typeof import('~/lib/domain').AgentId>,
+  agentId: AgentId('agent:test'),
   displayName: 'Test Persona',
   role: 'voter',
   personaPrompt: 'You are a test voter.',
