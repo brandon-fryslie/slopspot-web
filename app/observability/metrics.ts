@@ -62,7 +62,7 @@ export type MetricLabels = {
   }
   'slopspot.voter.pass': {
     agent_id: string
-    outcome: 'fired' | 'no-personas'
+    outcome: 'fired'
   }
 }
 

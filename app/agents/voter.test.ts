@@ -13,9 +13,6 @@ import type { FeedItem, Post, VoteValue } from '~/lib/domain'
 import type { StyleFamily, AspectRatio } from '~/lib/variety'
 
 // Module-level mocks — hoisted before imports.
-vi.mock('~/agents/persona', () => ({
-  pickPersona: vi.fn(),
-}))
 vi.mock('~/agents/zai', () => ({
   chat: vi.fn(),
 }))
@@ -30,7 +27,6 @@ vi.mock('~/observability/metrics', () => ({
 }))
 
 import { runVoterPass } from './voter'
-import { pickPersona } from '~/agents/persona'
 import { chat } from '~/agents/zai'
 import { getFeed } from '~/db/feed'
 import { setVote } from '~/db/votes'
@@ -102,18 +98,7 @@ describe('runVoterPass', () => {
     vi.clearAllMocks()
   })
 
-  it('skips when no voter personas are configured', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(null)
-
-    await runVoterPass(STUB_ENV, Date.now())
-
-    expect(getFeed).not.toHaveBeenCalled()
-    expect(setVote).not.toHaveBeenCalled()
-  })
-
   it('upvote / downvote / abstain matrix — correct setVote calls', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(STUB_PERSONA)
-
     // Three candidates: upvote (score 85), abstain (score 50), downvote (score 15).
     vi.mocked(getFeed).mockResolvedValue([
       makeFeedItem('post-a'),
@@ -126,7 +111,7 @@ describe('runVoterPass', () => {
       .mockResolvedValueOnce('50')  // post-b → abstain (30–70)
       .mockResolvedValueOnce('15')  // post-c → downvote (<30)
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
 
     expect(setVote).toHaveBeenCalledTimes(2)
     expect(setVote).toHaveBeenCalledWith(
@@ -145,14 +130,13 @@ describe('runVoterPass', () => {
   })
 
   it('skips already-voted candidates (myVote is not null)', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(STUB_PERSONA)
     vi.mocked(getFeed).mockResolvedValue([
       makeFeedItem('post-already-voted', 1),  // already upvoted — skipped
       makeFeedItem('post-fresh'),
     ])
     vi.mocked(chat).mockResolvedValueOnce('90')
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
 
     expect(setVote).toHaveBeenCalledTimes(1)
     expect(setVote).toHaveBeenCalledWith(
@@ -162,8 +146,6 @@ describe('runVoterPass', () => {
   })
 
   it('skips posts authored by the same agent', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(STUB_PERSONA)
-
     // Build a post where origin.actor IS this agent.
     const selfPost = makePost('self-post')
     const selfPostItem: FeedItem = {
@@ -180,7 +162,7 @@ describe('runVoterPass', () => {
     vi.mocked(getFeed).mockResolvedValue([selfPostItem, makeFeedItem('other-post')])
     vi.mocked(chat).mockResolvedValueOnce('95')
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
 
     expect(setVote).toHaveBeenCalledTimes(1)
     expect(setVote).toHaveBeenCalledWith(
@@ -190,11 +172,6 @@ describe('runVoterPass', () => {
   })
 
   it('respects votesPerPass cap', async () => {
-    vi.mocked(pickPersona).mockResolvedValue({
-      ...STUB_PERSONA,
-      config: { ...STUB_PERSONA.config, votesPerPass: 2 },
-    })
-
     vi.mocked(getFeed).mockResolvedValue([
       makeFeedItem('p1'),
       makeFeedItem('p2'),
@@ -202,14 +179,13 @@ describe('runVoterPass', () => {
     ])
     vi.mocked(chat).mockResolvedValue('85')  // all upvotes
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, { ...STUB_PERSONA, config: { ...STUB_PERSONA.config, votesPerPass: 2 } })
 
     expect(setVote).toHaveBeenCalledTimes(2)
     expect(chat).toHaveBeenCalledTimes(2)
   })
 
   it('skips candidate when z.ai returns non-numeric score', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(STUB_PERSONA)
     vi.mocked(getFeed).mockResolvedValue([
       makeFeedItem('post-bad-score'),
       makeFeedItem('post-good'),
@@ -218,7 +194,7 @@ describe('runVoterPass', () => {
       .mockResolvedValueOnce('not-a-number')
       .mockResolvedValueOnce('90')
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
 
     expect(setVote).toHaveBeenCalledTimes(1)
     expect(setVote).toHaveBeenCalledWith(
@@ -228,7 +204,6 @@ describe('runVoterPass', () => {
   })
 
   it('skips candidate when z.ai call throws', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(STUB_PERSONA)
     vi.mocked(getFeed).mockResolvedValue([
       makeFeedItem('post-zai-fail'),
       makeFeedItem('post-ok'),
@@ -237,7 +212,7 @@ describe('runVoterPass', () => {
       .mockRejectedValueOnce(new Error('z.ai timeout'))
       .mockResolvedValueOnce('80')
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
 
     expect(setVote).toHaveBeenCalledTimes(1)
     expect(setVote).toHaveBeenCalledWith(
@@ -246,9 +221,25 @@ describe('runVoterPass', () => {
     )
   })
 
-  it('skips non-generation posts (upload, found)', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(STUB_PERSONA)
+  it('rejects partial-numeric scores like "85/100" that parseInt would accept', async () => {
+    vi.mocked(getFeed).mockResolvedValue([
+      makeFeedItem('post-partial'),
+      makeFeedItem('post-clean'),
+    ])
+    vi.mocked(chat)
+      .mockResolvedValueOnce('85/100')  // partial — parseInt gives 85 but regex rejects it
+      .mockResolvedValueOnce('90')
 
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
+
+    expect(setVote).toHaveBeenCalledTimes(1)
+    expect(setVote).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: PostId('post-clean') }),
+      expect.anything(),
+    )
+  })
+
+  it('skips non-generation posts (upload, found)', async () => {
     const uploadItem: FeedItem = {
       post: {
         id: PostId('upload-post'),
@@ -268,7 +259,7 @@ describe('runVoterPass', () => {
     vi.mocked(getFeed).mockResolvedValue([uploadItem, makeFeedItem('gen-post')])
     vi.mocked(chat).mockResolvedValueOnce('90')
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
 
     expect(setVote).toHaveBeenCalledTimes(1)
     expect(setVote).toHaveBeenCalledWith(
@@ -278,8 +269,6 @@ describe('runVoterPass', () => {
   })
 
   it('skips candidate when media URL is not a /media/ path', async () => {
-    vi.mocked(pickPersona).mockResolvedValue(STUB_PERSONA)
-
     const post = makePost('bad-url-post')
     const badUrlPost = {
       ...post,
@@ -299,7 +288,7 @@ describe('runVoterPass', () => {
     ])
     vi.mocked(chat).mockResolvedValueOnce('90')
 
-    await runVoterPass(STUB_ENV, Date.now())
+    await runVoterPass(STUB_ENV, STUB_PERSONA)
 
     expect(setVote).toHaveBeenCalledTimes(1)
     expect(setVote).toHaveBeenCalledWith(

@@ -113,7 +113,9 @@ export async function runAgentPass(
   // each downstream ticket replaces the stub with a real call.
   switch (role) {
     case 'voter':
-      await runVoterPass(env, scheduledTimeMs)
+      // [LAW:one-source-of-truth] persona was selected above — pass it through
+      // rather than re-deriving it inside runVoterPass.
+      await runVoterPass(env, persona)
       break
     case 'discoverer':
       // slopspot-content-sources-svq.5 will replace this stub.

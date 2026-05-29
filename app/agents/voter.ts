@@ -13,12 +13,12 @@
 // no persona.config['field'] indexing as unknown at call sites.
 
 import { z } from 'zod'
-import { pickPersona, type Persona } from '~/agents/persona'
+import type { Persona } from '~/agents/persona'
 import { chat } from '~/agents/zai'
 import { getFeed } from '~/db/feed'
 import { setVote } from '~/db/votes'
 import { emit } from '~/observability/metrics'
-import type { FeedItem, PostId, VoteIntent } from '~/lib/domain'
+import type { FeedItem, VoteIntent } from '~/lib/domain'
 
 // [LAW:types-are-the-program] Fail loud on a bad D1 row — a missing field
 // crashes here at the trust boundary, not silently as NaN in the score map.
@@ -33,13 +33,10 @@ const voterConfigSchema = z
 
 export type VoterPersonaConfig = z.infer<typeof voterConfigSchema>
 
-export async function runVoterPass(env: Env, scheduledTimeMs: number): Promise<void> {
-  const persona = await pickPersona(env, 'voter', scheduledTimeMs)
-  if (persona === null) {
-    console.log('voter-pass: no voter personas configured; skipping')
-    return
-  }
-
+// [LAW:one-source-of-truth] Persona is selected once by runAgentPass and passed
+// here — no re-derivation. runAgentPass owns the null case (no personas → early
+// return before this function is called).
+export async function runVoterPass(env: Env, persona: Persona): Promise<void> {
   const configResult = voterConfigSchema.safeParse(persona.config)
   if (!configResult.success) {
     throw new Error(
@@ -68,7 +65,6 @@ export async function runVoterPass(env: Env, scheduledTimeMs: number): Promise<v
     displayName: persona.displayName,
     feedSize: feed.length,
     candidateCount: candidates.length,
-    scheduledTimeMs,
   })
 
   emit('slopspot.voter.pass', { agent_id: persona.agentId, outcome: 'fired' }, 1)
@@ -124,9 +120,14 @@ async function judgeAndVote(
       env,
     )
 
-    const parsed = parseInt(response.trim(), 10)
+    // [LAW:types-are-the-program] Strict parse: only a bare decimal integer string
+    // is accepted. parseInt('85/100') = 85 — partial-numeric strings would produce
+    // plausible-looking scores and silently bypass the prompt's "ONLY a single
+    // integer" contract.
+    const trimmed = response.trim()
+    const parsed = /^\d{1,3}$/.test(trimmed) ? parseInt(trimmed, 10) : NaN
     if (isNaN(parsed) || parsed < 0 || parsed > 100) {
-      console.warn('voter-pass: z.ai returned non-numeric score; skipping', {
+      console.warn('voter-pass: z.ai returned non-integer score; skipping', {
         agentId: persona.agentId,
         postId,
         raw: response.slice(0, 100),
@@ -162,6 +163,6 @@ async function judgeAndVote(
   // [LAW:single-enforcer] setVote is the votes-table writer. Abstain (0) is a
   // real semantic outcome — skip the write, not a null-guard on a missing value.
   if (intent !== 0) {
-    await setVote({ postId: postId as PostId, voterId: persona.agentId, value: intent }, { env })
+    await setVote({ postId, voterId: persona.agentId, value: intent }, { env })
   }
 }
