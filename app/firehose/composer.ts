@@ -6,6 +6,7 @@
 // [LAW:one-way-deps] composer.ts → Anthropic API (outbound HTTP), variety.ts
 // (pure). No back-edge from the chooser or the DB layer.
 
+import { emit } from '~/observability/metrics'
 import {
   STYLE_FAMILY_PROMPT_SEEDS,
   renderTemplate,
@@ -45,6 +46,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
 
   if (!apiKey) {
     console.warn('composer: SLOPSPOT_ANTHROPIC_API_KEY not set; using renderTemplate fallback')
+    emit('slopspot.composer.result', { outcome: 'fallback', reason: 'missing_key' }, 1)
     return fallback
   }
 
@@ -107,13 +109,16 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
     // Hard-truncate as a safeguard: the instruction above targets the model,
     // but we own the constraint and must not pass an over-length string to
     // defaultParamsForRecipe / paramsSchema.
-    return maxLength && text.length > maxLength ? text.slice(0, maxLength) : text
+    const result = maxLength && text.length > maxLength ? text.slice(0, maxLength) : text
+    emit('slopspot.composer.result', { outcome: 'haiku' }, 1)
+    return result
   } catch (err) {
     console.error('composer: Haiku call failed; using renderTemplate fallback', {
       styleFamily,
       subjectTemplate: subject.subjectTemplate,
       err,
     })
+    emit('slopspot.composer.result', { outcome: 'fallback', reason: 'api_error' }, 1)
     return fallback
   } finally {
     clearTimeout(timeoutId)
