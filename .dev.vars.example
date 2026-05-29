@@ -12,4 +12,4 @@ SLOPSPOT_INTERNAL_SEED_TOKEN=
 SLOPSPOT_ENV=dev
 # Local override for SLOPSPOT_SITE_URL (default in wrangler.jsonc is 'https://slopspot.ai').
 # In local dev, use the Vite dev server URL (update if port changes).
-SLOPSPOT_SITE_URL=http://localhost:5178
+SLOPSPOT_SITE_URL=http://localhost:5173

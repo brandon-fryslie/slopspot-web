@@ -166,10 +166,9 @@ async function judgeAndVote(
 
   // [LAW:single-enforcer] setVote is the votes-table writer. Abstain (0) is a
   // real semantic outcome — skip the write, not a null-guard on a missing value.
-  // Metric emits only after confirming the write succeeded; post_not_found (race
-  // between getFeed and setVote) is logged and skipped rather than counted.
-  // D1/Drizzle I/O failures throw — catch per-candidate so one DB error doesn't
-  // abort remaining candidates (mirrors the z.ai try-catch above).
+  // For non-abstain intents: metric emits only after the write succeeds.
+  // post_not_found (race between getFeed and setVote) and D1 throws both log and
+  // skip the candidate — one error doesn't abort remaining candidates.
   if (intent !== 0) {
     let result
     try {
