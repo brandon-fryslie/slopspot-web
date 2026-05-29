@@ -23,6 +23,7 @@ export default defineConfig({
       'app/storage/__tests__/**',
       'app/routes/__tests__/**',
       'app/db/__tests__/**',
+      'app/agents/__tests__/**',
     ],
   },
 })

@@ -14,6 +14,7 @@
 
 import { createPost } from '~/db/posts'
 import { getRecentRecipes } from '~/db/recent'
+import { pickPersona, type PersonaRole } from '~/agents/persona'
 import { checkBudget } from '~/firehose/budget'
 import {
   chooseNextGeneration,
@@ -159,5 +160,49 @@ async function runOneFire(
       err,
     )
     emit('slopspot.firehose.fire', { channel, outcome: 'skipped-error' }, 1)
+  }
+}
+
+// [LAW:dataflow-not-control-flow] Same orchestration flow for every role:
+// pick a persona, dispatch to its action module. The role is the datum that
+// selects the action — not a branch that conditionally runs different code.
+// Action modules for each role land in downstream tickets (svq.4/svq.5/19s.1).
+// The switch is already exhaustive over PersonaRole so tsc-b enforces the gap
+// when a new role variant is added without a matching action module.
+//
+// [LAW:types-are-the-program] `role` is PersonaRole (closed union), not
+// `string` — the compiler rejects unknown roles at call sites and forces
+// exhaustiveness here.
+export async function runAgentPass(
+  env: Env,
+  scheduledTimeMs: number,
+  role: PersonaRole,
+): Promise<void> {
+  const persona = await pickPersona(env, role, scheduledTimeMs)
+  if (persona === null) {
+    console.log('agent-pass: no personas for role; skipping', { role })
+    return
+  }
+
+  console.log('agent-pass: picked persona', {
+    role,
+    agentId: persona.agentId,
+    displayName: persona.displayName,
+    scheduledTimeMs,
+  })
+
+  // [LAW:types-are-the-program] Exhaustive switch — every PersonaRole variant
+  // must have an arm. Action modules that don't exist yet are stub no-ops here;
+  // each downstream ticket replaces the stub with a real call.
+  switch (role) {
+    case 'voter':
+      // slopspot-agent-voters-19s.1 will replace this stub.
+      break
+    case 'discoverer':
+      // slopspot-content-sources-svq.5 will replace this stub.
+      break
+    case 'generator':
+      // slopspot-content-sources-svq.4 will replace this stub.
+      break
   }
 }
