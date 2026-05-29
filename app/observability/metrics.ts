@@ -51,8 +51,8 @@ export type MetricLabels = {
   // [LAW:types-are-the-program] Discriminated union: reason is required on fallback
   // and absent on haiku, making { outcome:'fallback' } (no reason) or
   // { outcome:'haiku', reason:... } (spurious reason) unrepresentable.
-  // [LAW:single-enforcer] composer.ts is the only module that calls composePrompt;
-  // this metric is its sole observability surface for Haiku vs fallback tracking.
+  // [LAW:single-enforcer] composer.ts is the sole emitter of this metric —
+  // it is the only place where the Haiku-vs-fallback decision is made.
   'slopspot.composer.result':
     | { outcome: 'haiku' }
     | { outcome: 'fallback'; reason: 'missing_key' | 'api_error' }
