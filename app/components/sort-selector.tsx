@@ -5,7 +5,7 @@
 
 import { Link } from 'react-router'
 import type { SortMode } from '~/lib/sort-mode'
-import { selectableSortModes, selectableTopWindows, serializeSortMode, sortModeLabel, windowLabel } from '~/lib/sort-mode'
+import { selectableSortModes, selectableTopWindows, sortModeLabel, sortModeUrlQuery, windowLabel } from '~/lib/sort-mode'
 
 function pillClass(active: boolean) {
   return active
@@ -24,7 +24,7 @@ export function SortSelector({ current }: { current: SortMode }) {
           return (
             <Link
               key={mode.mode}
-              to={`/?sort=${serializeSortMode(target)}`}
+              to={`/?${sortModeUrlQuery(target)}`}
               className={pillClass(active)}
               aria-current={active ? 'page' : undefined}
             >
@@ -41,7 +41,7 @@ export function SortSelector({ current }: { current: SortMode }) {
             return (
               <Link
                 key={w}
-                to={`/?sort=${serializeSortMode(mode)}`}
+                to={`/?${sortModeUrlQuery(mode)}`}
                 className={pillClass(active)}
                 aria-current={active ? 'page' : undefined}
               >

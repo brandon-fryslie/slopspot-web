@@ -131,6 +131,25 @@ export function parseSortMode(sortParam: string | null, windowParam?: string | n
   return null
 }
 
+// [LAW:one-source-of-truth] URL query string for a sort mode. Two-param form for
+// windowed top (?sort=top&window=day) so URLs match the documented URL path shape
+// in parseSortMode. Cookie payload uses serializeSortMode's slash form instead;
+// the two surfaces are intentionally different codecs with different semantics.
+export function sortModeUrlQuery(sort: SortMode): string {
+  switch (sort.mode) {
+    case 'top':
+      switch (sort.window) {
+        case 'all': return 'sort=top'
+        case 'day': return 'sort=top&window=day'
+        case 'week': return 'sort=top&window=week'
+        default: return assertNever(sort.window)
+      }
+    case 'new': return 'sort=new'
+    case 'hot': return 'sort=hot'
+    default: return assertNever(sort)
+  }
+}
+
 // [LAW:one-source-of-truth] Slash form (e.g. 'top/day') is the cookie payload
 // encoding for windowed top modes. 'top' remains the canonical form for window:all
 // (back-compat and shorter URLs).
