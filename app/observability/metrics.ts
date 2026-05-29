@@ -48,6 +48,12 @@ export type MetricLabels = {
   'slopspot.provider.cost_usd': {
     provider_id: string
   }
+  // [LAW:single-enforcer] composer.ts is the only module that calls composePrompt;
+  // this metric is its sole observability surface for Haiku vs fallback tracking.
+  'slopspot.composer.result': {
+    outcome: 'haiku' | 'fallback'
+    reason?: 'missing_key' | 'api_error'
+  }
 }
 
 export type MetricName = keyof MetricLabels
