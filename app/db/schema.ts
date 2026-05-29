@@ -34,7 +34,7 @@ import {
 // tuning (thresholds, biases) as data; no role-specific columns means adding
 // a role is one variant + one action module, zero schema changes.
 // [LAW:one-source-of-truth] Persona records live in D1; there is no parallel
-// in-code list. Seed data (0006) inserts the starter personas; they're edited
+// in-code list. Seed data (0007) inserts the starter personas; they're edited
 // in-place via SQL, not via code redeploys.
 export const personas = sqliteTable(
   'personas',

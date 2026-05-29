@@ -147,4 +147,39 @@ describe('zai.chat', () => {
       chat({ persona: STUB_PERSONA, messages: [] }, STUB_ENV),
     ).rejects.toThrow(ZaiError)
   })
+
+  it('throws ZaiError when API key is not set', async () => {
+    const envWithoutKey = {} as unknown as Env
+
+    await expect(
+      chat({ persona: STUB_PERSONA, messages: [] }, envWithoutKey),
+    ).rejects.toThrow(ZaiError)
+  })
+
+  it('truncates long error body to MAX_ERROR_BODY chars', async () => {
+    const longBody = 'x'.repeat(2000)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(longBody, { status: 500 }),
+    )
+
+    const err = await chat({ persona: STUB_PERSONA, messages: [] }, STUB_ENV).catch((e) => e)
+    expect(err).toBeInstanceOf(ZaiError)
+    // message should end with '…' indicating truncation
+    expect((err as ZaiError).message).toContain('…')
+    // should not include the full body
+    expect((err as ZaiError).message.length).toBeLessThan(longBody.length)
+  })
+
+  it('throws ZaiError (not SyntaxError) when 2xx response is non-JSON', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<html>Not JSON</html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      }),
+    )
+
+    const err = await chat({ persona: STUB_PERSONA, messages: [] }, STUB_ENV).catch((e) => e)
+    expect(err).toBeInstanceOf(ZaiError)
+    expect((err as ZaiError).statusCode).toBe(502)
+  })
 })

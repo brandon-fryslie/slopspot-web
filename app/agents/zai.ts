@@ -16,6 +16,10 @@ import type { Persona } from './persona'
 // The z.ai OpenAI-compatible base URL.
 const ZAI_BASE = 'https://api.z.ai/v1'
 
+// Error body is capped to keep log lines readable — z.ai can return HTML pages
+// or verbose JSON error objects on failure paths.
+const MAX_ERROR_BODY = 500
+
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -35,6 +39,11 @@ export type ChatInput = {
 // judgement, etc.) — zai.ts has no opinion on what the string means.
 export async function chat(input: ChatInput, env: Env): Promise<string> {
   const { persona, messages, vision } = input
+
+  const apiKey = env.SLOPSPOT_ZAI_API_KEY
+  if (!apiKey) {
+    throw new ZaiError('SLOPSPOT_ZAI_API_KEY is not set', 500)
+  }
 
   // System message is the persona prompt; user messages follow.
   const apiMessages: ZaiMessage[] = [
@@ -57,7 +66,7 @@ export async function chat(input: ChatInput, env: Env): Promise<string> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.SLOPSPOT_ZAI_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: persona.modelId,
@@ -66,14 +75,21 @@ export async function chat(input: ChatInput, env: Env): Promise<string> {
   })
 
   if (!response.ok) {
-    const body = await response.text().catch(() => '(unreadable body)')
+    const raw = await response.text().catch(() => '(unreadable body)')
+    const body = raw.length > MAX_ERROR_BODY ? raw.slice(0, MAX_ERROR_BODY) + '…' : raw
     throw new ZaiError(
       `z.ai request failed: ${response.status} ${response.statusText} — ${body}`,
       response.status,
     )
   }
 
-  const json = (await response.json()) as ZaiCompletionResponse
+  let json: ZaiCompletionResponse
+  try {
+    json = (await response.json()) as ZaiCompletionResponse
+  } catch {
+    throw new ZaiError('z.ai returned a non-JSON response', 502)
+  }
+
   const content = json.choices?.[0]?.message?.content
   if (typeof content !== 'string' || content.length === 0) {
     throw new ZaiError('z.ai response missing content', 502)

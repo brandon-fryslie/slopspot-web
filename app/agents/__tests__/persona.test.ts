@@ -36,11 +36,11 @@ describe('persona registry', () => {
     const p = result.find((x) => x.agentId === 'agent:test-voter')
     expect(p).toBeDefined()
     expect(p!.agentId).toBe('agent:test-voter')
-    expect(p.displayName).toBe('Test agent:test-voter')
-    expect(p.role).toBe('voter')
-    expect(p.personaPrompt).toBe('Prompt for agent:test-voter')
-    expect(p.modelId).toBe('glm-4v-flash')
-    expect(p.config).toEqual({ upvoteThreshold: 70, downvoteThreshold: 30 })
+    expect(p!.displayName).toBe('Test agent:test-voter')
+    expect(p!.role).toBe('voter')
+    expect(p!.personaPrompt).toBe('Prompt for agent:test-voter')
+    expect(p!.modelId).toBe('glm-4v-flash')
+    expect(p!.config).toEqual({ upvoteThreshold: 70, downvoteThreshold: 30 })
   })
 
   it('listPersonas filters by role', async () => {
@@ -73,10 +73,10 @@ describe('persona registry', () => {
   })
 
   it('pickPersona returns a persona from the pool', async () => {
-    await seedPersona('agent:pv1', 'voter')
-    await seedPersona('agent:pv2', 'voter')
+    await seedPersona('agent:pv1', 'discoverer')
+    await seedPersona('agent:pv2', 'discoverer')
 
-    const result = await pickPersona(env, 'voter', 1234567890)
+    const result = await pickPersona(env, 'discoverer', 1234567890)
 
     expect(result).not.toBeNull()
     expect(['agent:pv1', 'agent:pv2']).toContain(result!.agentId)

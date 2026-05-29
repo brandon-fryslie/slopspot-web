@@ -10,7 +10,7 @@
 // registry. Prompt tuning and config adjustments happen via SQL without a
 // redeploy.
 
-import { eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
 import { AgentId } from '~/lib/domain'
@@ -26,9 +26,10 @@ export type Persona = {
   config: Record<string, unknown>
 }
 
-// [LAW:types-are-the-program] Returns null rather than throwing when no
-// personas exist for the role — the call site decides whether an empty pool is
-// an error (action modules) or a no-op (orchestrator bootstrap).
+// Returns [] when no personas match the role — the call site decides whether
+// an empty pool is an error (action modules) or a no-op (orchestrator bootstrap).
+// ORDER BY agent_id is the stability guarantee that makes pickPersona's
+// hash-based index deterministic — SQLite/D1 row order is not stable without it.
 export async function listPersonas(
   env: Env,
   role: PersonaRole,
@@ -37,6 +38,7 @@ export async function listPersonas(
     .select()
     .from(personas)
     .where(eq(personas.role, role))
+    .orderBy(asc(personas.agentId))
   return rows.map(rowToPersona)
 }
 
@@ -57,13 +59,21 @@ export async function pickPersona(
 }
 
 function rowToPersona(row: DbPersona): Persona {
+  let config: Record<string, unknown>
+  try {
+    config = JSON.parse(row.configJson) as Record<string, unknown>
+  } catch {
+    throw new Error(
+      `persona ${row.agentId}: config_json is malformed JSON — fix the row in D1`,
+    )
+  }
   return {
     agentId: AgentId(row.agentId),
     displayName: row.displayName,
     role: row.role as PersonaRole,
     personaPrompt: row.personaPrompt,
     modelId: row.modelId,
-    config: JSON.parse(row.configJson) as Record<string, unknown>,
+    config,
   }
 }
 
