@@ -1,6 +1,6 @@
 import { createRequestHandler } from "react-router"
 import { runBankGen } from "./bank-gen"
-import { runScheduled } from "~/firehose/scheduled"
+import { runScheduled, runAgentPass } from "~/firehose/scheduled"
 
 // [LAW:single-enforcer] Cloudflare bindings (env + ctx) enter the React Router
 // world here and only here. Loaders/actions read them via `context.cloudflare`.
@@ -40,6 +40,16 @@ export default {
         await runBankGen(env)
       } catch (err) {
         console.error('bank-gen: unhandled error', { cron: event.cron }, err)
+      }
+      return
+    }
+    // [LAW:locality-or-seam] Discovery cron fires every 12h. runAgentPass owns
+    // the persona-pick + role dispatch; this site is the binding-pass only.
+    if (event.cron === '0 */12 * * *') {
+      try {
+        await runAgentPass(env, event.scheduledTime, 'discoverer')
+      } catch (err) {
+        console.error('discovery-pass: unhandled error', { cron: event.cron }, err)
       }
       return
     }

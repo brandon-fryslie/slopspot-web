@@ -38,8 +38,12 @@
   //   the budget enforcer in app/firehose/budget.ts.
   // "0 3 * * *": bank-gen — ~1000 BankEntry records daily at 03:00 UTC with
   //   48h TTL overlap. Model: claude-haiku-4-5-20251001 (cost-efficient bulk gen).
+  // "0 */12 * * *": discovery agent pass — fires every 12h (00:00 + 12:00 UTC).
+  //   Each fire picks a 'discoverer' persona, fetches its seedUrls, judges
+  //   candidates via z.ai vision, and submits accepted finds via createPost.
+  //   12h cadence keeps external fetch volume low (2 fires/day × N seedUrls).
   "triggers": {
-    "crons": ["* * * * *", "0 3 * * *"]
+    "crons": ["* * * * *", "0 3 * * *", "0 */12 * * *"]
   },
   // [LAW:one-source-of-truth] Apex domain binding lives in config, not in the
   // dashboard. `custom_domain: true` makes wrangler the single owner of the A/AAAA
