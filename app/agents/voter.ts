@@ -55,14 +55,21 @@ export async function runVoterPass(env: Env, persona: Persona): Promise<void> {
   // pre-populated for this agent — one query, not a per-post lookup.
   const feed = await getFeed(env, persona.agentId)
 
-  // [LAW:dataflow-not-control-flow] Filter is data-driven: candidates are posts
-  // where this agent hasn't voted yet and didn't author the post (invariant for
-  // later when generator + voter identities can overlap).
+  // [LAW:types-are-the-program] flatMap materialises the "judgeable candidate"
+  // type — only items this agent can actually score survive. votesPerPass is
+  // then applied to items that will reach z.ai, not to the raw filtered list
+  // where non-judgeable items could burn cap slots and produce fewer votes than
+  // intended.
+  // [LAW:dataflow-not-control-flow] Filter is data-driven: no per-item branches,
+  // just predicates over values.
   const candidates = feed
-    .filter((item) => {
-      if (item.myVote !== null) return false
+    .flatMap((item) => {
+      if (item.myVote !== null) return []
       const actor = item.post.origin.actor
-      return !(actor.kind === 'agent' && actor.agentId === persona.agentId)
+      if (actor.kind === 'agent' && actor.agentId === persona.agentId) return []
+      const imageUrl = getImageUrl(item, env.SLOPSPOT_SITE_URL)
+      if (imageUrl === null) return []
+      return [{ item, imageUrl }]
     })
     .slice(0, config.votesPerPass)
 
@@ -75,37 +82,34 @@ export async function runVoterPass(env: Env, persona: Persona): Promise<void> {
 
   emit('slopspot.voter.pass', { agent_id: persona.agentId, outcome: 'fired' }, 1)
 
-  for (const item of candidates) {
-    await judgeAndVote(item, persona, config, env)
+  for (const { item, imageUrl } of candidates) {
+    await judgeAndVote(item, imageUrl, persona, config, env)
   }
+}
+
+// Pure extraction: returns the public image URL for judgeable feed items, null
+// for anything the voter cannot score (non-generation, not yet succeeded,
+// non-image output, or an unexpected URL format).
+// [LAW:one-source-of-truth] SLOPSPOT_SITE_URL is the single base for outbound
+// URL construction — callers never concatenate it ad-hoc.
+function getImageUrl(item: FeedItem, siteUrl: string): string | null {
+  const content = item.post.content
+  if (content.kind !== 'generation') return null
+  if (content.status.kind !== 'succeeded') return null
+  const output = content.status.output
+  if (output.kind !== 'image') return null
+  if (!output.url.startsWith('/media/')) return null
+  return `${siteUrl}${output.url}`
 }
 
 async function judgeAndVote(
   item: FeedItem,
+  imageUrl: string,
   persona: Persona,
   config: VoterPersonaConfig,
   env: Env,
 ): Promise<void> {
   const postId = item.post.id
-  const content = item.post.content
-
-  if (content.kind !== 'generation') return
-  if (content.status.kind !== 'succeeded') return
-  const media = content.status.output
-  if (media.kind !== 'image') return
-
-  // media.url is a relative /media/<key> path. Pass a public URL so z.ai
-  // fetches the image directly — avoids embedding large base64 payloads in
-  // the request body (prod images are 1-5MB; base64 encoding pushes the JSON
-  // body past nginx's limit and causes 500s).
-  // [LAW:one-source-of-truth] SLOPSPOT_SITE_URL is the single declared base
-  // for all outbound URL construction; it matches the custom_domain in
-  // wrangler.jsonc and the configured route for this Worker.
-  if (!media.url.startsWith('/media/')) {
-    console.warn('voter-pass: unexpected media URL format; skipping', { postId, url: media.url })
-    return
-  }
-  const imageUrl = `${env.SLOPSPOT_SITE_URL}${media.url}`
 
   // [LAW:single-enforcer] All z.ai calls go through chat(). voter.ts has zero
   // knowledge of the z.ai SDK or HTTP shape — it speaks domain types only.

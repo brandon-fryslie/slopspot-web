@@ -172,8 +172,25 @@ describe('runVoterPass', () => {
     )
   })
 
-  it('respects votesPerPass cap', async () => {
+  it('respects votesPerPass cap — non-judgeable items do not consume slots', async () => {
+    const uploadItem: FeedItem = {
+      post: {
+        id: PostId('upload-before-cap'),
+        createdAt: new Date(),
+        content: {
+          kind: 'upload',
+          asset: { kind: 'image', url: '/media/some-key', w: 100, h: 100 },
+        },
+        origin: { actor: { kind: 'anon', label: 'anon' } },
+      },
+      score: 0,
+      myVote: null,
+      commentCount: 0,
+      rank: 1,
+    }
+
     vi.mocked(getFeed).mockResolvedValue([
+      uploadItem,        // non-judgeable — should NOT consume a cap slot
       makeFeedItem('p1'),
       makeFeedItem('p2'),
       makeFeedItem('p3'),
@@ -182,8 +199,17 @@ describe('runVoterPass', () => {
 
     await runVoterPass(STUB_ENV, { ...STUB_PERSONA, config: { ...STUB_PERSONA.config, votesPerPass: 2 } })
 
+    // cap=2 applies to judgeable items only → p1 and p2 voted, not just p1
     expect(setVote).toHaveBeenCalledTimes(2)
     expect(chat).toHaveBeenCalledTimes(2)
+    expect(setVote).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: PostId('p1') }),
+      expect.anything(),
+    )
+    expect(setVote).toHaveBeenCalledWith(
+      expect.objectContaining({ postId: PostId('p2') }),
+      expect.anything(),
+    )
   })
 
   it('skips candidate when z.ai returns non-numeric score', async () => {
