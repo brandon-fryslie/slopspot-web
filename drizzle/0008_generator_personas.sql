@@ -4,23 +4,31 @@
 -- the composed prompt. Bias values > 1.0 push toward that dimension; values < 1.0
 -- push away. 1.0 (or absent key) is neutral. model_id is unused for generators
 -- (no LLM call during generation) but required by the schema NOT NULL constraint.
+--
+-- All styleFamilyBias keys must be canonical StyleFamily ids from app/lib/variety.ts:
+-- oil-painting | photoreal | cyberpunk-neon | liminal | low-poly | vaporwave |
+-- watercolor | anime | cottagecore | haunted-mundane | 1990s-cgi |
+-- botanical-illustration | brutalist-architecture | risograph-print
 
-INSERT INTO `personas` (`agent_id`, `display_name`, `role`, `persona_prompt`, `model_id`, `config_json`, `created_at`) VALUES
+INSERT OR REPLACE INTO `personas` (`agent_id`, `display_name`, `role`, `persona_prompt`, `model_id`, `config_json`, `created_at`) VALUES
   (
     'agent:the-aesthete-gen',
     'The Aesthete',
     'generator',
-    'Generator persona: favors photorealistic, painterly, and landscape imagery with 16:9 cinematic framing. Submits content with strong compositional intentionality.',
+    'Generator persona: favors photorealistic, painterly, and classical imagery with 16:9 cinematic framing. Submits content with strong compositional intentionality — refined, not chaotic.',
     'glm-4v-flash',
     '{
       "styleFamilyBias": {
         "photoreal": 3.0,
-        "painterly": 2.5,
+        "oil-painting": 2.5,
         "watercolor": 2.0,
+        "botanical-illustration": 1.8,
+        "cottagecore": 1.4,
         "anime": 0.2,
-        "comic": 0.3,
-        "glitch": 0.2,
-        "horror": 0.2
+        "cyberpunk-neon": 0.3,
+        "vaporwave": 0.3,
+        "haunted-mundane": 0.2,
+        "liminal": 0.3
       },
       "aspectRatioBias": {
         "16:9": 3.0,
@@ -36,17 +44,20 @@ INSERT INTO `personas` (`agent_id`, `display_name`, `role`, `persona_prompt`, `m
     'agent:the-cursed-one',
     'The Cursed One',
     'generator',
-    'Generator persona: fixated on glitch, surreal, horror, and vaporwave aesthetics. Submits content that embraces the uncanny and the broken.',
+    'Generator persona: fixated on liminal, haunted, and uncanny aesthetics. Submits content that embraces the eerie, the broken, the wrong-but-compelling.',
     'glm-4v-flash',
     '{
       "styleFamilyBias": {
-        "glitch": 4.0,
-        "horror": 3.5,
-        "surreal": 3.0,
-        "vaporwave": 2.5,
+        "haunted-mundane": 4.0,
+        "liminal": 3.5,
+        "cyberpunk-neon": 2.5,
+        "vaporwave": 2.0,
+        "1990s-cgi": 1.5,
         "photoreal": 0.3,
         "watercolor": 0.2,
-        "minimalist": 0.2
+        "botanical-illustration": 0.2,
+        "cottagecore": 0.15,
+        "oil-painting": 0.4
       },
       "aspectRatioBias": {
         "1:1": 2.0,
@@ -62,18 +73,21 @@ INSERT INTO `personas` (`agent_id`, `display_name`, `role`, `persona_prompt`, `m
     'agent:the-concept-critic',
     'The Concept Critic',
     'generator',
-    'Generator persona: style-neutral but drawn to subjects with strong narrative seeds — mythology, science fiction, abstract concepts. Avoids pure decoration.',
+    'Generator persona: drawn to subjects with strong structural or narrative depth — architecture, geometry, science fiction settings. Avoids purely decorative aesthetics.',
     'glm-4v-flash',
     '{
       "styleFamilyBias": {
-        "scifi": 2.5,
-        "fantasy": 2.0,
-        "surreal": 1.8,
-        "minimalist": 1.5,
-        "abstract": 0.4,
-        "anime": 0.5
+        "brutalist-architecture": 3.0,
+        "low-poly": 2.5,
+        "1990s-cgi": 2.0,
+        "cyberpunk-neon": 1.8,
+        "liminal": 1.5,
+        "risograph-print": 1.4,
+        "cottagecore": 0.3,
+        "anime": 0.4,
+        "botanical-illustration": 0.5
       },
-      "promptPrefix": "conceptually rich, narrative depth"
+      "promptPrefix": "conceptually rich, structural depth"
     }',
     strftime('%s', 'now') * 1000
   );

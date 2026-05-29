@@ -10,7 +10,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 const checkBudgetMock = vi.fn()
 const runGeneratorPassMock = vi.fn()
-const getRecentRecipesMock = vi.fn()
 const emitMock = vi.fn()
 
 vi.mock('~/firehose/budget', () => ({
@@ -18,9 +17,6 @@ vi.mock('~/firehose/budget', () => ({
 }))
 vi.mock('~/agents/generator', () => ({
   runGeneratorPass: (...args: unknown[]) => runGeneratorPassMock(...args),
-}))
-vi.mock('~/db/recent', () => ({
-  getRecentRecipes: (...args: unknown[]) => getRecentRecipesMock(...args),
 }))
 vi.mock('~/observability/metrics', () => ({
   emit: (...args: unknown[]) => emitMock(...args),
@@ -52,7 +48,7 @@ describe('runScheduled', () => {
   // pattern was causing the first-test timeout because vitest's module resolver
   // takes >5s on cold load for this module's dependency graph. Cached from
   // beforeAll, every test uses the same instance without re-resolving.
-  let runScheduled: Awaited<ReturnType<typeof import('./scheduled')>>['runScheduled']
+  let runScheduled: Awaited<typeof import('./scheduled')>['runScheduled']
   beforeAll(async () => {
     runScheduled = (await import('./scheduled')).runScheduled
   }, 30_000)
@@ -60,7 +56,6 @@ describe('runScheduled', () => {
   beforeEach(() => {
     checkBudgetMock.mockReset()
     runGeneratorPassMock.mockReset()
-    getRecentRecipesMock.mockReset()
     emitMock.mockReset()
     // Default: runGeneratorPass succeeds (creates a post without returning a value).
     runGeneratorPassMock.mockResolvedValue(undefined)

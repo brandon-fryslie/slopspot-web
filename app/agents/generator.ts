@@ -29,14 +29,21 @@ const RECENT_WINDOW = 20
 // kept here since runGeneratorPass is the single enforcer for post creation.
 const SYSTEM_AGENT_ID = AgentId('sys:slop-cron')
 
+// [LAW:types-are-the-program] .strict() on all three bias schemas: unknown keys
+// (non-canonical StyleFamily/AspectRatio values, or config typos) are a loud
+// parse error at the trust boundary rather than silently stripped no-ops that
+// produce a persona that does nothing. parseGeneratorConfig throws, so a bad
+// row is caught on first fire rather than leaving a silently-neutered persona.
 const styleFamilyBiasSchema = z
   .object(Object.fromEntries(STYLE_FAMILIES.map((s) => [s, z.number().positive().optional()])))
   .partial()
+  .strict()
   .optional()
 
 const aspectRatioBiasSchema = z
   .object(Object.fromEntries(ASPECT_RATIOS.map((a) => [a, z.number().positive().optional()])))
   .partial()
+  .strict()
   .optional()
 
 const generatorPersonaConfigSchema = z.object({
@@ -44,7 +51,7 @@ const generatorPersonaConfigSchema = z.object({
   providerBias: z.record(z.string(), z.number().positive()).optional(),
   aspectRatioBias: aspectRatioBiasSchema,
   promptPrefix: z.string().optional(),
-})
+}).strict()
 
 type GeneratorPersonaConfig = z.infer<typeof generatorPersonaConfigSchema>
 
