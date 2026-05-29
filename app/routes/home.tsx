@@ -25,7 +25,7 @@ export function meta(_args: Route.MetaArgs) {
 // through them; no sort strings are constructed here.
 export async function loader({ request, context }: Route.LoaderArgs) {
   const url = new URL(request.url)
-  const urlSort = parseSortMode(url.searchParams.get('sort'))
+  const urlSort = parseSortMode(url.searchParams.get('sort'), url.searchParams.get('window'))
   const cookieRaw = readSortCookieRaw(request)
   const cookieSort = parseSortMode(cookieRaw)
   const sort = urlSort ?? cookieSort ?? defaultSortMode
