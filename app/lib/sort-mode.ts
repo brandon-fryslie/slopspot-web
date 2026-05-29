@@ -15,11 +15,10 @@
 
 import { desc, type SQL, type SQLWrapper } from 'drizzle-orm'
 
-// [LAW:types-are-the-program] Single mode arm now; jc6.2 adds { mode: 'new' }, jc6.5
-// adds { mode: 'hot' }. jc6.4 widens 'top' window to 'day' | 'week' | 'all' — the
-// nested switch (sort.window) inside the 'top' arm then forces jc6.4 to handle the
-// new windows or break tsc -b.
-export type SortMode = { mode: 'top'; window: 'all' }
+// [LAW:types-are-the-program] jc6.4 widens 'top' window to 'day' | 'week' | 'all' —
+// the nested switch (sort.window) inside the 'top' arm forces jc6.4 to handle the
+// new windows or break tsc -b. jc6.5 adds { mode: 'hot' }.
+export type SortMode = { mode: 'top'; window: 'all' } | { mode: 'new' }
 
 // [LAW:single-enforcer] The canonical default. jc6.5 flips this to { mode: 'hot' }.
 export const defaultSortMode: SortMode = { mode: 'top', window: 'all' }
@@ -53,8 +52,10 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
         default:
           return assertNever(sort.window)
       }
+    case 'new':
+      return [desc(ctx.createdAt), desc(ctx.id)]
     default:
-      return assertNever(sort.mode)
+      return assertNever(sort)
   }
 }
 
@@ -63,6 +64,7 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
 // falls back to defaultSortMode (jc6.3 wires this into the home loader).
 export function parseSortMode(input: string | null): SortMode | null {
   if (input === 'top') return { mode: 'top', window: 'all' }
+  if (input === 'new') return { mode: 'new' }
   return null
 }
 
@@ -75,8 +77,10 @@ export function serializeSortMode(sort: SortMode): string {
         default:
           return assertNever(sort.window)
       }
+    case 'new':
+      return 'new'
     default:
-      return assertNever(sort.mode)
+      return assertNever(sort)
   }
 }
 
@@ -90,7 +94,9 @@ export function sortModeLabel(sort: SortMode): string {
         default:
           return assertNever(sort.window)
       }
+    case 'new':
+      return 'New'
     default:
-      return assertNever(sort.mode)
+      return assertNever(sort)
   }
 }
