@@ -57,6 +57,13 @@
       "when": 1780022303200,
       "tag": "0007_persona_seeds",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1748476800000,
+      "tag": "0008_generator_personas",
+      "breakpoints": true
     }
   ]
 }
