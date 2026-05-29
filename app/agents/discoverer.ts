@@ -63,10 +63,24 @@ function parseDiscovererConfig(
   return result.data
 }
 
+// Parse a URL string and return it only if it uses an http or https scheme.
+// Both OG meta values (og:image, og:url) come from untrusted HTML; this is
+// the single enforcement point that prevents javascript:, data:, file:, and
+// other non-http schemes from reaching the stored post URL or the z.ai vision
+// call. [LAW:single-enforcer]
+function safeHttpUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null
+  } catch {
+    return null
+  }
+}
+
 // Extract OG-image URL, OG-title, and canonical URL from an HTML string.
 // Returns null if no usable OG-image is present — we cannot judge what we
 // cannot see. Falls back to the page URL itself for canonical when og:url
-// is absent.
+// is absent or fails the http(s) check.
 function extractOgMeta(
   html: string,
   pageUrl: string,
@@ -76,8 +90,8 @@ function extractOgMeta(
   ) ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
 
   if (!imageMatch) return null
-  const imageUrl = imageMatch[1].trim()
-  if (!imageUrl.startsWith('http')) return null
+  const imageUrl = safeHttpUrl(imageMatch[1].trim())
+  if (!imageUrl) return null
 
   const titleMatch =
     html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ??
@@ -90,7 +104,9 @@ function extractOgMeta(
     html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i) ??
     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i)
 
-  const resolvedUrl = canonicalMatch ? canonicalMatch[1].trim() : pageUrl
+  const resolvedUrl = canonicalMatch
+    ? (safeHttpUrl(canonicalMatch[1].trim()) ?? pageUrl)
+    : pageUrl
 
   return { pageUrl: resolvedUrl, imageUrl, title }
 }
@@ -124,7 +140,14 @@ async function fetchCandidate(seedUrl: string): Promise<Candidate | null> {
     return null
   }
 
-  const html = await response.text()
+  let html: string
+  try {
+    html = await response.text()
+  } catch {
+    console.warn('discoverer: body-read failed for seedUrl', { seedUrl })
+    return null
+  }
+
   const candidate = extractOgMeta(html, seedUrl)
   if (!candidate) {
     console.warn('discoverer: no OG-image meta in page', { seedUrl })
@@ -184,11 +207,9 @@ async function judgeCandidate(
 }
 
 // Look up which page URLs already have a found post, to avoid duplicates.
-// Returns a Set<string> of known URLs. [LAW:single-enforcer] — only the
-// discovery pass needs this check; the createPost path does not enforce
-// URL uniqueness (future human submissions go through /api/found which has
-// its own dedup, per svq.2 comment). Keeping URL dedup here avoids adding a
-// coupling-prone uniqueness constraint to the writer.
+// Returns a Set<string> of known URLs. Dedup lives here (not in createPost)
+// to keep the writer free of discovery-specific concerns — each submission
+// pathway owns its own anti-spam logic.
 async function knownFoundUrls(env: Env, urls: string[]): Promise<Set<string>> {
   if (urls.length === 0) return new Set()
   const { inArray } = await import('drizzle-orm')
@@ -235,12 +256,17 @@ export async function runDiscoveryPass(
     return
   }
 
-  // Dedup against already-submitted URLs before spending z.ai calls.
-  const known = await knownFoundUrls(
-    env,
-    candidates.map((c) => c.pageUrl),
-  )
-  const fresh = candidates.filter((c) => !known.has(c.pageUrl)).slice(0, MAX_CANDIDATES)
+  // Dedup within the current batch (two seedUrls may resolve to the same
+  // og:url) and against already-submitted URLs in D1 before spending z.ai calls.
+  const seenInBatch = new Set<string>()
+  const deduped = candidates.filter((c) => {
+    if (seenInBatch.has(c.pageUrl)) return false
+    seenInBatch.add(c.pageUrl)
+    return true
+  })
+
+  const known = await knownFoundUrls(env, deduped.map((c) => c.pageUrl))
+  const fresh = deduped.filter((c) => !known.has(c.pageUrl)).slice(0, MAX_CANDIDATES)
 
   if (fresh.length === 0) {
     console.log('discoverer: all candidates already submitted', {

@@ -62,12 +62,11 @@ describe('persona registry', () => {
     expect(voters.every((p) => p.role === 'voter')).toBe(true)
   })
 
-  it('pickPersona returns null when pool is empty', async () => {
-    // All three PersonaRoles now have seed data. The empty-pool contract is
-    // covered by the pickPersona implementation (pool.length === 0 → null) and
-    // by the type system; the only testable surface here is role isolation (a
-    // persona seeded for one role never appears in another role's pool).
-    // Verify that a voter ID inserted while querying generator doesn't bleed over.
+  it('pickPersona does not bleed roles: voter-seeded ID absent from generator pool', async () => {
+    // All three PersonaRoles now have seed data; there is no empty pool to test
+    // the null path directly. The null contract is covered by the type system
+    // (pool.length === 0 → null) and by this isolation check: a persona seeded
+    // for voter must never appear in the generator pool.
     await seedPersona('agent:bleed-check', 'voter')
     const generatorResult = await pickPersona(env, 'generator', Date.now())
     if (generatorResult !== null) {
