@@ -27,6 +27,37 @@ import {
   text,
 } from 'drizzle-orm/sqlite-core'
 
+// [LAW:single-enforcer] app/agents/persona.ts is the only reader/writer of
+// this table. The role CHECK mirrors PersonaRole in persona.ts so the DB
+// enforces the discriminator at the storage boundary — no stale-role row can
+// slip through even from raw-SQL writes. config_json carries role-specific
+// tuning (thresholds, biases) as data; no role-specific columns means adding
+// a role is one variant + one action module, zero schema changes.
+// [LAW:one-source-of-truth] Persona records live in D1; there is no parallel
+// in-code list. Seed data (0007) inserts the starter personas; they're edited
+// in-place via SQL, not via code redeploys.
+export const personas = sqliteTable(
+  'personas',
+  {
+    agentId: text('agent_id').primaryKey(),
+    displayName: text('display_name').notNull(),
+    role: text('role', {
+      enum: ['voter', 'discoverer', 'generator'],
+    }).notNull(),
+    personaPrompt: text('persona_prompt').notNull(),
+    modelId: text('model_id').notNull(),
+    configJson: text('config_json').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    index('personas_role_idx').on(t.role),
+    check(
+      'personas_role_shape',
+      sql`${t.role} IN ('voter', 'discoverer', 'generator')`,
+    ),
+  ],
+)
+
 // Users placeholder. Auth is a later epic; this table exists so future FKs have
 // somewhere to land. Origin.actor.userId references this id by convention.
 export const users = sqliteTable('users', {
@@ -282,3 +313,5 @@ export type DbChallengeQuota = typeof challengeQuota.$inferSelect
 export type NewDbChallengeQuota = typeof challengeQuota.$inferInsert
 export type DbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferSelect
 export type NewDbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferInsert
+export type DbPersona = typeof personas.$inferSelect
+export type NewDbPersona = typeof personas.$inferInsert
