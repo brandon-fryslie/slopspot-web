@@ -7,7 +7,7 @@
 -- (strict — unknown keys cause validation failure and the persona is skipped):
 --   upvoteThreshold   : number 0–100
 --   downvoteThreshold : number 0–100 (must be < upvoteThreshold)
---   votesPerPass      : positive int
+--   votesPerPass      : positive int (optional; schema default is 5 if omitted)
 
 INSERT OR IGNORE INTO `personas` (`agent_id`, `display_name`, `role`, `persona_prompt`, `model_id`, `config_json`, `created_at`) VALUES
   (
