@@ -100,17 +100,9 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // defaultParamsForRecipe — the same translation the firehose chooser does.
   // The fork's chosen provider (parsed.providerId) may differ from the parent's.
   const chosenProviderId = ProviderId(parsed.providerId)
-  // [LAW:single-enforcer] Same filter the loader applies to populate the
-  // client-side selector: only real providers are available in prod. The UI
-  // enforces this affordance-side; this check is the trust-boundary enforcement
-  // so crafted requests can't bypass the filter and use mock providers in prod.
-  const available = realProviders(context.cloudflare.env)
-  if (!available.some((p) => p.id === chosenProviderId)) {
-    return Response.json(
-      { error: "provider not available", providerId: parsed.providerId },
-      { status: 422 },
-    )
-  }
+  // Existence check first: unknown ID → 404. Then env-filter check: registered
+  // but not available here (e.g. mock in prod) → 422. Order matters — collapsing
+  // both into 422 would make a typo'd ID indistinguishable from a filtered one.
   let provider
   try {
     provider = getProvider(chosenProviderId)
@@ -125,6 +117,17 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       )
     }
     throw e
+  }
+  // [LAW:single-enforcer] Same filter the loader applies to populate the
+  // client-side selector: only real providers are available in prod. The UI
+  // enforces this affordance-side; this check is the trust-boundary enforcement
+  // so crafted requests can't bypass the filter and use mock providers in prod.
+  const available = realProviders(context.cloudflare.env)
+  if (!available.some((p) => p.id === chosenProviderId)) {
+    return Response.json(
+      { error: "provider not available in this environment", providerId: parsed.providerId },
+      { status: 422 },
+    )
   }
 
   // Fresh seed each fork — reproducibility-by-default is the firehose's
