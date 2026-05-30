@@ -28,7 +28,9 @@ export async function loader({ context }: Route.LoaderArgs) {
   const agents = personas.map((p, i) => ({
     agentId: p.agentId,
     displayName: p.displayName,
-    personaPrompt: p.personaPrompt,
+    // Derive the one-line blurb in the loader — the full prompt is not sent to
+    // the client (RR7 serializes all loader data to the browser).
+    tasteBlurb: p.personaPrompt.split('\n')[0],
     voteCount: statsByVoterId[p.agentId]?.voteCount ?? 0,
     upvotes: statsByVoterId[p.agentId]?.upvotes ?? 0,
     downvotes: statsByVoterId[p.agentId]?.downvotes ?? 0,
@@ -68,8 +70,6 @@ function VoteRow({ vote }: { vote: RecentVote }) {
 }
 
 function AgentCard({ agent }: { agent: Agent }) {
-  const tasteBlurb = agent.personaPrompt.split('\n')[0]
-
   return (
     <article className="rounded-lg border border-white/10 bg-white/[0.02] p-6">
       <div className="flex items-start justify-between gap-4">
@@ -86,7 +86,7 @@ function AgentCard({ agent }: { agent: Agent }) {
         </div>
       </div>
       <p className="mt-3 text-sm text-white/60 border-l-2 border-white/10 pl-3 italic">
-        {tasteBlurb}
+        {agent.tasteBlurb}
       </p>
       {agent.recentVotes.length > 0 && (
         <div className="mt-4">
