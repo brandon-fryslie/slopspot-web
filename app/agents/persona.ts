@@ -3,8 +3,9 @@
 // via listPersonas or pickPersona — no direct D1 reads elsewhere.
 //
 // [LAW:types-are-the-program] PersonaRole is a closed discriminated union.
-// Adding a new role is one variant here + one action module in the downstream
-// ticket; tsc -b enforces the gap via the exhaustive switch in runAgentPass.
+// Each role's executor lives wherever that role runs: voter and discoverer are
+// homelab Nomad services (services/voter, services/discoverer) that read these
+// rows over the D1 REST API; generator runs in-Worker via runGeneratorPass.
 //
 // [LAW:one-source-of-truth] Persona records live in D1, not in an in-code
 // registry. Prompt tuning and config adjustments happen via SQL without a

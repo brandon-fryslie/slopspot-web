@@ -1,7 +1,6 @@
 // [LAW:single-enforcer] The only entry point for generator-persona-driven post
 // creation. runOneFire (firehose/scheduled.ts) delegates here for every channel
-// fire; runAgentPass dispatches here for the 'generator' role in the agent-pass
-// cron. Both paths share one implementation.
+// fire.
 //
 // [LAW:dataflow-not-control-flow] Persona biases are multipliers forwarded to
 // chooseNextGeneration as PersonaBias. Absent persona = absent bias = all-ones
@@ -70,8 +69,8 @@ function parseGeneratorConfig(raw: Record<string, unknown>, agentId: string): Ge
 // creates a post — when no persona is available (empty pool / bootstrap),
 // falls back to the system agent with no bias. This gives "behaviorally
 // equivalent until persona rows exist" semantics without an early-return branch.
-// Throws on any I/O or creation failure; the caller (runOneFire / runAgentPass)
-// owns error handling and metric emission.
+// Throws on any I/O or creation failure; the caller (runOneFire) owns error
+// handling and metric emission.
 export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promise<void> {
   const persona = await pickPersona(env, 'generator', scheduledTimeMs)
 
