@@ -10,7 +10,7 @@
 
 import { z } from 'zod'
 import { type D1Config, d1Query } from './d1.js'
-import { judgeImage } from './zai.js'
+import { judgeImage, type Judgment } from './zai.js'
 import { pushMetric } from './metrics.js'
 import { shouldFireNow } from './scheduler.js'
 
@@ -167,6 +167,28 @@ async function runPersonaPass(persona: VoterPersona, cfg: PipelineConfig): Promi
   }
 }
 
+// [LAW:dataflow-not-control-flow] Uniform log shape per candidate including
+// abstains — the log consumer never branches on intent to find reasoning.
+function logVoteCandidate(opts: {
+  persona: VoterPersona
+  postId: string
+  judgment: Judgment
+  intent: 'upvote' | 'downvote' | 'abstain'
+}): void {
+  const { persona, postId, judgment, intent } = opts
+  // One structured JSON line per candidate — parseable by homelab log tooling.
+  process.stdout.write(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      persona: { agentId: persona.agentId, displayName: persona.displayName },
+      postId,
+      score: judgment.score,
+      reasoning: judgment.reasoning,
+      intent,
+    }) + '\n',
+  )
+}
+
 async function judgeAndVote(
   item: FeedItem,
   url: string,
@@ -175,27 +197,28 @@ async function judgeAndVote(
 ): Promise<void> {
   const postId = item.post.id
 
-  let score: number | null
+  let judgment: Judgment | null
   try {
-    score = await judgeImage({ imageUrl: url, personaPrompt: persona.personaPrompt, apiKey: cfg.zaiApiKey })
+    judgment = await judgeImage({ imageUrl: url, personaPrompt: persona.personaPrompt, apiKey: cfg.zaiApiKey })
   } catch (err) {
     console.error('voter: vision failed; skipping', { agentId: persona.agentId, postId, error: String(err) })
     return
   }
 
-  if (score === null) {
+  if (judgment === null) {
     console.warn('voter: unparseable score; skipping', { agentId: persona.agentId, postId })
     return
   }
 
   const { upvoteThreshold, downvoteThreshold } = persona.config
-  const intent = score > upvoteThreshold ? 1 : score < downvoteThreshold ? -1 : 0
-  const intentLabel = intent === 1 ? 'upvote' : intent === -1 ? 'downvote' : 'abstain'
+  const intentValue = judgment.score > upvoteThreshold ? 1 : judgment.score < downvoteThreshold ? -1 : 0
+  const intent: 'upvote' | 'downvote' | 'abstain' =
+    intentValue === 1 ? 'upvote' : intentValue === -1 ? 'downvote' : 'abstain'
 
-  console.log('voter: judgment', { agentId: persona.agentId, postId, score, intent: intentLabel })
+  logVoteCandidate({ persona, postId, judgment, intent })
 
-  if (intent === 0) {
-    await pushMetric(cfg.metricsEndpoint, 'slopspot.voter.vote', { agent_id: persona.agentId, intent: intentLabel }, 1)
+  if (intentValue === 0) {
+    await pushMetric(cfg.metricsEndpoint, 'slopspot.voter.vote', { agent_id: persona.agentId, intent }, 1)
     return
   }
 
@@ -204,7 +227,7 @@ async function judgeAndVote(
     const resp = await fetch(voteUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: intent, agentId: persona.agentId }),
+      body: JSON.stringify({ value: intentValue, agentId: persona.agentId, reasoning: judgment.reasoning }),
       signal: AbortSignal.timeout(15_000),
     })
     if (!resp.ok) {
@@ -217,7 +240,7 @@ async function judgeAndVote(
     return
   }
 
-  await pushMetric(cfg.metricsEndpoint, 'slopspot.voter.vote', { agent_id: persona.agentId, intent: intentLabel }, 1)
+  await pushMetric(cfg.metricsEndpoint, 'slopspot.voter.vote', { agent_id: persona.agentId, intent }, 1)
 }
 
 // [LAW:dataflow-not-control-flow] Same pipeline every tick: load all personas,

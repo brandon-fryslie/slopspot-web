@@ -94,8 +94,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           ))}
         </ul>
       )}
-      <footer className="mt-16 border-t border-white/10 pt-6 font-mono text-xs text-white/40">
-        slopspot · {items.length} slops · open the cage and let the slop out
+      <footer className="mt-16 border-t border-white/10 pt-6 font-mono text-xs text-white/40 flex items-center justify-between gap-4">
+        <span>slopspot · {items.length} slops · open the cage and let the slop out</span>
+        <Link to="/about/agents" className="hover:text-white/70 transition-colors">
+          AI voters
+        </Link>
       </footer>
     </main>
   )

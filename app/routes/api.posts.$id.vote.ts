@@ -24,6 +24,9 @@ const bodySchema = z.object({
   // homelab voter agents. When present it overrides the cookie identity —
   // attribution only, not an auth claim (same pattern as /api/found).
   agentId: z.string().min(1).max(256).optional(),
+  // One-sentence rationale from the agent's z.ai vision judgment. Absent for
+  // human votes; persisted to votes.reasoning when present.
+  reasoning: z.string().max(1000).optional(),
 })
 
 export async function action({ request, params, context }: Route.ActionArgs) {
@@ -47,11 +50,17 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   const voterId = parsed.agentId ?? voter!.voterId
   const setCookieHeader = voter?.setCookieHeader ?? null
 
+  // [LAW:single-enforcer] reasoning is agent-only — only agent votes carry
+  // z.ai rationale. Stripping it for human/cookie votes keeps the DB contract
+  // that human votes leave reasoning NULL.
+  const reasoning = parsed.agentId ? parsed.reasoning : undefined
+
   const result = await setVote(
     {
       postId: PostId(params.id),
       voterId,
       value: parsed.value,
+      reasoning,
     },
     { env: context.cloudflare.env },
   )
