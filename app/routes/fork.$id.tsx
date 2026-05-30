@@ -59,7 +59,10 @@ type LoaderData = {
   parentId: string
   parentShortId: string
   providerId: string
-  providers: Array<{ id: string; displayName: string }>
+  // [LAW:types-are-the-program] disabled carries the deregistered-provider
+  // state into the type so the select renders it visibly without the
+  // component needing to re-derive or branch on a separate flag.
+  providers: Array<{ id: string; displayName: string; disabled?: boolean }>
   // [LAW:one-source-of-truth] Per-provider prompt upper bounds keyed by
   // provider id. The textarea maxLength + counter update when the user
   // switches providers so the UX rejects over-long prompts at typing time.
@@ -93,11 +96,24 @@ export async function loader({
   const prompted = promptedParamsSchema.parse(parent.content.recipe.params)
 
   // [LAW:single-enforcer] realProviders filters by env so mocks never appear
-  // in the prod selector. The parent's provider may not be in this list if it
-  // was deregistered; the selector still defaults to it (below) and the action
-  // returns 404 if the user submits with a stale id.
+  // in the prod selector. If the parent's provider was deregistered it won't
+  // appear in `available`; we append it as a disabled entry so the select
+  // renders a visible default rather than a blank, and the action's 404 arm
+  // already handles a stale id on submit.
+  // [LAW:types-are-the-program] Extract the recipe into a local so TypeScript
+  // preserves the post-narrowing type inside lambda callbacks below.
+  const recipe = parent.content.recipe
   const available = realProviders(context.cloudflare.env)
-  const providers = available.map((p) => ({ id: p.id, displayName: p.displayName }))
+  const providers: Array<{ id: string; displayName: string; disabled?: boolean }> = available.map(
+    (p) => ({ id: p.id, displayName: p.displayName }),
+  )
+  if (!providers.some((p) => p.id === recipe.providerId)) {
+    providers.push({
+      id: recipe.providerId,
+      displayName: `${recipe.providerId} (unavailable)`,
+      disabled: true,
+    })
+  }
   const promptMaxPerProvider: Record<string, number> = Object.fromEntries(
     available.map((p) => [p.id, p.promptMaxLength]),
   )
@@ -105,19 +121,19 @@ export async function loader({
   return {
     parentId: parent.id,
     parentShortId: parent.id.slice(0, 8),
-    providerId: parent.content.recipe.providerId,
+    providerId: recipe.providerId,
     providers,
     promptMaxPerProvider,
     prompt: prompted.prompt,
-    styleFamily: parent.content.recipe.styleFamily,
-    aspectRatio: parent.content.recipe.aspectRatio,
-    subject: parent.content.recipe.subject,
+    styleFamily: recipe.styleFamily,
+    aspectRatio: recipe.aspectRatio,
+    subject: recipe.subject,
     // [LAW:one-source-of-truth] renderTemplate is the shared filler that
     // resolves `{slot}` placeholders into vocab values and normalizes a/an
     // articles. Using it here means the "subject" affordance shows what the
     // user is actually forking ("a marmoset performing an act of embarrassed")
     // rather than the raw template ("an {animal} performing an act of {emotion}").
-    subjectPhrase: renderTemplate(parent.content.recipe.subject),
+    subjectPhrase: renderTemplate(recipe.subject),
   }
 }
 
@@ -213,7 +229,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
             {loaderData.providers.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.id} value={p.id} disabled={p.disabled}>
                 {p.displayName}
               </option>
             ))}

@@ -32,7 +32,7 @@ const bodySchema = z.object({
   aspectRatio: aspectRatioSchema,
   // [LAW:single-enforcer] The registry's getProvider() enforces valid IDs; no
   // need to enumerate allowed values here. An unregistered providerId returns 404.
-  providerId: z.string().min(1),
+  providerId: z.string().trim().min(1).max(128),
 })
 
 export async function action({ request, params, context }: Route.ActionArgs) {
@@ -50,7 +50,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   } catch (e) {
     return invalidBodyResponse(
       e,
-      `body must be { prompt: string (1..${PROMPT_MAX} after trim), styleFamily, aspectRatio }`,
+      `body must be { prompt: string (1..${PROMPT_MAX} after trim), styleFamily, aspectRatio, providerId: string }`,
     )
   }
 
