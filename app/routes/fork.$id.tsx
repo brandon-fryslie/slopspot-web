@@ -348,7 +348,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         <Field label="prompt" hint={`${prompt.trim().length}/${promptMax}`}>
           {thinkingText.length > 0 && (
             <div className="rounded border border-white/10 bg-black/40 px-3 py-2">
-              <p className="font-mono text-[11px] italic leading-relaxed text-white/40">
+              <p className="font-mono text-[11px] italic leading-relaxed text-white/40 whitespace-pre-wrap break-words">
                 {thinkingText}
               </p>
             </div>

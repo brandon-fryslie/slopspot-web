@@ -106,6 +106,8 @@ export async function action({ request, context }: Route.ActionArgs) {
       }),
       signal: timeoutController.signal,
     })
+  } catch (err) {
+    return Response.json({ error: "upstream request failed", detail: String(err) }, { status: 502 })
   } finally {
     clearTimeout(timeoutId)
   }

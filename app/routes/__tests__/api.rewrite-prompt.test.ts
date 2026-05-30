@@ -34,8 +34,7 @@ function actionArgs(body: object, origin = 'https://slopspot.ai'): Parameters<ty
   } as Parameters<typeof action>[0]
 }
 
-// Builds a ReadableStream that emits the provided byte chunks with a small
-// delay between each — simulates real SSE streaming from Anthropic.
+// Builds a ReadableStream that emits the provided byte chunks synchronously.
 function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   return new ReadableStream({
