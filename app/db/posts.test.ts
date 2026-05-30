@@ -13,12 +13,14 @@ import type { CreatePostInput } from '~/db/posts'
 const mockBatch = vi.fn()
 const mockInsert = vi.fn()
 const mockUpdate = vi.fn()
+const mockDelete = vi.fn()
 
 vi.mock('~/db/client', () => ({
   db: () => ({
     batch: mockBatch,
     insert: mockInsert,
     update: mockUpdate,
+    delete: mockDelete,
   }),
 }))
 
@@ -84,6 +86,7 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     mockUpdate.mockReturnValue({
       set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
     })
+    mockDelete.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
   })
 
   afterEach(() => {
@@ -103,6 +106,8 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
 
       // Provider must not have been called — we bailed before spending money
       if (providerSpy) expect(providerSpy).not.toHaveBeenCalled()
+      // D1 batch is not transactional — the posts row may have committed. Cleanup runs.
+      expect(mockDelete).toHaveBeenCalled()
     })
 
     it('propagates the D1 error string in the thrown message', async () => {
@@ -142,13 +147,14 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
   })
 
   describe('createFoundPost', () => {
-    it('throws when found INSERT returns success:false', async () => {
+    it('throws when found INSERT returns success:false and deletes the orphan posts row', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure('constraint error'))
 
       const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
         'found INSERT failed: constraint error',
       )
+      expect(mockDelete).toHaveBeenCalled()
     })
 
     it('emits batch_outcome=failed on success:false', async () => {

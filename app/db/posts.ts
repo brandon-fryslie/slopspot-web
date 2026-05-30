@@ -164,8 +164,11 @@ async function createGenerationPost(
   // so per-statement failures inside a batch silently resolve without throwing.
   // Cast to the raw D1Result shape and fail loud — the orphan-post incident (May 2026)
   // was caused by exactly this silent path.
+  // D1 batch is not transactional: the posts row may have committed even when the
+  // generations INSERT reports success:false. Delete the orphan before rethrowing.
   const genRaw = genInsert as unknown as { success: boolean; error?: string }
   if (!genRaw.success) {
+    await database.delete(posts).where(eq(posts.id, id))
     throw new Error(`generations INSERT failed: ${genRaw.error ?? 'unknown'}`)
   }
 
@@ -339,8 +342,11 @@ async function createFoundPost(
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
     throw err
   }
+  // D1 batch is not transactional: the posts row may have committed even when the
+  // found INSERT reports success:false. Delete the orphan before rethrowing.
   const foundRaw = foundInsert as unknown as { success: boolean; error?: string }
   if (!foundRaw.success) {
+    await database.delete(posts).where(eq(posts.id, id))
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
     throw new Error(`found INSERT failed: ${foundRaw.error ?? 'unknown'}`)
   }
