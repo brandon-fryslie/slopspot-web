@@ -10,6 +10,7 @@ on:
       - master
     paths:
       - 'services/voter/**'
+      - '.gitea/workflows/voter-docker-build.yml'
   workflow_dispatch:
 
 env:
