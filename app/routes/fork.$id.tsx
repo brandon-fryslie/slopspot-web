@@ -51,6 +51,12 @@ const promptedParamsSchema = z
 // would assert a contract the consumer doesn't enforce.
 const forkResponseSchema = z.object({ id: z.string().min(1) })
 
+// [LAW:types-are-the-program] The delimiter that splits the LLM stream into
+// thinking prose (pre) and rewritten prompt (post). Defined once; both the
+// stream reader and any future tests reference this constant rather than the
+// raw string.
+const REWRITE_DELIM = "[PROMPT]\n"
+
 // [LAW:types-are-the-program] The loader's output is the form's exact pre-fill
 // shape — one closed type, no nullables. If a row drifts (parent not found,
 // upload-kind, malformed params) we throw a Response at the boundary; the
@@ -142,40 +148,114 @@ export function meta(_args: Route.MetaArgs) {
   return [{ title: "Fork — SlopSpot" }]
 }
 
+// [LAW:types-are-the-program] Three-value phase discriminant replaces the
+// boolean `submitting` flag. The illegal state "rewriting AND submitting
+// simultaneously" is unrepresentable. The button label and disabled state
+// derive from this one value with no additional flags.
+type Phase = "editing" | "rewriting" | "submitting"
+
 export default function ForkPage({ loaderData }: Route.ComponentProps) {
   const navigate = useNavigate()
   const [providerId, setProviderId] = useState(loaderData.providerId)
   const [prompt, setPrompt] = useState(loaderData.prompt)
   const [styleFamily, setStyleFamily] = useState<StyleFamily>(loaderData.styleFamily)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(loaderData.aspectRatio)
-  const [submitting, setSubmitting] = useState(false)
+  const [phase, setPhase] = useState<Phase>("editing")
+  const [thinkingText, setThinkingText] = useState("")
   const [error, setError] = useState<string | null>(null)
   const promptMax = loaderData.promptMaxPerProvider[providerId] ?? PROMPT_MAX
   // [LAW:single-enforcer] Synchronous re-entrancy guard, same shape as
-  // VoteControls + CommentSection. `setSubmitting(true)` is queued for the
+  // VoteControls + CommentSection. `setPhase('rewriting')` is queued for the
   // next render, so a rapid second click inside the same microtask would
-  // still see `submitting === false` from React state. The ref mutates
+  // still see `phase === 'editing'` from React state. The ref mutates
   // synchronously, so the second click bails on the same tick. This matters
   // more here than on votes/comments because each fork triggers a paid
   // provider call — a double-fire would charge twice.
   const inFlight = useRef(false)
 
+  const locked = phase !== "editing"
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (inFlight.current) return
-    const trimmed = prompt.trim()
-    if (trimmed.length === 0) {
+    const seed = prompt.trim()
+    if (seed.length === 0) {
       setError("prompt cannot be empty")
       return
     }
     inFlight.current = true
-    setSubmitting(true)
+    setPhase("rewriting")
+    setThinkingText("")
     setError(null)
+
     try {
+      // Phase 1: stream the LLM rewrite.
+      const rewriteRes = await fetch("/api/rewrite-prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: seed, styleFamily, aspectRatio }),
+      })
+
+      if (!rewriteRes.ok || !rewriteRes.body) {
+        const detail = await rewriteRes.text().catch(() => "")
+        throw new Error(`rewrite failed: ${rewriteRes.status} ${detail}`.trim())
+      }
+
+      const reader = rewriteRes.body.getReader()
+      const decoder = new TextDecoder()
+      // [LAW:dataflow-not-control-flow] A single pass over the stream splits
+      // it into two regions via REWRITE_DELIM. streamBuffer accumulates
+      // pre-delimiter bytes; once the delimiter is found, rewrittenPrompt
+      // accumulates the post-delimiter bytes and drives the textarea. No
+      // branch skips characters — every byte goes somewhere.
+      let streamBuffer = ""
+      let delimFound = false
+      let rewrittenPrompt = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value, { stream: true })
+
+        if (!delimFound) {
+          streamBuffer += chunk
+          const idx = streamBuffer.indexOf(REWRITE_DELIM)
+          if (idx !== -1) {
+            delimFound = true
+            const thinking = streamBuffer.slice(0, idx)
+            rewrittenPrompt = streamBuffer.slice(idx + REWRITE_DELIM.length)
+            setThinkingText(thinking)
+            setPrompt(rewrittenPrompt)
+          } else {
+            // Show thinking text in real time, holding back chars that could
+            // be the start of a split delimiter so they're not orphaned in
+            // the thinking block if the delimiter arrives on the next chunk.
+            const safeLen = Math.max(0, streamBuffer.length - (REWRITE_DELIM.length - 1))
+            setThinkingText(streamBuffer.slice(0, safeLen))
+          }
+        } else {
+          rewrittenPrompt += chunk
+          setPrompt(rewrittenPrompt)
+        }
+      }
+
+      if (!delimFound) {
+        throw new Error("rewrite stream ended without [PROMPT] delimiter")
+      }
+
+      // Phase 2: auto-submit the fork with the AI-authored prompt.
+      setPhase("submitting")
+
       const res = await fetch(`/api/fork/${loaderData.parentId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: trimmed, styleFamily, aspectRatio, providerId }),
+        body: JSON.stringify({
+          prompt: rewrittenPrompt,
+          styleFamily,
+          aspectRatio,
+          providerId,
+        }),
       })
       if (!res.ok) {
         const detail = await res.text().catch(() => "")
@@ -191,11 +271,14 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       navigate(`/p/${newPostId}`)
     } catch (err) {
       setError(String(err))
+      setPhase("editing")
     } finally {
-      setSubmitting(false)
       inFlight.current = false
     }
   }
+
+  const buttonLabel =
+    phase === "rewriting" ? "Rewriting…" : phase === "submitting" ? "Generating…" : "Fork"
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -226,7 +309,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           <select
             value={providerId}
             onChange={(e) => setProviderId(e.target.value)}
-            disabled={submitting}
+            disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
             {loaderData.providers.map((p) => (
@@ -245,12 +328,19 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         </InfoField>
 
         <Field label="prompt" hint={`${prompt.trim().length}/${promptMax}`}>
+          {thinkingText.length > 0 && (
+            <div className="rounded border border-white/10 bg-black/40 px-3 py-2">
+              <p className="font-mono text-[11px] italic leading-relaxed text-white/40">
+                {thinkingText}
+              </p>
+            </div>
+          )}
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             maxLength={promptMax}
             rows={5}
-            disabled={submitting}
+            disabled={locked}
             className="block w-full resize-y rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm leading-relaxed text-white/85 placeholder:text-white/30 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           />
         </Field>
@@ -271,7 +361,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
               setPrompt(prev => prev.includes(oldSeed) ? prev.replaceAll(oldSeed, newSeed) : prev)
               setStyleFamily(next)
             }}
-            disabled={submitting}
+            disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
             {STYLE_FAMILIES.map((s) => (
@@ -286,7 +376,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           <select
             value={aspectRatio}
             onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
-            disabled={submitting}
+            disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
             {ASPECT_RATIOS.map((r) => (
@@ -299,14 +389,14 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
 
         <div className="flex items-center justify-between pt-2">
           <span className="font-mono text-[11px] text-white/40">
-            {submitting ? "generating…" : "submit to fork"}
+            {phase === "editing" ? "submit to fork" : phase === "rewriting" ? "rewriting prompt…" : "generating image…"}
           </span>
           <button
             type="submit"
-            disabled={submitting || prompt.trim().length === 0 || prompt.trim().length > promptMax}
+            disabled={locked || prompt.trim().length === 0 || prompt.trim().length > promptMax}
             className="rounded bg-emerald-400/20 px-4 py-2 font-mono text-xs uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-400/30 disabled:opacity-40"
           >
-            {submitting ? "forking…" : "fork"}
+            {buttonLabel}
           </button>
         </div>
 

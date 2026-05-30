@@ -8,6 +8,7 @@ export default [
   route("api/posts/:id/vote", "routes/api.posts.$id.vote.ts"),
   route("api/posts/:id/comments", "routes/api.posts.$id.comments.ts"),
   route("api/fork/:id", "routes/api.fork.$id.ts"),
+  route("api/rewrite-prompt", "routes/api.rewrite-prompt.ts"),
   route("api/found", "routes/api.found.ts"),
   route("fork/:id", "routes/fork.$id.tsx"),
   route("p/:id", "routes/p.$id.tsx"),
