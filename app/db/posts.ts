@@ -136,30 +136,38 @@ async function createGenerationPost(
   // observable row rather than nothing. createPost is synchronous — it starts the
   // generation immediately — so 'running' is the true state from insert until the
   // provider resolves; it never persists 'pending' (a queued-not-started state no
-  // synchronous caller occupies). The paired insert is batched in one transaction
-  // so a content_kind='generation' post can never exist without its generations
-  // row — the cross-table cardinality this writer owns.
-  const [postInsert, genInsert] = await database.batch([
-    database.insert(posts).values({
-      id,
-      createdAt: startedAt,
-      contentKind: 'generation',
-      originJson: JSON.stringify(input.origin),
-    }),
-    database.insert(generations).values({
-      postId: id,
-      providerId: provider.id,
-      providerVersion: provider.version,
-      paramsJson: JSON.stringify(params),
-      parentPostId: input.parentId ?? null,
-      styleFamily: input.styleFamily,
-      subjectTemplate: input.subject.subjectTemplate,
-      slotsJson: JSON.stringify(input.subject.slots),
-      aspectRatio: input.aspectRatio,
-      status: 'running',
-      startedAt,
-    }),
-  ])
+  // synchronous caller occupies). D1 batch is not transactional: each statement
+  // commits independently. The success check below is the cardinality enforcer —
+  // if the generations row does not land, we detect and clean up before going
+  // further so feed reads never see a post without its sibling.
+  let postInsert: unknown
+  let genInsert: unknown
+  try {
+    ;[postInsert, genInsert] = await database.batch([
+      database.insert(posts).values({
+        id,
+        createdAt: startedAt,
+        contentKind: 'generation',
+        originJson: JSON.stringify(input.origin),
+      }),
+      database.insert(generations).values({
+        postId: id,
+        providerId: provider.id,
+        providerVersion: provider.version,
+        paramsJson: JSON.stringify(params),
+        parentPostId: input.parentId ?? null,
+        styleFamily: input.styleFamily,
+        subjectTemplate: input.subject.subjectTemplate,
+        slotsJson: JSON.stringify(input.subject.slots),
+        aspectRatio: input.aspectRatio,
+        status: 'running',
+        startedAt,
+      }),
+    ])
+  } catch (err) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw err
+  }
   // [LAW:no-silent-fallbacks] drizzle's mapRunResult never checks D1Result.success,
   // so per-statement failures inside a batch silently resolve without throwing.
   // Cast to the raw D1Result shape and fail loud — the orphan-post incident (May 2026)
@@ -334,10 +342,10 @@ async function createFoundPost(
   const id = makePostId(crypto.randomUUID())
   const createdAt = new Date()
 
-  // [LAW:types-are-the-program] Paired insert in one transaction: posts row +
-  // its found sibling. The cross-table cardinality (a content_kind='found'
-  // post has exactly one matching found row) is the writer's invariant, the
-  // same shape as the generation arm.
+  // [LAW:types-are-the-program] Paired batch insert: posts row + its found
+  // sibling. D1 batch is not transactional — the success check below is the
+  // cardinality enforcer. If the found row does not land, we detect and clean up
+  // before returning so feed reads never see a posts row without its sibling.
   // [LAW:no-silent-fallbacks] Same D1 per-statement silent-failure guard as the
   // generation arm: check result.success explicitly, not just absence of throw.
   let postInsertFound: unknown

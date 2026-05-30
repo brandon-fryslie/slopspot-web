@@ -148,6 +148,19 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       )
     })
 
+    it('emits batch_outcome=failed and rethrows when initial batch itself throws', async () => {
+      mockBatch.mockRejectedValue(new Error('D1 outage'))
+      const { emit } = await import('~/observability/metrics')
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow('D1 outage')
+      expect(vi.mocked(emit)).toHaveBeenCalledWith(
+        'slopspot.write.batch_outcome',
+        { content_kind: 'generation', outcome: 'failed' },
+        1,
+      )
+    })
+
     it('throws when posts INSERT returns success:false — no orphan delete (posts row was never written)', async () => {
       mockBatch.mockResolvedValue(batchWithFirstFailure('posts constraint'))
 
