@@ -50,12 +50,17 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   const voterId = parsed.agentId ?? voter!.voterId
   const setCookieHeader = voter?.setCookieHeader ?? null
 
+  // [LAW:single-enforcer] reasoning is agent-only — only agent votes carry
+  // z.ai rationale. Stripping it for human/cookie votes keeps the DB contract
+  // that human votes leave reasoning NULL.
+  const reasoning = parsed.agentId ? parsed.reasoning : undefined
+
   const result = await setVote(
     {
       postId: PostId(params.id),
       voterId,
       value: parsed.value,
-      reasoning: parsed.reasoning,
+      reasoning,
     },
     { env: context.cloudflare.env },
   )
