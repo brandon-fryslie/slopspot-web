@@ -57,6 +57,7 @@ const MOCK_SSE_DONE = 'data: [DONE]\n'
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('api.rewrite-prompt SSE parsing', () => {

@@ -247,7 +247,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       } } finally { reader.releaseLock() }
 
       if (!delimFound) {
-        throw new Error("rewrite stream ended without [PROMPT] delimiter")
+        throw new Error(`rewrite stream ended without ${REWRITE_DELIMITER} delimiter`)
       }
 
       // Trim and cap to the provider's promptMax — the LLM may write more than

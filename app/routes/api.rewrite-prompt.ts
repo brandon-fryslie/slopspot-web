@@ -20,6 +20,9 @@ const bodySchema = z.object({
 // Haiku is fast and cheap for this task; the output is short (thinking + prompt).
 const REWRITE_MODEL = "claude-haiku-4-5-20251001"
 const MAX_TOKENS = 600
+// Mirrors the REQUEST_TIMEOUT_MS in app/firehose/composer.ts — same upstream,
+// same bound. Protects against Anthropic stalling before sending headers.
+const REQUEST_TIMEOUT_MS = 15_000
 
 export async function action({ request, context }: Route.ActionArgs) {
   if (request.method !== "POST") {
@@ -78,24 +81,34 @@ export async function action({ request, context }: Route.ActionArgs) {
     `Aspect ratio: ${aspectLabel} — let this shape composition language where relevant.`,
   ].join("\n")
 
-  // [LAW:single-enforcer] Pass request.signal so a client disconnect aborts
-  // the upstream Anthropic call — bounds worker runtime and API spend.
-  const anthropicResp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: REWRITE_MODEL,
-      max_tokens: MAX_TOKENS,
-      stream: true,
-      system: systemPrompt,
-      messages: [{ role: "user", content: `Seed: ${parsed.prompt}` }],
-    }),
-    signal: request.signal,
-  })
+  // Combined abort: fires on client disconnect (request.signal) OR on timeout.
+  // Protects against both Anthropic stalling before headers and orphaned
+  // workers after the user navigates away.
+  const timeoutController = new AbortController()
+  const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS)
+  request.signal.addEventListener("abort", () => timeoutController.abort(), { once: true })
+
+  let anthropicResp: Response
+  try {
+    anthropicResp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: REWRITE_MODEL,
+        max_tokens: MAX_TOKENS,
+        stream: true,
+        system: systemPrompt,
+        messages: [{ role: "user", content: `Seed: ${parsed.prompt}` }],
+      }),
+      signal: timeoutController.signal,
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   if (!anthropicResp.ok || !anthropicResp.body) {
     const body = await anthropicResp.text().catch(() => "")
