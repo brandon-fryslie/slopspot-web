@@ -1,0 +1,28 @@
+# Builds and pushes the slopspot-voter Docker image to the homelab registry.
+# Triggers on any change under services/voter/. The Nomad periodic job pulls
+# :latest on each alloc start — no tag management needed for a batch job.
+
+name: voter-docker-build
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'services/voter/**'
+      - '.gitea/workflows/voter-docker-build.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE: registry.sanctuary.gdn/slopspot-voter
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and push
+        run: |
+          docker build -t "${{ env.IMAGE }}:latest" services/voter/
+          docker push "${{ env.IMAGE }}:latest"
