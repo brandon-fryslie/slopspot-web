@@ -9,7 +9,7 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
-import { PostId, type Origin } from "~/lib/domain"
+import { PostId, ProviderId, type Origin } from "~/lib/domain"
 import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 
@@ -30,6 +30,9 @@ const bodySchema = z.object({
   prompt: z.string().trim().min(1).max(PROMPT_MAX),
   styleFamily: styleFamilySchema,
   aspectRatio: aspectRatioSchema,
+  // [LAW:single-enforcer] The registry's getProvider() enforces valid IDs; no
+  // need to enumerate allowed values here. An unregistered providerId returns 404.
+  providerId: z.string().min(1),
 })
 
 export async function action({ request, params, context }: Route.ActionArgs) {
@@ -95,15 +98,17 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // truth. The early call here is the seam where canonical recipe fields
   // (prompt, styleFamily, seed) become provider-native params via
   // defaultParamsForRecipe — the same translation the firehose chooser does.
+  // The fork's chosen provider (parsed.providerId) may differ from the parent's.
+  const chosenProviderId = ProviderId(parsed.providerId)
   let provider
   try {
-    provider = getProvider(parent.content.recipe.providerId)
+    provider = getProvider(chosenProviderId)
   } catch (e) {
     if (e instanceof UnknownProviderError) {
       return Response.json(
         {
-          error: "parent post's provider is no longer registered",
-          providerId: parent.content.recipe.providerId,
+          error: "provider not registered",
+          providerId: parsed.providerId,
         },
         { status: 404 },
       )
@@ -138,7 +143,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     const post = await createPost(
       {
         kind: 'generation',
-        providerId: parent.content.recipe.providerId,
+        providerId: chosenProviderId,
         params: derivedParams,
         styleFamily: parsed.styleFamily,
         subject: parent.content.recipe.subject,
@@ -167,8 +172,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     if (e instanceof UnknownProviderError) {
       return Response.json(
         {
-          error: "parent post's provider is no longer registered",
-          providerId: parent.content.recipe.providerId,
+          error: "provider not registered",
+          providerId: parsed.providerId,
         },
         { status: 404 },
       )
@@ -177,7 +182,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       return Response.json(
         {
           error: "invalid params for provider",
-          providerId: parent.content.recipe.providerId,
+          providerId: parsed.providerId,
           issues: e.issues,
         },
         { status: 422 },
@@ -187,7 +192,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       return Response.json(
         {
           error: "fork failed",
-          providerId: parent.content.recipe.providerId,
+          providerId: parsed.providerId,
           upstreamStatus: e.status,
           detail: e.body,
         },
@@ -197,7 +202,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     return Response.json(
       {
         error: "fork failed",
-        providerId: parent.content.recipe.providerId,
+        providerId: parsed.providerId,
         detail: e instanceof Error ? e.message : String(e),
       },
       { status: 502 },

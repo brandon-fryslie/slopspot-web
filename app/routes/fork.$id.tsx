@@ -3,7 +3,7 @@ import { useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { z } from "zod"
 import { getPostById } from "~/db/feed"
-import { getProvider, UnknownProviderError } from "~/providers"
+import { realProviders } from "~/providers"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 import {
   PostId,
@@ -59,15 +59,13 @@ type LoaderData = {
   parentId: string
   parentShortId: string
   providerId: string
-  providerDisplayName: string
-  // [LAW:one-source-of-truth] The parent provider's prompt upper bound,
-  // pulled from provider.promptMaxLength. The textarea's maxLength + counter
-  // use this so the UI rejects an over-long prompt at typing time rather
-  // than letting the user discover it via a 422 from createPost. The wire
-  // schema in api.fork.$id.ts validates against the union-ceiling PROMPT_MAX
-  // (so an SDXL fork can submit 1000 chars even if the form was hosted by
-  // a fal-flux page); the per-provider bound here is purely a UX affordance.
-  promptMax: number
+  providers: Array<{ id: string; displayName: string }>
+  // [LAW:one-source-of-truth] Per-provider prompt upper bounds keyed by
+  // provider id. The textarea maxLength + counter update when the user
+  // switches providers so the UX rejects over-long prompts at typing time.
+  // The wire schema in api.fork.$id.ts validates against PROMPT_MAX (the
+  // union ceiling) so cross-provider submissions always pass validation.
+  promptMaxPerProvider: Record<string, number>
   prompt: string
   styleFamily: StyleFamily
   aspectRatio: AspectRatio
@@ -94,28 +92,22 @@ export async function loader({
   // invariant violation, not a normal-path case.
   const prompted = promptedParamsSchema.parse(parent.content.recipe.params)
 
-  let providerDisplayName: string = parent.content.recipe.providerId
-  // Default to the union ceiling so a deregistered provider doesn't strand
-  // the form with a zero-length textarea; the wire schema will still apply
-  // the same ceiling if the user submits.
-  let providerPromptMax: number = PROMPT_MAX
-  try {
-    const provider = getProvider(parent.content.recipe.providerId)
-    providerDisplayName = provider.displayName
-    providerPromptMax = provider.promptMaxLength
-  } catch (e) {
-    if (!(e instanceof UnknownProviderError)) throw e
-    // The provider was deregistered since the parent's creation. Surface the
-    // raw id rather than crashing the form; the action returns 404 if the
-    // user submits.
-  }
+  // [LAW:single-enforcer] realProviders filters by env so mocks never appear
+  // in the prod selector. The parent's provider may not be in this list if it
+  // was deregistered; the selector still defaults to it (below) and the action
+  // returns 404 if the user submits with a stale id.
+  const available = realProviders(context.cloudflare.env)
+  const providers = available.map((p) => ({ id: p.id, displayName: p.displayName }))
+  const promptMaxPerProvider: Record<string, number> = Object.fromEntries(
+    available.map((p) => [p.id, p.promptMaxLength]),
+  )
 
   return {
     parentId: parent.id,
     parentShortId: parent.id.slice(0, 8),
     providerId: parent.content.recipe.providerId,
-    providerDisplayName,
-    promptMax: providerPromptMax,
+    providers,
+    promptMaxPerProvider,
     prompt: prompted.prompt,
     styleFamily: parent.content.recipe.styleFamily,
     aspectRatio: parent.content.recipe.aspectRatio,
@@ -135,11 +127,13 @@ export function meta(_args: Route.MetaArgs) {
 
 export default function ForkPage({ loaderData }: Route.ComponentProps) {
   const navigate = useNavigate()
+  const [providerId, setProviderId] = useState(loaderData.providerId)
   const [prompt, setPrompt] = useState(loaderData.prompt)
   const [styleFamily, setStyleFamily] = useState<StyleFamily>(loaderData.styleFamily)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(loaderData.aspectRatio)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const promptMax = loaderData.promptMaxPerProvider[providerId] ?? PROMPT_MAX
   // [LAW:single-enforcer] Synchronous re-entrancy guard, same shape as
   // VoteControls + CommentSection. `setSubmitting(true)` is queued for the
   // next render, so a rapid second click inside the same microtask would
@@ -164,7 +158,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       const res = await fetch(`/api/fork/${loaderData.parentId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: trimmed, styleFamily, aspectRatio }),
+        body: JSON.stringify({ prompt: trimmed, styleFamily, aspectRatio, providerId }),
       })
       if (!res.ok) {
         const detail = await res.text().catch(() => "")
@@ -211,9 +205,20 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       </header>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-5">
-        <InfoField label="provider" hint="preserved from parent">
-          <ReadOnlyValue>{loaderData.providerDisplayName}</ReadOnlyValue>
-        </InfoField>
+        <Field label="provider">
+          <select
+            value={providerId}
+            onChange={(e) => setProviderId(e.target.value)}
+            disabled={submitting}
+            className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
+          >
+            {loaderData.providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.displayName}
+              </option>
+            ))}
+          </select>
+        </Field>
 
         <InfoField label="subject" hint="preserved from parent">
           <ReadOnlyValue>{loaderData.subjectPhrase}</ReadOnlyValue>
@@ -222,11 +227,11 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           </pre>
         </InfoField>
 
-        <Field label="prompt" hint={`${prompt.trim().length}/${loaderData.promptMax}`}>
+        <Field label="prompt" hint={`${prompt.trim().length}/${promptMax}`}>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            maxLength={loaderData.promptMax}
+            maxLength={promptMax}
             rows={5}
             disabled={submitting}
             className="block w-full resize-y rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm leading-relaxed text-white/85 placeholder:text-white/30 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
