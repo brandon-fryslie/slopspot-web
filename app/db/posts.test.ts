@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CreatePostInput } from '~/db/posts'
+import { ProviderId } from '~/lib/domain'
 
 // Drizzle fluent chain returns `this` at each step, with batch as the terminal.
 // The mock must satisfy: db(env).insert(table).values(row) → a batchable token,
@@ -14,6 +15,9 @@ const mockBatch = vi.fn()
 const mockInsert = vi.fn()
 const mockUpdate = vi.fn()
 const mockDelete = vi.fn()
+// Captured at module scope so tests can assert on it directly without reading
+// mock.results (which is empty before getProvider has been called in the test).
+const mockGenerate = vi.fn()
 
 vi.mock('~/db/client', () => ({
   db: () => ({
@@ -35,12 +39,12 @@ vi.mock('~/db/schema', () => ({
   uploads: {},
 }))
 
-// eq is used in the update chain after provider call — not reached in these
-// tests (we throw before the provider), but the import must resolve.
+// eq is used in the update/delete chain — not reached in failure tests, but the
+// import must resolve.
 vi.mock('drizzle-orm', () => ({ eq: vi.fn() }))
 
-// Provider mock: paramsSchema accepts { prompt: string } and the provider
-// would be called only if the batch guard doesn't throw first.
+// Provider mock: paramsSchema accepts any object; generate is mockGenerate so
+// tests can assert it was or was not called across any iteration.
 vi.mock('~/providers', () => ({
   getProvider: vi.fn().mockReturnValue({
     id: 'test-provider',
@@ -48,7 +52,7 @@ vi.mock('~/providers', () => ({
     paramsSchema: {
       safeParse: (v: unknown) => ({ success: true, data: v }),
     },
-    generate: vi.fn(),
+    generate: mockGenerate,
     capabilities: { costEstimateUsd: 0 },
   }),
 }))
@@ -59,7 +63,7 @@ const fakeEnv = {} as Env
 
 const GENERATION_INPUT: CreatePostInput = {
   kind: 'generation',
-  providerId: 'test-provider' as Parameters<typeof import('~/lib/domain').PostId>[0] & string as never,
+  providerId: ProviderId('test-provider'),
   params: { prompt: 'a test prompt' },
   styleFamily: 'photoreal',
   subject: { subjectTemplate: 'T00', slots: { freeText: 'test' } },
@@ -74,10 +78,15 @@ const FOUND_INPUT: CreatePostInput = {
   origin: { actor: { kind: 'anon', label: 'test' } },
 }
 
-// A batch result where the first statement succeeded but the second (sibling
-// table) returned success:false — the exact shape of D1's per-statement failure.
+// Batch result where the first statement succeeded but the second (sibling table)
+// returned success:false — the exact shape of D1's per-statement silent failure.
 function batchWithSecondFailure(errorMsg = 'UNIQUE constraint failed') {
   return [{ success: true, results: [], meta: {} }, { success: false, error: errorMsg }]
+}
+
+// Batch result where the first statement (posts INSERT) itself failed.
+function batchWithFirstFailure(errorMsg = 'UNIQUE constraint failed') {
+  return [{ success: false, error: errorMsg }, { success: false, error: 'FK constraint' }]
 }
 
 describe('app/db/posts.ts — batch INSERT success validation', () => {
@@ -94,20 +103,29 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
   })
 
   describe('createGenerationPost', () => {
-    it('throws when generations INSERT returns success:false — does not call provider', async () => {
+    it('throws when generations INSERT returns success:false — does not call provider or delete orphan', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure('constraint error'))
-      const { getProvider } = await import('~/providers')
-      const providerSpy = vi.mocked(getProvider).mock.results[0]?.value?.generate
 
       const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'generations INSERT failed: constraint error',
       )
 
-      // Provider must not have been called — we bailed before spending money
-      if (providerSpy) expect(providerSpy).not.toHaveBeenCalled()
+      expect(mockGenerate).not.toHaveBeenCalled()
       // D1 batch is not transactional — the posts row may have committed. Cleanup runs.
       expect(mockDelete).toHaveBeenCalled()
+    })
+
+    it('throws when posts INSERT returns success:false — no orphan delete (posts row was never written)', async () => {
+      mockBatch.mockResolvedValue(batchWithFirstFailure('posts constraint'))
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
+        'posts INSERT failed: posts constraint',
+      )
+
+      expect(mockGenerate).not.toHaveBeenCalled()
+      expect(mockDelete).not.toHaveBeenCalled()
     })
 
     it('propagates the D1 error string in the thrown message', async () => {
@@ -128,20 +146,11 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       )
     })
 
-    it('does not throw when both statements succeed', async () => {
+    it('batch guard passes — later provider error propagates, not a guard error', async () => {
       mockBatch.mockResolvedValue([{ success: true }, { success: true }])
-      // Provider generate → throw so the test terminates without a full round-trip.
-      const { getProvider } = await import('~/providers')
-      vi.mocked(getProvider).mockReturnValueOnce({
-        id: 'test-provider',
-        version: '1',
-        paramsSchema: { safeParse: (v: unknown) => ({ success: true, data: v }) },
-        generate: vi.fn().mockRejectedValue(new Error('provider-error')),
-        capabilities: { costEstimateUsd: 0 },
-      } as never)
+      mockGenerate.mockRejectedValueOnce(new Error('provider-error'))
 
       const { createPost } = await import('~/db/posts')
-      // The batch guard passed; the error comes from the provider, not the guard.
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow('provider-error')
     })
   })
@@ -155,6 +164,16 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
         'found INSERT failed: constraint error',
       )
       expect(mockDelete).toHaveBeenCalled()
+    })
+
+    it('throws when posts INSERT returns success:false — no orphan delete', async () => {
+      mockBatch.mockResolvedValue(batchWithFirstFailure('posts constraint'))
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
+        'posts INSERT failed: posts constraint',
+      )
+      expect(mockDelete).not.toHaveBeenCalled()
     })
 
     it('emits batch_outcome=failed on success:false', async () => {
@@ -171,11 +190,10 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       )
     })
 
-    it('does not throw when both statements succeed', async () => {
+    it('batch guard passes — returns Post domain object', async () => {
       mockBatch.mockResolvedValue([{ success: true }, { success: true }])
 
       const { createPost } = await import('~/db/posts')
-      // No throw — returns the constructed Post domain object.
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).resolves.toMatchObject({
         content: { kind: 'found', url: FOUND_INPUT.url },
       })

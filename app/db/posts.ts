@@ -139,7 +139,7 @@ async function createGenerationPost(
   // synchronous caller occupies). The paired insert is batched in one transaction
   // so a content_kind='generation' post can never exist without its generations
   // row — the cross-table cardinality this writer owns.
-  const [, genInsert] = await database.batch([
+  const [postInsert, genInsert] = await database.batch([
     database.insert(posts).values({
       id,
       createdAt: startedAt,
@@ -164,11 +164,18 @@ async function createGenerationPost(
   // so per-statement failures inside a batch silently resolve without throwing.
   // Cast to the raw D1Result shape and fail loud — the orphan-post incident (May 2026)
   // was caused by exactly this silent path.
+  const postRaw = postInsert as unknown as { success: boolean; error?: string }
+  if (!postRaw.success) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw new Error(`posts INSERT failed: ${postRaw.error ?? 'unknown'}`)
+  }
   // D1 batch is not transactional: the posts row may have committed even when the
-  // generations INSERT reports success:false. Delete the orphan before rethrowing.
+  // generations INSERT reports success:false. Confirm posts succeeded before
+  // deleting — if both failed, there is no orphan to clean up.
   const genRaw = genInsert as unknown as { success: boolean; error?: string }
   if (!genRaw.success) {
     await database.delete(posts).where(eq(posts.id, id))
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
     throw new Error(`generations INSERT failed: ${genRaw.error ?? 'unknown'}`)
   }
 
@@ -321,9 +328,10 @@ async function createFoundPost(
   // same shape as the generation arm.
   // [LAW:no-silent-fallbacks] Same D1 per-statement silent-failure guard as the
   // generation arm: check result.success explicitly, not just absence of throw.
+  let postInsertFound: unknown
   let foundInsert: unknown
   try {
-    ;[, foundInsert] = await database.batch([
+    ;[postInsertFound, foundInsert] = await database.batch([
       database.insert(posts).values({
         id,
         createdAt,
@@ -342,8 +350,13 @@ async function createFoundPost(
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
     throw err
   }
-  // D1 batch is not transactional: the posts row may have committed even when the
-  // found INSERT reports success:false. Delete the orphan before rethrowing.
+  const postRawFound = postInsertFound as unknown as { success: boolean; error?: string }
+  if (!postRawFound.success) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
+    throw new Error(`posts INSERT failed: ${postRawFound.error ?? 'unknown'}`)
+  }
+  // D1 batch is not transactional: confirm posts succeeded before deleting to
+  // ensure cleanup targets only a row this writer created, not a pre-existing one.
   const foundRaw = foundInsert as unknown as { success: boolean; error?: string }
   if (!foundRaw.success) {
     await database.delete(posts).where(eq(posts.id, id))
