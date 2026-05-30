@@ -84,6 +84,17 @@ export const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const
 export type AspectRatio = (typeof ASPECT_RATIOS)[number]
 export const aspectRatioSchema = z.enum(ASPECT_RATIOS)
 
+// [LAW:one-source-of-truth] Human-readable label fed to LLM system prompts.
+// Consumed by the firehose composer and the rewrite-prompt route; one value,
+// two callers — a change here propagates to both automatically.
+export const ASPECT_RATIO_LABELS: Record<AspectRatio, string> = {
+  '1:1': 'square',
+  '16:9': 'wide landscape',
+  '9:16': 'tall portrait',
+  '4:3': 'landscape',
+  '3:4': 'portrait',
+}
+
 // [LAW:one-source-of-truth] The doc's §Aspect ratio policy distribution. Weights
 // are proportional (not probabilities); the weighted sampler normalizes. Kept
 // as raw percentages from the doc so a reviewer comparing this file to the

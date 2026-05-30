@@ -2,7 +2,7 @@ import type { Route } from "./+types/api.rewrite-prompt"
 import { z } from "zod"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
-import { styleFamilySchema, aspectRatioSchema, STYLE_FAMILY_PROMPT_SEEDS } from "~/lib/variety"
+import { styleFamilySchema, aspectRatioSchema, STYLE_FAMILY_PROMPT_SEEDS, ASPECT_RATIO_LABELS } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
 
@@ -49,14 +49,8 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[parsed.styleFamily]
 
-  // Human-readable aspect label mirrors the composer's mapping so the LLM
-  // gets concrete framing rather than the raw ratio string.
-  const aspectLabel =
-    parsed.aspectRatio === "1:1" ? "square"
-    : parsed.aspectRatio === "16:9" ? "wide landscape"
-    : parsed.aspectRatio === "9:16" ? "tall portrait"
-    : parsed.aspectRatio === "4:3" ? "landscape"
-    : "portrait (3:4)"
+  // [LAW:one-source-of-truth] ASPECT_RATIO_LABELS is the canonical mapping.
+  const aspectLabel = ASPECT_RATIO_LABELS[parsed.aspectRatio]
 
   // [LAW:one-source-of-truth] REWRITE_DELIMITER is the shared contract between
   // this system prompt and the client-side stream parser in fork.$id.tsx.
