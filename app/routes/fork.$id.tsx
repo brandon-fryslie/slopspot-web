@@ -257,6 +257,10 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       if (!submittablePrompt) {
         throw new Error("rewrite produced an empty prompt")
       }
+      // Sync textarea to submittablePrompt so the displayed text matches what
+      // gets submitted — if the fork fails and the phase returns to editing,
+      // the user sees the capped version and the submit button stays enabled.
+      setPrompt(submittablePrompt)
 
       // Phase 2: auto-submit the fork with the AI-authored prompt.
       setPhase("submitting")
