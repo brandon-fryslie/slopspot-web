@@ -22,13 +22,22 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const statsByVoterId = Object.fromEntries(stats.map((s) => [s.voterId, s]))
 
   const rows = personas.map((p) => {
-    const schedulerConfig = parseSchedulerConfig(p.config)
+    // Catch per-row so a single bad config doesn't 500 the entire page —
+    // this dashboard is the only tool for fixing bad configs.
+    let schedulerConfig = null
+    let configError: string | null = null
+    try {
+      schedulerConfig = parseSchedulerConfig(p.config)
+    } catch (err) {
+      configError = err instanceof Error ? err.message : 'Invalid scheduler config'
+    }
     const s = statsByVoterId[p.agentId]
     return {
       agentId: p.agentId,
       displayName: p.displayName,
       config: p.config,
       schedulerConfig,
+      configError,
       voteCount: s?.voteCount ?? 0,
       upvotes: s?.upvotes ?? 0,
       downvotes: s?.downvotes ?? 0,
@@ -85,12 +94,18 @@ function PersonaRow({ row, actionUrl }: { row: Row; actionUrl: string }) {
       <td className="py-3 pr-4 text-sm text-gray-300 text-center">{row.voteCount}</td>
       <td className="py-3 pr-4 text-sm text-green-400 text-center">{row.upvotes}</td>
       <td className="py-3 pr-4 text-sm text-red-400 text-center">{row.downvotes}</td>
-      <td className="py-3 pr-4 text-sm text-blue-300 text-center">
-        {row.schedulerConfig.expectedDailyFires}/day
-        {row.schedulerConfig.activeHoursUtc && (
-          <span className="ml-1 text-gray-400 text-xs">
-            ({row.schedulerConfig.activeHoursUtc.startHour}–
-            {row.schedulerConfig.activeHoursUtc.endHour}h UTC)
+      <td className="py-3 pr-4 text-sm text-center">
+        {row.configError ? (
+          <span className="text-red-400 text-xs">{row.configError}</span>
+        ) : (
+          <span className="text-blue-300">
+            {row.schedulerConfig!.expectedDailyFires}/day
+            {row.schedulerConfig!.activeHoursUtc && (
+              <span className="ml-1 text-gray-400 text-xs">
+                ({row.schedulerConfig!.activeHoursUtc.startHour}–
+                {row.schedulerConfig!.activeHoursUtc.endHour}h UTC)
+              </span>
+            )}
           </span>
         )}
       </td>
