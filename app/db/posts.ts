@@ -136,30 +136,68 @@ async function createGenerationPost(
   // observable row rather than nothing. createPost is synchronous — it starts the
   // generation immediately — so 'running' is the true state from insert until the
   // provider resolves; it never persists 'pending' (a queued-not-started state no
-  // synchronous caller occupies). The paired insert is batched in one transaction
-  // so a content_kind='generation' post can never exist without its generations
-  // row — the cross-table cardinality this writer owns.
-  await database.batch([
-    database.insert(posts).values({
-      id,
-      createdAt: startedAt,
-      contentKind: 'generation',
-      originJson: JSON.stringify(input.origin),
-    }),
-    database.insert(generations).values({
-      postId: id,
-      providerId: provider.id,
-      providerVersion: provider.version,
-      paramsJson: JSON.stringify(params),
-      parentPostId: input.parentId ?? null,
-      styleFamily: input.styleFamily,
-      subjectTemplate: input.subject.subjectTemplate,
-      slotsJson: JSON.stringify(input.subject.slots),
-      aspectRatio: input.aspectRatio,
-      status: 'running',
-      startedAt,
-    }),
-  ])
+  // synchronous caller occupies). D1 batch is not transactional: each statement
+  // commits independently. The success check below is the cardinality enforcer —
+  // if the generations row does not land, we detect and clean up before going
+  // further so feed reads never see a post without its sibling.
+  let postInsert: unknown
+  let genInsert: unknown
+  try {
+    ;[postInsert, genInsert] = await database.batch([
+      database.insert(posts).values({
+        id,
+        createdAt: startedAt,
+        contentKind: 'generation',
+        originJson: JSON.stringify(input.origin),
+      }),
+      database.insert(generations).values({
+        postId: id,
+        providerId: provider.id,
+        providerVersion: provider.version,
+        paramsJson: JSON.stringify(params),
+        parentPostId: input.parentId ?? null,
+        styleFamily: input.styleFamily,
+        subjectTemplate: input.subject.subjectTemplate,
+        slotsJson: JSON.stringify(input.subject.slots),
+        aspectRatio: input.aspectRatio,
+        status: 'running',
+        startedAt,
+      }),
+    ])
+  } catch (err) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw err
+  }
+  // [LAW:no-silent-fallbacks] drizzle's mapRunResult never checks D1Result.success,
+  // so per-statement failures inside a batch silently resolve without throwing.
+  // Cast to the raw D1Result shape and fail loud — the orphan-post incident (May 2026)
+  // was caused by exactly this silent path.
+  const postRaw = postInsert as unknown as { success: boolean; error?: string }
+  if (!postRaw.success) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw new Error(`posts INSERT failed: ${postRaw.error ?? 'unknown'}`)
+  }
+  // D1 batch is not transactional: the posts row may have committed even when the
+  // generations INSERT reports success:false. Confirm posts succeeded before
+  // deleting — if both failed, there is no orphan to clean up.
+  const genRaw = genInsert as unknown as { success: boolean; error?: string }
+  if (!genRaw.success) {
+    const genError = `generations INSERT failed: ${genRaw.error ?? 'unknown'}`
+    // [LAW:dataflow-not-control-flow] cleanupNote is data that varies by outcome;
+    // emit and throw run unconditionally so cleanup failures cannot skip the metric.
+    let cleanupNote = ''
+    try {
+      const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
+      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      if (!cleanupRaw.success) {
+        cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
+      }
+    } catch (cleanupErr) {
+      cleanupNote = `; orphan cleanup threw: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+    }
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw new Error(`${genError}${cleanupNote}`)
+  }
 
   let output: Media
   let completedAt: Date
@@ -304,15 +342,16 @@ async function createFoundPost(
   const id = makePostId(crypto.randomUUID())
   const createdAt = new Date()
 
-  // [LAW:types-are-the-program] Paired insert in one transaction: posts row +
-  // its found sibling. The cross-table cardinality (a content_kind='found'
-  // post has exactly one matching found row) is the writer's invariant, the
-  // same shape as the generation arm.
-  // Wrapped so a D1 outage at the batch is observable as
-  // `batch_outcome=failed` instead of metric silence. Mirrors the same shape
-  // used in createGenerationPost for the success-path update.
+  // [LAW:types-are-the-program] Paired batch insert: posts row + its found
+  // sibling. D1 batch is not transactional — the success check below is the
+  // cardinality enforcer. If the found row does not land, we detect and clean up
+  // before returning so feed reads never see a posts row without its sibling.
+  // [LAW:no-silent-fallbacks] Same D1 per-statement silent-failure guard as the
+  // generation arm: check result.success explicitly, not just absence of throw.
+  let postInsertFound: unknown
+  let foundInsert: unknown
   try {
-    await database.batch([
+    ;[postInsertFound, foundInsert] = await database.batch([
       database.insert(posts).values({
         id,
         createdAt,
@@ -330,6 +369,31 @@ async function createFoundPost(
   } catch (err) {
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
     throw err
+  }
+  const postRawFound = postInsertFound as unknown as { success: boolean; error?: string }
+  if (!postRawFound.success) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
+    throw new Error(`posts INSERT failed: ${postRawFound.error ?? 'unknown'}`)
+  }
+  // D1 batch is not transactional: confirm posts succeeded before deleting to
+  // ensure cleanup targets only a row this writer created, not a pre-existing one.
+  const foundRaw = foundInsert as unknown as { success: boolean; error?: string }
+  if (!foundRaw.success) {
+    const foundError = `found INSERT failed: ${foundRaw.error ?? 'unknown'}`
+    // [LAW:dataflow-not-control-flow] same pattern as generation arm: cleanupNote
+    // is data, emit and throw are unconditional.
+    let cleanupNote = ''
+    try {
+      const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
+      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      if (!cleanupRaw.success) {
+        cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
+      }
+    } catch (cleanupErr) {
+      cleanupNote = `; orphan cleanup threw: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+    }
+    emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
+    throw new Error(`${foundError}${cleanupNote}`)
   }
 
   emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'success' }, 1)
