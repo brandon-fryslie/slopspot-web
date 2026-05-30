@@ -36,7 +36,13 @@ export async function loader({ context }: Route.LoaderArgs) {
       postId: v.postId,
       value: v.value,
       reasoning: v.reasoning,
-      createdAt: v.createdAt.toISOString(),
+      // Pre-format in the loader with a pinned UTC timezone so SSR and client
+      // hydration always produce the same string. [LAW:one-source-of-truth]
+      createdAt: v.createdAt.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC',
+      }),
     })),
   }))
 
@@ -49,10 +55,7 @@ type RecentVote = Agent['recentVotes'][number]
 function VoteRow({ vote }: { vote: RecentVote }) {
   const label = vote.value === 1 ? '▲' : '▼'
   const color = vote.value === 1 ? 'text-green-400' : 'text-red-400'
-  const date = new Date(vote.createdAt).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  })
+  const date = vote.createdAt
   return (
     <li className="flex gap-3 text-sm">
       <span className={`${color} font-bold shrink-0 w-4`}>{label}</span>
