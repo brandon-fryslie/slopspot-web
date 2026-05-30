@@ -44,14 +44,17 @@ export async function judgeImage(opts: {
   const scoreLine = lines[0] ?? ''
   const reasoningLine = lines[1] ?? ''
 
-  // [LAW:types-are-the-program] Strict parse: only a bare decimal integer is
-  // accepted on the first line.
+  // [LAW:types-are-the-program] Strict parse: score and reasoning must both
+  // be present — a missing reasoning line is treated as an unparseable response
+  // rather than fabricated. The return type pairs them atomically; returning
+  // null forces the pipeline to skip this candidate rather than log or persist
+  // synthetic text.
   const parsed = /^\d{1,3}$/.test(scoreLine) ? parseInt(scoreLine, 10) : NaN
-  if (isNaN(parsed) || parsed < 0 || parsed > 100) {
-    console.warn('voter: unparseable score from MCP', { reply: reply.slice(0, 200) })
+  if (isNaN(parsed) || parsed < 0 || parsed > 100 || !reasoningLine) {
+    console.warn('voter: unparseable response from MCP', { reply: reply.slice(0, 200) })
     return null
   }
-  return { score: parsed, reasoning: reasoningLine || 'No reasoning provided.' }
+  return { score: parsed, reasoning: reasoningLine }
 }
 
 // Spawn @z_ai/mcp-server, send initialize + tools/call(analyze_image), collect
