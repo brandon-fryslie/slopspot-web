@@ -297,8 +297,10 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       const { id: newPostId } = forkResponseSchema.parse(await res.json())
       navigate(`/p/${newPostId}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setPhase("editing")
+      if (!abort.signal.aborted) {
+        setError(err instanceof Error ? err.message : String(err))
+        setPhase("editing")
+      }
     } finally {
       inFlight.current = false
     }
