@@ -10,20 +10,26 @@
 
 import { spawn } from 'node:child_process'
 
-// Returns a score 0–100, or null if the MCP call fails or returns an
+export type Judgment = { score: number; reasoning: string }
+
+// Returns { score, reasoning } or null if the MCP call fails or returns an
 // unparseable response. null causes the pipeline to skip this candidate.
+// Both fields are always present together — the type forbids "score without
+// reasoning" at the call site. [LAW:types-are-the-program]
 export async function judgeImage(opts: {
   imageUrl: string
   personaPrompt: string
   apiKey: string
-}): Promise<number | null> {
+}): Promise<Judgment | null> {
   const { imageUrl, personaPrompt, apiKey } = opts
 
   const prompt = [
     personaPrompt,
     '',
     'Rate this AI-generated image on a scale of 0 to 100 based on your aesthetic criteria.',
-    'Reply with ONLY a single integer between 0 and 100. No other text.',
+    'Reply with exactly two lines:',
+    'Line 1: a single integer between 0 and 100.',
+    'Line 2: one sentence explaining your rating.',
   ].join('\n')
 
   let reply: string
@@ -34,16 +40,18 @@ export async function judgeImage(opts: {
     return null
   }
 
+  const lines = reply.trim().split('\n').map((l) => l.trim()).filter(Boolean)
+  const scoreLine = lines[0] ?? ''
+  const reasoningLine = lines[1] ?? ''
+
   // [LAW:types-are-the-program] Strict parse: only a bare decimal integer is
-  // accepted. parseInt('85/100') = 85 — partial strings would silently bypass
-  // the prompt's "ONLY a single integer" contract.
-  const trimmed = reply.trim().split('\n')[0].trim()
-  const parsed = /^\d{1,3}$/.test(trimmed) ? parseInt(trimmed, 10) : NaN
+  // accepted on the first line.
+  const parsed = /^\d{1,3}$/.test(scoreLine) ? parseInt(scoreLine, 10) : NaN
   if (isNaN(parsed) || parsed < 0 || parsed > 100) {
     console.warn('voter: unparseable score from MCP', { reply: reply.slice(0, 200) })
     return null
   }
-  return parsed
+  return { score: parsed, reasoning: reasoningLine || 'No reasoning provided.' }
 }
 
 // Spawn @z_ai/mcp-server, send initialize + tools/call(analyze_image), collect

@@ -227,6 +227,9 @@ export const votes = sqliteTable(
     voterId: text('voter_id').notNull(),
     value: integer('value').notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    // [LAW:one-source-of-truth] reasoning lives on the vote row. Nullable:
+    // cookie-anon human votes leave it NULL; agent votes carry the z.ai rationale.
+    reasoning: text('reasoning'),
   },
   (t) => [
     primaryKey({ columns: [t.postId, t.voterId] }),
