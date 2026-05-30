@@ -96,10 +96,11 @@ export async function loader({
   const prompted = promptedParamsSchema.parse(parent.content.recipe.params)
 
   // [LAW:single-enforcer] realProviders filters by env so mocks never appear
-  // in the prod selector. If the parent's provider was deregistered it won't
-  // appear in `available`; we append it as a disabled entry so the select
-  // renders a visible default rather than a blank, and the action's 404 arm
-  // already handles a stale id on submit.
+  // in the prod selector. If the parent's provider isn't in the available list
+  // (deregistered → missing from registry; or env-filtered, e.g. mock in prod),
+  // we append it as a disabled entry so the select renders a visible default
+  // rather than blank. On submit the action returns 404 for deregistered and
+  // 422 for env-filtered — both cases are handled there.
   // [LAW:types-are-the-program] Extract the recipe into a local so TypeScript
   // preserves the post-narrowing type inside lambda callbacks below.
   const recipe = parent.content.recipe
