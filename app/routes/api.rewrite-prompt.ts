@@ -109,9 +109,13 @@ export async function action({ request, context }: Route.ActionArgs) {
   // The SSE parse is the only place that knows the wire format; everything
   // downstream (client reader) sees a flat byte stream.
   const anthropicBody = anthropicResp.body
+  // Hoisted so the cancel() callback can reach the upstream reader when the
+  // client disconnects mid-stream and aborts the fetch.
+  let upstreamReader: ReadableStreamDefaultReader<Uint8Array> | undefined
   const outputStream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const reader = anthropicBody.getReader()
+      upstreamReader = anthropicBody.getReader()
+      const reader = upstreamReader
       const decoder = new TextDecoder()
       const encoder = new TextEncoder()
       let lineBuffer = ""
@@ -165,6 +169,9 @@ export async function action({ request, context }: Route.ActionArgs) {
           // already closed — ignore
         }
       }
+    },
+    cancel() {
+      upstreamReader?.cancel()
     },
   })
 

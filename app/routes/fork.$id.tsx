@@ -212,7 +212,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       let delimFound = false
       let rewrittenPrompt = ""
 
-      while (true) {
+      try { while (true) {
         const { done, value } = await reader.read()
 
         // Flush decoder on EOF to emit any partial UTF-8 sequence held in its
@@ -244,7 +244,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         }
 
         if (done) break
-      }
+      } } finally { reader.releaseLock() }
 
       if (!delimFound) {
         throw new Error("rewrite stream ended without [PROMPT] delimiter")
@@ -288,7 +288,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       const { id: newPostId } = forkResponseSchema.parse(await res.json())
       navigate(`/p/${newPostId}`)
     } catch (err) {
-      setError(String(err))
+      setError(err instanceof Error ? err.message : String(err))
       setPhase("editing")
     } finally {
       inFlight.current = false
