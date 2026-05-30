@@ -177,7 +177,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       } catch (err) {
         controller.error(err)
       } finally {
-        reader.cancel()
+        await reader.cancel()
         try {
           controller.close()
         } catch {
@@ -186,7 +186,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       }
     },
     cancel() {
-      upstreamReader?.cancel()
+      return upstreamReader?.cancel()
     },
   })
 
