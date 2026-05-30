@@ -1,5 +1,5 @@
 import type { Route } from "./+types/fork.$id"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { z } from "zod"
 import { getPostById } from "~/db/feed"
@@ -172,6 +172,11 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   // more here than on votes/comments because each fork triggers a paid
   // provider call — a double-fire would charge twice.
   const inFlight = useRef(false)
+  // [LAW:single-enforcer] Single abort controller for all in-flight requests
+  // (rewrite + fork). Cancelling on unmount propagates to the Worker, which
+  // then cancels the upstream Anthropic stream via request.signal.
+  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => { abortRef.current?.abort() }, [])
 
   const locked = phase !== "editing"
 
@@ -184,6 +189,8 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       return
     }
     inFlight.current = true
+    const abort = new AbortController()
+    abortRef.current = abort
     setPhase("rewriting")
     setThinkingText("")
     setError(null)
@@ -194,6 +201,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ prompt: seed, styleFamily, aspectRatio }),
+        signal: abort.signal,
       })
 
       if (!rewriteRes.ok || !rewriteRes.body) {
@@ -274,6 +282,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           aspectRatio,
           providerId,
         }),
+        signal: abort.signal,
       })
       if (!res.ok) {
         const detail = await res.text().catch(() => "")

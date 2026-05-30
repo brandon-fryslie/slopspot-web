@@ -177,7 +177,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       } catch (err) {
         controller.error(err)
       } finally {
-        reader.releaseLock()
+        reader.cancel()
         try {
           controller.close()
         } catch {
