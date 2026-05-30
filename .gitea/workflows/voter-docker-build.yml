@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE: 192.168.7.208:5000/slopspot-voter
+  IMAGE: registry.sanctuary.gdn/slopspot-voter
 
 jobs:
   build-and-push:
@@ -22,8 +22,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build and push
-        env:
-          DOCKER_BUILDKIT: "0"
         run: |
           docker build -t "${{ env.IMAGE }}:latest" services/voter/
           docker push "${{ env.IMAGE }}:latest"
