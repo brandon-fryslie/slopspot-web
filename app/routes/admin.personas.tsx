@@ -57,9 +57,13 @@ export async function action({ request, context }: Route.ActionArgs) {
     throw data('Invalid JSON in config', { status: 400 })
   }
 
-  // Validate the scheduler config is parseable before persisting.
-  // [LAW:types-are-the-program] parseSchedulerConfig throws loud on invalid fields.
-  parseSchedulerConfig(config)
+  // Validate scheduler config before persisting; propagate as 400 so the admin
+  // sees the validation message rather than a generic 500.
+  try {
+    parseSchedulerConfig(config)
+  } catch (err) {
+    throw data(err instanceof Error ? err.message : 'Invalid scheduler config', { status: 400 })
+  }
 
   await updatePersonaConfig(env, AgentId(agentId), config)
 
