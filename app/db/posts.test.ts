@@ -105,7 +105,7 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
   })
 
   describe('createGenerationPost', () => {
-    it('throws when generations INSERT returns success:false — does not call provider or delete orphan', async () => {
+    it('throws when generations INSERT returns success:false — runs orphan cleanup, does not call provider', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure('constraint error'))
 
       const { createPost } = await import('~/db/posts')
@@ -127,6 +127,24 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'generations INSERT failed: gen constraint; orphan cleanup also failed: delete failed',
+      )
+    })
+
+    it('surfaces compound error when cleanup DELETE throws — metric still emits', async () => {
+      mockBatch.mockResolvedValue(batchWithSecondFailure('gen constraint'))
+      mockDelete.mockReturnValue({
+        where: vi.fn().mockRejectedValue(new Error('delete exception')),
+      })
+      const { emit } = await import('~/observability/metrics')
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
+        'generations INSERT failed: gen constraint; orphan cleanup threw: delete exception',
+      )
+      expect(vi.mocked(emit)).toHaveBeenCalledWith(
+        'slopspot.write.batch_outcome',
+        { content_kind: 'generation', outcome: 'failed' },
+        1,
       )
     })
 
@@ -189,6 +207,24 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
         'found INSERT failed: found constraint; orphan cleanup also failed: delete failed',
+      )
+    })
+
+    it('surfaces compound error when cleanup DELETE throws — metric still emits', async () => {
+      mockBatch.mockResolvedValue(batchWithSecondFailure('found constraint'))
+      mockDelete.mockReturnValue({
+        where: vi.fn().mockRejectedValue(new Error('delete exception')),
+      })
+      const { emit } = await import('~/observability/metrics')
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
+        'found INSERT failed: found constraint; orphan cleanup threw: delete exception',
+      )
+      expect(vi.mocked(emit)).toHaveBeenCalledWith(
+        'slopspot.write.batch_outcome',
+        { content_kind: 'found', outcome: 'failed' },
+        1,
       )
     })
 

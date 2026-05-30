@@ -175,14 +175,20 @@ async function createGenerationPost(
   const genRaw = genInsert as unknown as { success: boolean; error?: string }
   if (!genRaw.success) {
     const genError = `generations INSERT failed: ${genRaw.error ?? 'unknown'}`
-    const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
-    const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+    // [LAW:dataflow-not-control-flow] cleanupNote is data that varies by outcome;
+    // emit and throw run unconditionally so cleanup failures cannot skip the metric.
+    let cleanupNote = ''
+    try {
+      const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
+      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      if (!cleanupRaw.success) {
+        cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
+      }
+    } catch (cleanupErr) {
+      cleanupNote = `; orphan cleanup threw: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+    }
     emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
-    throw new Error(
-      cleanupRaw.success
-        ? genError
-        : `${genError}; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`,
-    )
+    throw new Error(`${genError}${cleanupNote}`)
   }
 
   let output: Media
@@ -366,14 +372,20 @@ async function createFoundPost(
   const foundRaw = foundInsert as unknown as { success: boolean; error?: string }
   if (!foundRaw.success) {
     const foundError = `found INSERT failed: ${foundRaw.error ?? 'unknown'}`
-    const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
-    const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+    // [LAW:dataflow-not-control-flow] same pattern as generation arm: cleanupNote
+    // is data, emit and throw are unconditional.
+    let cleanupNote = ''
+    try {
+      const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
+      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      if (!cleanupRaw.success) {
+        cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
+      }
+    } catch (cleanupErr) {
+      cleanupNote = `; orphan cleanup threw: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+    }
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
-    throw new Error(
-      cleanupRaw.success
-        ? foundError
-        : `${foundError}; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`,
-    )
+    throw new Error(`${foundError}${cleanupNote}`)
   }
 
   emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'success' }, 1)
