@@ -10,6 +10,7 @@ on:
       - master
     paths:
       - 'services/voter/**'
+  workflow_dispatch:
 
 env:
   IMAGE: 192.168.7.208:5000/slopspot-voter
