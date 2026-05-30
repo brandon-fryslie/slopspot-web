@@ -139,7 +139,7 @@ async function createGenerationPost(
   // synchronous caller occupies). The paired insert is batched in one transaction
   // so a content_kind='generation' post can never exist without its generations
   // row — the cross-table cardinality this writer owns.
-  await database.batch([
+  const [, genInsert] = await database.batch([
     database.insert(posts).values({
       id,
       createdAt: startedAt,
@@ -160,6 +160,14 @@ async function createGenerationPost(
       startedAt,
     }),
   ])
+  // [LAW:no-silent-fallbacks] drizzle's mapRunResult never checks D1Result.success,
+  // so per-statement failures inside a batch silently resolve without throwing.
+  // Cast to the raw D1Result shape and fail loud — the orphan-post incident (May 2026)
+  // was caused by exactly this silent path.
+  const genRaw = genInsert as unknown as { success: boolean; error?: string }
+  if (!genRaw.success) {
+    throw new Error(`generations INSERT failed: ${genRaw.error ?? 'unknown'}`)
+  }
 
   let output: Media
   let completedAt: Date
@@ -308,11 +316,11 @@ async function createFoundPost(
   // its found sibling. The cross-table cardinality (a content_kind='found'
   // post has exactly one matching found row) is the writer's invariant, the
   // same shape as the generation arm.
-  // Wrapped so a D1 outage at the batch is observable as
-  // `batch_outcome=failed` instead of metric silence. Mirrors the same shape
-  // used in createGenerationPost for the success-path update.
+  // [LAW:no-silent-fallbacks] Same D1 per-statement silent-failure guard as the
+  // generation arm: check result.success explicitly, not just absence of throw.
+  let foundInsert: unknown
   try {
-    await database.batch([
+    ;[, foundInsert] = await database.batch([
       database.insert(posts).values({
         id,
         createdAt,
@@ -330,6 +338,11 @@ async function createFoundPost(
   } catch (err) {
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
     throw err
+  }
+  const foundRaw = foundInsert as unknown as { success: boolean; error?: string }
+  if (!foundRaw.success) {
+    emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
+    throw new Error(`found INSERT failed: ${foundRaw.error ?? 'unknown'}`)
   }
 
   emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'success' }, 1)
