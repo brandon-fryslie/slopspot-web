@@ -302,7 +302,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           </span>
           <button
             type="submit"
-            disabled={submitting || prompt.trim().length === 0}
+            disabled={submitting || prompt.trim().length === 0 || prompt.trim().length > promptMax}
             className="rounded bg-emerald-400/20 px-4 py-2 font-mono text-xs uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-400/30 disabled:opacity-40"
           >
             {submitting ? "forking…" : "fork"}

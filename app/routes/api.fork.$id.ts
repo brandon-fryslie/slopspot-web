@@ -4,7 +4,7 @@ import { ApiError } from "@fal-ai/client"
 import { createPost, InvalidParamsError } from "~/db/posts"
 import { getPostById } from "~/db/feed"
 import { checkBudget } from "~/firehose/budget"
-import { getProvider, UnknownProviderError } from "~/providers"
+import { getProvider, realProviders, UnknownProviderError } from "~/providers"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
@@ -100,6 +100,17 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // defaultParamsForRecipe — the same translation the firehose chooser does.
   // The fork's chosen provider (parsed.providerId) may differ from the parent's.
   const chosenProviderId = ProviderId(parsed.providerId)
+  // [LAW:single-enforcer] Same filter the loader applies to populate the
+  // client-side selector: only real providers are available in prod. The UI
+  // enforces this affordance-side; this check is the trust-boundary enforcement
+  // so crafted requests can't bypass the filter and use mock providers in prod.
+  const available = realProviders(context.cloudflare.env)
+  if (!available.some((p) => p.id === chosenProviderId)) {
+    return Response.json(
+      { error: "provider not available", providerId: parsed.providerId },
+      { status: 422 },
+    )
+  }
   let provider
   try {
     provider = getProvider(chosenProviderId)
