@@ -95,7 +95,9 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     mockUpdate.mockReturnValue({
       set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
     })
-    mockDelete.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+    mockDelete.mockReturnValue({
+      where: vi.fn().mockResolvedValue({ success: true, results: [], meta: {} }),
+    })
   })
 
   afterEach(() => {
@@ -114,6 +116,18 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       expect(mockGenerate).not.toHaveBeenCalled()
       // D1 batch is not transactional — the posts row may have committed. Cleanup runs.
       expect(mockDelete).toHaveBeenCalled()
+    })
+
+    it('surfaces compound error when cleanup DELETE also returns success:false', async () => {
+      mockBatch.mockResolvedValue(batchWithSecondFailure('gen constraint'))
+      mockDelete.mockReturnValue({
+        where: vi.fn().mockResolvedValue({ success: false, error: 'delete failed' }),
+      })
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
+        'generations INSERT failed: gen constraint; orphan cleanup also failed: delete failed',
+      )
     })
 
     it('throws when posts INSERT returns success:false — no orphan delete (posts row was never written)', async () => {
@@ -164,6 +178,18 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
         'found INSERT failed: constraint error',
       )
       expect(mockDelete).toHaveBeenCalled()
+    })
+
+    it('surfaces compound error when cleanup DELETE also returns success:false', async () => {
+      mockBatch.mockResolvedValue(batchWithSecondFailure('found constraint'))
+      mockDelete.mockReturnValue({
+        where: vi.fn().mockResolvedValue({ success: false, error: 'delete failed' }),
+      })
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
+        'found INSERT failed: found constraint; orphan cleanup also failed: delete failed',
+      )
     })
 
     it('throws when posts INSERT returns success:false — no orphan delete', async () => {

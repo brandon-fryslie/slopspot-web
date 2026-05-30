@@ -174,9 +174,15 @@ async function createGenerationPost(
   // deleting — if both failed, there is no orphan to clean up.
   const genRaw = genInsert as unknown as { success: boolean; error?: string }
   if (!genRaw.success) {
-    await database.delete(posts).where(eq(posts.id, id))
+    const genError = `generations INSERT failed: ${genRaw.error ?? 'unknown'}`
+    const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
+    const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
     emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
-    throw new Error(`generations INSERT failed: ${genRaw.error ?? 'unknown'}`)
+    throw new Error(
+      cleanupRaw.success
+        ? genError
+        : `${genError}; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`,
+    )
   }
 
   let output: Media
@@ -359,9 +365,15 @@ async function createFoundPost(
   // ensure cleanup targets only a row this writer created, not a pre-existing one.
   const foundRaw = foundInsert as unknown as { success: boolean; error?: string }
   if (!foundRaw.success) {
-    await database.delete(posts).where(eq(posts.id, id))
+    const foundError = `found INSERT failed: ${foundRaw.error ?? 'unknown'}`
+    const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
+    const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
-    throw new Error(`found INSERT failed: ${foundRaw.error ?? 'unknown'}`)
+    throw new Error(
+      cleanupRaw.success
+        ? foundError
+        : `${foundError}; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`,
+    )
   }
 
   emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'success' }, 1)
