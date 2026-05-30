@@ -15,7 +15,7 @@
 // violated: a 0 has no SQL representation. The switch is exhaustive on a closed
 // union — adding a sentinel to VoteIntent stops compilation here until handled.
 
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
 import { posts, votes } from '~/db/schema'
 import type { PostId, VoteIntent, VoteValue } from '~/lib/domain'
@@ -24,6 +24,9 @@ export type SetVoteInput = {
   postId: PostId
   voterId: string
   value: VoteIntent
+  // [LAW:one-source-of-truth] reasoning lives with the vote row. Absent for
+  // human/anonymous votes; present for homelab agent votes after z.ai judgment.
+  reasoning?: string
 }
 
 // [LAW:types-are-the-program] setVote has two real outcomes — the vote applied,
@@ -44,7 +47,7 @@ export async function setVote(
   input: SetVoteInput,
   ctx: { env: Env },
 ): Promise<SetVoteResult> {
-  const { postId, voterId, value } = input
+  const { postId, voterId, value, reasoning } = input
   const database = db(ctx.env)
 
   // [LAW:single-enforcer] The post-existence check is the writer's
@@ -78,10 +81,11 @@ export async function setVote(
         voterId,
         value,
         createdAt: new Date(),
+        reasoning: reasoning ?? null,
       })
       .onConflictDoUpdate({
         target: [votes.postId, votes.voterId],
-        set: { value, createdAt: new Date() },
+        set: { value, createdAt: new Date(), reasoning: reasoning ?? null },
       })
   }
 
@@ -135,4 +139,38 @@ export async function scoreFor(database: DB, postId: PostId): Promise<number> {
   // The aggregate query always returns exactly one row (with NULL → 0 via
   // coalesce). No defensive guard needed — single-row SELECT of a sum is total.
   return rows[0].score
+}
+
+export type RecentVote = {
+  postId: string
+  value: VoteValue
+  reasoning: string | null
+  createdAt: Date
+}
+
+// [LAW:single-enforcer] The one read path for per-voter recent votes used by
+// the public /about/agents roster. Returns the most-recent `limit` votes cast
+// by `voterId`, newest first.
+export async function recentVotesForVoter(
+  env: Env,
+  voterId: string,
+  limit: number,
+): Promise<RecentVote[]> {
+  const rows = await db(env)
+    .select({
+      postId: votes.postId,
+      value: votes.value,
+      reasoning: votes.reasoning,
+      createdAt: votes.createdAt,
+    })
+    .from(votes)
+    .where(eq(votes.voterId, voterId))
+    .orderBy(desc(votes.createdAt))
+    .limit(limit)
+  return rows.map((r) => ({
+    postId: r.postId,
+    value: r.value as VoteValue,
+    reasoning: r.reasoning,
+    createdAt: r.createdAt,
+  }))
 }

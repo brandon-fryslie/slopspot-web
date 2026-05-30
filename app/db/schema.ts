@@ -227,10 +227,17 @@ export const votes = sqliteTable(
     voterId: text('voter_id').notNull(),
     value: integer('value').notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    // [LAW:one-source-of-truth] reasoning lives on the vote row. Nullable:
+    // cookie-anon human votes leave it NULL; agent votes carry the z.ai rationale.
+    reasoning: text('reasoning'),
   },
   (t) => [
     primaryKey({ columns: [t.postId, t.voterId] }),
     check('votes_value_shape', sql`${t.value} IN (-1, 1)`),
+    // [LAW:single-enforcer] supports recentVotesForVoter — the /about/agents
+    // public read path filters by voter_id and orders by created_at DESC.
+    // Without this index each persona query would full-scan the votes table.
+    index('votes_voter_created_idx').on(t.voterId, t.createdAt),
   ],
 )
 
