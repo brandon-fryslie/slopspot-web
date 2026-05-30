@@ -4,12 +4,12 @@ import { ApiError } from "@fal-ai/client"
 import { createPost, InvalidParamsError } from "~/db/posts"
 import { getPostById } from "~/db/feed"
 import { checkBudget } from "~/firehose/budget"
-import { getProvider, UnknownProviderError } from "~/providers"
+import { getProvider, realProviders, UnknownProviderError } from "~/providers"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
-import { PostId, type Origin } from "~/lib/domain"
+import { PostId, ProviderId, type Origin } from "~/lib/domain"
 import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 
@@ -30,6 +30,9 @@ const bodySchema = z.object({
   prompt: z.string().trim().min(1).max(PROMPT_MAX),
   styleFamily: styleFamilySchema,
   aspectRatio: aspectRatioSchema,
+  // [LAW:single-enforcer] The registry's getProvider() enforces valid IDs; no
+  // need to enumerate allowed values here. An unregistered providerId returns 404.
+  providerId: z.string().trim().min(1).max(128),
 })
 
 export async function action({ request, params, context }: Route.ActionArgs) {
@@ -47,7 +50,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   } catch (e) {
     return invalidBodyResponse(
       e,
-      `body must be { prompt: string (1..${PROMPT_MAX} after trim), styleFamily, aspectRatio }`,
+      `body must be { prompt: string (1..${PROMPT_MAX} after trim), styleFamily, aspectRatio, providerId: string }`,
     )
   }
 
@@ -95,20 +98,36 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // truth. The early call here is the seam where canonical recipe fields
   // (prompt, styleFamily, seed) become provider-native params via
   // defaultParamsForRecipe — the same translation the firehose chooser does.
+  // The fork's chosen provider (parsed.providerId) may differ from the parent's.
+  const chosenProviderId = ProviderId(parsed.providerId)
+  // Existence check first: unknown ID → 404. Then env-filter check: registered
+  // but not available here (e.g. mock in prod) → 422. Order matters — collapsing
+  // both into 422 would make a typo'd ID indistinguishable from a filtered one.
   let provider
   try {
-    provider = getProvider(parent.content.recipe.providerId)
+    provider = getProvider(chosenProviderId)
   } catch (e) {
     if (e instanceof UnknownProviderError) {
       return Response.json(
         {
-          error: "parent post's provider is no longer registered",
-          providerId: parent.content.recipe.providerId,
+          error: "provider not registered",
+          providerId: parsed.providerId,
         },
         { status: 404 },
       )
     }
     throw e
+  }
+  // [LAW:single-enforcer] Same filter the loader applies to populate the
+  // client-side selector: only real providers are available in prod. The UI
+  // enforces this affordance-side; this check is the trust-boundary enforcement
+  // so crafted requests can't bypass the filter and use mock providers in prod.
+  const available = realProviders(context.cloudflare.env)
+  if (!available.some((p) => p.id === chosenProviderId)) {
+    return Response.json(
+      { error: "provider not available in this environment", providerId: parsed.providerId },
+      { status: 422 },
+    )
   }
 
   // Fresh seed each fork — reproducibility-by-default is the firehose's
@@ -138,7 +157,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     const post = await createPost(
       {
         kind: 'generation',
-        providerId: parent.content.recipe.providerId,
+        providerId: chosenProviderId,
         params: derivedParams,
         styleFamily: parsed.styleFamily,
         subject: parent.content.recipe.subject,
@@ -167,8 +186,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     if (e instanceof UnknownProviderError) {
       return Response.json(
         {
-          error: "parent post's provider is no longer registered",
-          providerId: parent.content.recipe.providerId,
+          error: "provider not registered",
+          providerId: parsed.providerId,
         },
         { status: 404 },
       )
@@ -177,7 +196,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       return Response.json(
         {
           error: "invalid params for provider",
-          providerId: parent.content.recipe.providerId,
+          providerId: parsed.providerId,
           issues: e.issues,
         },
         { status: 422 },
@@ -187,7 +206,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       return Response.json(
         {
           error: "fork failed",
-          providerId: parent.content.recipe.providerId,
+          providerId: parsed.providerId,
           upstreamStatus: e.status,
           detail: e.body,
         },
@@ -197,7 +216,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     return Response.json(
       {
         error: "fork failed",
-        providerId: parent.content.recipe.providerId,
+        providerId: parsed.providerId,
         detail: e instanceof Error ? e.message : String(e),
       },
       { status: 502 },
