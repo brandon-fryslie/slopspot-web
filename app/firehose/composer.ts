@@ -8,6 +8,7 @@
 
 import { emit } from '~/observability/metrics'
 import {
+  ASPECT_RATIO_LABELS,
   STYLE_FAMILY_PROMPT_SEEDS,
   renderTemplate,
   type AspectRatio,
@@ -50,16 +51,8 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
     return fallback
   }
 
-  const aspectLabel =
-    aspectRatio === '1:1'
-      ? 'square'
-      : aspectRatio === '16:9'
-        ? 'wide landscape'
-        : aspectRatio === '9:16'
-          ? 'tall portrait'
-          : aspectRatio === '4:3'
-            ? 'landscape'
-            : 'portrait'
+  // [LAW:one-source-of-truth] ASPECT_RATIO_LABELS is the shared mapping.
+  const aspectLabel = ASPECT_RATIO_LABELS[aspectRatio]
 
   const metaPrompt = [
     `Write a vivid image generation prompt for a ${styleFamily} piece depicting ${rendered}.`,
