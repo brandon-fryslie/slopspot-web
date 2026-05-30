@@ -2,13 +2,9 @@
 // persona config + scheduledTime. Persona rhythm is data on the persona row —
 // no per-persona branches here.
 //
-// [LAW:types-are-the-program] parseSchedulerConfig throws loud on invalid
-// config so the scheduler never silently defaults. A missing expectedDailyFires
-// is a misconfigured row, surfaced immediately.
-//
-// NOTE: This mirrors app/lib/scheduler.ts exactly. Both are independently
-// pure modules — shared extraction would couple the Worker app to a homelab
-// Node.js service over a ~60-line file.
+// The voter service's boundary is the Zod schema in pipeline.ts — that schema
+// enforces expectedDailyFires and activeHoursUtc bounds. shouldFireNow here
+// receives already-validated config; no second parse needed.
 
 export type SchedulerConfig = {
   expectedDailyFires: number
@@ -17,46 +13,6 @@ export type SchedulerConfig = {
 
 // 15-minute tick granularity: 96 ticks per 24h.
 const TICKS_PER_DAY = 96
-
-export function parseSchedulerConfig(config: Record<string, unknown>): SchedulerConfig {
-  const expectedDailyFires = config['expectedDailyFires']
-  if (typeof expectedDailyFires !== 'number' || expectedDailyFires <= 0) {
-    throw new Error(
-      `scheduler: invalid expectedDailyFires: ${JSON.stringify(expectedDailyFires)}`,
-    )
-  }
-
-  const raw = config['activeHoursUtc']
-  if (raw === undefined || raw === null) {
-    return { expectedDailyFires }
-  }
-
-  const r = raw as Record<string, unknown>
-  const startHour = r['startHour']
-  const endHour = r['endHour']
-
-  if (
-    typeof raw !== 'object' ||
-    !Number.isInteger(startHour) ||
-    !Number.isInteger(endHour) ||
-    typeof startHour !== 'number' ||
-    typeof endHour !== 'number' ||
-    startHour < 0 ||
-    startHour >= 24 ||
-    endHour <= 0 ||
-    endHour > 24 ||
-    startHour >= endHour
-  ) {
-    throw new Error(
-      `scheduler: invalid activeHoursUtc (require 0 <= startHour < endHour <= 24): ${JSON.stringify(raw)}`,
-    )
-  }
-
-  return {
-    expectedDailyFires,
-    activeHoursUtc: { startHour, endHour },
-  }
-}
 
 export function shouldFireNow(
   agentId: string,

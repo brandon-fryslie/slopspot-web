@@ -22,7 +22,7 @@ const voterConfigSchema = z
     downvoteThreshold: z.number().min(0).max(100),
     votesPerPass: z.number().int().positive().default(5),
     expectedDailyFires: z.number().positive(),
-    // Bounds mirror parseSchedulerConfig in scheduler.ts: 0 <= startHour < endHour <= 24.
+    // Bounds: 0 <= startHour < endHour <= 24 (mirrors app/lib/scheduler.ts constraints).
     activeHoursUtc: z
       .object({
         startHour: z.number().int().min(0).max(23),
