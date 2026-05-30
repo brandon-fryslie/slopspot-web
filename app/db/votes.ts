@@ -15,7 +15,7 @@
 // violated: a 0 has no SQL representation. The switch is exhaustive on a closed
 // union — adding a sentinel to VoteIntent stops compilation here until handled.
 
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
 import { posts, votes } from '~/db/schema'
 import type { PostId, VoteIntent, VoteValue } from '~/lib/domain'
@@ -90,6 +90,35 @@ export async function setVote(
     score: await scoreFor(database, postId),
     value: value === 0 ? null : value,
   }
+}
+
+export type VoterStat = {
+  voterId: string
+  voteCount: number
+  upvotes: number
+  downvotes: number
+}
+
+// Per-voter aggregate counts for the admin dashboard. Returns only rows with
+// at least one vote — personas with no votes are absent from the result.
+export async function voterStats(env: Env, voterIds: string[]): Promise<VoterStat[]> {
+  if (voterIds.length === 0) return []
+  const rows = await db(env)
+    .select({
+      voterId: votes.voterId,
+      voteCount: sql<number>`count(*)`,
+      upvotes: sql<number>`sum(case when ${votes.value} = 1 then 1 else 0 end)`,
+      downvotes: sql<number>`sum(case when ${votes.value} = -1 then 1 else 0 end)`,
+    })
+    .from(votes)
+    .where(inArray(votes.voterId, voterIds))
+    .groupBy(votes.voterId)
+  return rows.map((r) => ({
+    voterId: r.voterId,
+    voteCount: r.voteCount,
+    upvotes: r.upvotes,
+    downvotes: r.downvotes,
+  }))
 }
 
 // [LAW:one-source-of-truth] Same SUM-with-coalesce shape feed.ts uses for the

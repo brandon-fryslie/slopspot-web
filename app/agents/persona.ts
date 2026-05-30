@@ -77,6 +77,20 @@ function rowToPersona(row: DbPersona): Persona {
   }
 }
 
+// [LAW:single-enforcer] The only writer for persona config. All config updates
+// (admin dashboard, future migration tooling) go through here so the JSON
+// serialisation and the agentId lookup are enforced in one place.
+export async function updatePersonaConfig(
+  env: Env,
+  agentId: AgentId,
+  config: Record<string, unknown>,
+): Promise<void> {
+  await db(env)
+    .update(personas)
+    .set({ configJson: JSON.stringify(config) })
+    .where(eq(personas.agentId, agentId))
+}
+
 // [LAW:one-source-of-truth] FNV-1a hash — same implementation as the firehose
 // chooser. Duplicated here (not shared) because both modules are independently
 // pure with no common dep; extracting to a shared util would create coupling

@@ -10,3 +10,6 @@ SLOPSPOT_INTERNAL_SEED_TOKEN=
 # Set to 'dev' here so the local firehose chooser is eligible to pick mock
 # providers (free, deterministic output instead of paid API calls).
 SLOPSPOT_ENV=dev
+# Admin dashboard key. Set any secret value for local dev.
+# In prod: wrangler secret put ADMIN_KEY
+ADMIN_KEY=
