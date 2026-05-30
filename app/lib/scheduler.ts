@@ -31,19 +31,30 @@ export function parseSchedulerConfig(config: Record<string, unknown>): Scheduler
     return { expectedDailyFires }
   }
 
+  const r = raw as Record<string, unknown>
+  const startHour = r['startHour']
+  const endHour = r['endHour']
+
   if (
     typeof raw !== 'object' ||
-    typeof (raw as Record<string, unknown>)['startHour'] !== 'number' ||
-    typeof (raw as Record<string, unknown>)['endHour'] !== 'number'
+    !Number.isInteger(startHour) ||
+    !Number.isInteger(endHour) ||
+    typeof startHour !== 'number' ||
+    typeof endHour !== 'number' ||
+    startHour < 0 ||
+    startHour >= 24 ||
+    endHour <= 0 ||
+    endHour > 24 ||
+    startHour >= endHour
   ) {
     throw new Error(
-      `scheduler: invalid activeHoursUtc: ${JSON.stringify(raw)}`,
+      `scheduler: invalid activeHoursUtc (require 0 <= startHour < endHour <= 24): ${JSON.stringify(raw)}`,
     )
   }
 
   return {
     expectedDailyFires,
-    activeHoursUtc: raw as { startHour: number; endHour: number },
+    activeHoursUtc: { startHour, endHour },
   }
 }
 

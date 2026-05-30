@@ -1,7 +1,7 @@
 import { data, Form, useLoaderData } from 'react-router'
-import { listPersonas } from '~/agents/persona'
-import { updatePersonaConfig } from '~/agents/persona'
+import { listPersonas, updatePersonaConfig } from '~/agents/persona'
 import { voterStats } from '~/db/votes'
+import { AgentId } from '~/lib/domain'
 import { requireAdmin } from '~/lib/admin-auth'
 import { parseSchedulerConfig } from '~/lib/scheduler'
 import type { Route } from './+types/admin.personas'
@@ -12,7 +12,7 @@ export function meta() {
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env
-  const key = requireAdmin(request, env)
+  const key = await requireAdmin(request, env)
 
   const personas = await listPersonas(env, 'voter')
   const stats = await voterStats(
@@ -40,7 +40,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
 export async function action({ request, context }: Route.ActionArgs) {
   const env = context.cloudflare.env
-  requireAdmin(request, env)
+  await requireAdmin(request, env)
 
   const form = await request.formData()
   const agentId = form.get('agentId')
@@ -61,7 +61,6 @@ export async function action({ request, context }: Route.ActionArgs) {
   // [LAW:types-are-the-program] parseSchedulerConfig throws loud on invalid fields.
   parseSchedulerConfig(config)
 
-  const { AgentId } = await import('~/lib/domain')
   await updatePersonaConfig(env, AgentId(agentId), config)
 
   return data({ ok: true })

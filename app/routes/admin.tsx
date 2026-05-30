@@ -8,7 +8,7 @@ import { requireAdmin } from '~/lib/admin-auth'
 import type { Route } from './+types/admin'
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  const key = requireAdmin(request, context.cloudflare.env)
+  const key = await requireAdmin(request, context.cloudflare.env)
   return { key }
 }
 

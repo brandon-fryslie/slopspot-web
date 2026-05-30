@@ -126,16 +126,19 @@ describe('shouldFireNow — activeHoursUtc', () => {
 })
 
 describe('personasDueNow', () => {
-  it('returns only personas due on this tick', () => {
-    // Use high expectedDailyFires so at least some fire on any given tick
+  it('returns exactly the personas shouldFireNow would select individually', () => {
     const personas = Array.from({ length: 5 }, (_, i) =>
       makePersona(`agent:p${i}`, { expectedDailyFires: 48 }),
     )
     const tick = new Date('2026-01-01T12:00:00Z')
     const due = personasDueNow(personas, tick)
 
-    // All due personas must be from the input list
-    expect(due.every((p) => personas.some((q) => q.agentId === p.agentId))).toBe(true)
+    // Ground-truth: independently apply shouldFireNow to each persona
+    const expected = personas.filter((p) =>
+      shouldFireNow(p.agentId, parseSchedulerConfig(p.config), tick),
+    )
+
+    expect(due.map((p) => p.agentId)).toEqual(expected.map((p) => p.agentId))
   })
 
   it('returns empty list when no personas fire', () => {
