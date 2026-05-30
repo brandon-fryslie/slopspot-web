@@ -2,6 +2,7 @@ import { type RouteConfig, index, route } from "@react-router/dev/routes"
 
 export default [
   index("routes/home.tsx"),
+  route("api/feed", "routes/api.feed.ts"),
   route("api/challenge", "routes/api.challenge.ts"),
   route("api/generate", "routes/api.generate.ts"),
   route("api/posts/:id/vote", "routes/api.posts.$id.vote.ts"),
