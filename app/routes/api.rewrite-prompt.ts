@@ -4,6 +4,7 @@ import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { styleFamilySchema, aspectRatioSchema, STYLE_FAMILY_PROMPT_SEEDS } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
+import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
 
 // [LAW:single-enforcer] The HTTP trust boundary for prompt rewrite requests.
 // Resource route (no default export) — mirrors the same-origin + Zod pattern
@@ -45,8 +46,8 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[parsed.styleFamily]
 
-  // [LAW:comments-explain-why-only] The two-part format with [PROMPT] delimiter
-  // is the contract the client parses — it must match DELIM in fork.$id.tsx.
+  // [LAW:one-source-of-truth] REWRITE_DELIMITER is the shared contract between
+  // this system prompt and the client-side stream parser in fork.$id.tsx.
   const systemPrompt = [
     "You are a prompt rewriter for an AI image generation service called SlopSpot.",
     "",
@@ -59,14 +60,16 @@ export async function action({ request, context }: Route.ActionArgs) {
     "2. The rewritten prompt: a complete, detailed image generation prompt for an image model.",
     "",
     "Separate the two parts with exactly this delimiter on its own line:",
-    "[PROMPT]",
+    REWRITE_DELIMITER,
     "",
-    "The thinking prose comes first. Then [PROMPT] on its own line. Then the prompt. Nothing else.",
+    `The thinking prose comes first. Then ${REWRITE_DELIMITER} on its own line. Then the prompt. Nothing else.`,
     "",
     `Style family: ${parsed.styleFamily}`,
     `Style seed: ${styleSeed}`,
   ].join("\n")
 
+  // [LAW:single-enforcer] Pass request.signal so a client disconnect aborts
+  // the upstream Anthropic call — bounds worker runtime and API spend.
   const anthropicResp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -81,6 +84,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       system: systemPrompt,
       messages: [{ role: "user", content: `Seed: ${parsed.prompt}` }],
     }),
+    signal: request.signal,
   })
 
   if (!anthropicResp.ok || !anthropicResp.body) {
@@ -105,11 +109,15 @@ export async function action({ request, context }: Route.ActionArgs) {
       try {
         while (true) {
           const { done, value } = await reader.read()
-          if (done) break
 
-          lineBuffer += decoder.decode(value, { stream: true })
+          // On done, flush the decoder's internal buffer for any partial UTF-8
+          // sequence; on non-done, accumulate with stream mode so multi-byte
+          // sequences spanning chunks are reassembled correctly.
+          lineBuffer += done ? decoder.decode() : decoder.decode(value, { stream: true })
           const lines = lineBuffer.split("\n")
-          lineBuffer = lines.pop() ?? ""
+          // On EOF, process every line (including unterminated final line);
+          // mid-stream, hold the last line back until it's newline-terminated.
+          lineBuffer = done ? "" : (lines.pop() ?? "")
 
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue
@@ -134,6 +142,8 @@ export async function action({ request, context }: Route.ActionArgs) {
               // skip malformed SSE events
             }
           }
+
+          if (done) break
         }
       } catch (err) {
         controller.error(err)

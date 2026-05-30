@@ -12,6 +12,7 @@ import {
   type StyleFamily,
 } from "~/lib/domain"
 import { ASPECT_RATIOS, STYLE_FAMILIES, STYLE_FAMILY_PROMPT_SEEDS, renderTemplate } from "~/lib/variety"
+import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
 // submit-side action lives at /api/fork/:id (a resource route), matching the
@@ -51,11 +52,10 @@ const promptedParamsSchema = z
 // would assert a contract the consumer doesn't enforce.
 const forkResponseSchema = z.object({ id: z.string().min(1) })
 
-// [LAW:types-are-the-program] The delimiter that splits the LLM stream into
-// thinking prose (pre) and rewritten prompt (post). Defined once; both the
-// stream reader and any future tests reference this constant rather than the
-// raw string.
-const REWRITE_DELIM = "[PROMPT]\n"
+// [LAW:one-source-of-truth] REWRITE_DELIMITER is shared with api.rewrite-prompt.ts
+// via ~/lib/rewrite-delim. The trailing \n is the parsing contract: the LLM
+// emits the token on its own line, so the stream always contains DELIMITER + \n.
+const REWRITE_DELIM = REWRITE_DELIMITER + "\n"
 
 // [LAW:types-are-the-program] The loader's output is the form's exact pre-fill
 // shape — one closed type, no nullables. If a row drifts (parent not found,
@@ -214,34 +214,44 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
 
-        const chunk = decoder.decode(value, { stream: true })
+        // Flush decoder on EOF to emit any partial UTF-8 sequence held in its
+        // internal buffer; use stream mode mid-stream so multi-byte sequences
+        // spanning chunk boundaries are reassembled correctly.
+        const chunk = done ? decoder.decode() : decoder.decode(value, { stream: true })
 
-        if (!delimFound) {
-          streamBuffer += chunk
-          const idx = streamBuffer.indexOf(REWRITE_DELIM)
-          if (idx !== -1) {
-            delimFound = true
-            const thinking = streamBuffer.slice(0, idx)
-            rewrittenPrompt = streamBuffer.slice(idx + REWRITE_DELIM.length)
-            setThinkingText(thinking)
-            setPrompt(rewrittenPrompt)
+        if (chunk.length > 0) {
+          if (!delimFound) {
+            streamBuffer += chunk
+            const idx = streamBuffer.indexOf(REWRITE_DELIM)
+            if (idx !== -1) {
+              delimFound = true
+              const thinking = streamBuffer.slice(0, idx)
+              rewrittenPrompt = streamBuffer.slice(idx + REWRITE_DELIM.length)
+              setThinkingText(thinking)
+              setPrompt(rewrittenPrompt)
+            } else {
+              // Show thinking text in real time, holding back chars that could
+              // be the start of a split delimiter so they're not orphaned in
+              // the thinking block if the delimiter arrives on the next chunk.
+              const safeLen = Math.max(0, streamBuffer.length - (REWRITE_DELIM.length - 1))
+              setThinkingText(streamBuffer.slice(0, safeLen))
+            }
           } else {
-            // Show thinking text in real time, holding back chars that could
-            // be the start of a split delimiter so they're not orphaned in
-            // the thinking block if the delimiter arrives on the next chunk.
-            const safeLen = Math.max(0, streamBuffer.length - (REWRITE_DELIM.length - 1))
-            setThinkingText(streamBuffer.slice(0, safeLen))
+            rewrittenPrompt += chunk
+            setPrompt(rewrittenPrompt)
           }
-        } else {
-          rewrittenPrompt += chunk
-          setPrompt(rewrittenPrompt)
         }
+
+        if (done) break
       }
 
       if (!delimFound) {
         throw new Error("rewrite stream ended without [PROMPT] delimiter")
+      }
+
+      if (!rewrittenPrompt.trim()) {
+        throw new Error("rewrite produced an empty prompt")
       }
 
       // Phase 2: auto-submit the fork with the AI-authored prompt.
