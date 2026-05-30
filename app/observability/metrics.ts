@@ -56,14 +56,6 @@ export type MetricLabels = {
   'slopspot.composer.result':
     | { outcome: 'haiku' }
     | { outcome: 'fallback'; reason: 'missing_key' | 'api_error' }
-  'slopspot.voter.vote': {
-    agent_id: string
-    intent: 'upvote' | 'downvote' | 'abstain'
-  }
-  'slopspot.voter.pass': {
-    agent_id: string
-    outcome: 'fired'
-  }
 }
 
 export type MetricName = keyof MetricLabels

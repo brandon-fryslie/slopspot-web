@@ -1,6 +1,6 @@
 import { createRequestHandler } from "react-router"
 import { runBankGen } from "./bank-gen"
-import { runScheduled, runAgentPass } from "~/firehose/scheduled"
+import { runScheduled } from "~/firehose/scheduled"
 
 // [LAW:single-enforcer] Cloudflare bindings (env + ctx) enter the React Router
 // world here and only here. Loaders/actions read them via `context.cloudflare`.
@@ -40,16 +40,6 @@ export default {
         await runBankGen(env)
       } catch (err) {
         console.error('bank-gen: unhandled error', { cron: event.cron }, err)
-      }
-      return
-    }
-    if (event.cron === '0 */4 * * *') {
-      // [LAW:locality-or-seam] voter cron dispatches directly to runAgentPass —
-      // voter passes are not firehose channels, so they bypass chooseFires.
-      try {
-        await runAgentPass(env, event.scheduledTime, 'voter')
-      } catch (err) {
-        console.error('voter-pass: unhandled error', { cron: event.cron }, err)
       }
       return
     }

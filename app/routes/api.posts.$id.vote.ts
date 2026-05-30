@@ -14,13 +14,16 @@ import { PostId } from "~/lib/domain"
 // voter id resolve → delegate to setVote.
 //
 // [LAW:locality-or-seam] Authentication is intentionally absent: voter identity
-// is a long-lived anonymous cookie. Real auth (the prerequisite for users
-// claiming votes across devices, or for blocking sock-puppet farms) is a
-// separate epic; this surface is shaped to absorb that change later without
-// rewriting the writer — the cookie helper is the swap point.
+// is a long-lived anonymous cookie for humans and a self-reported agentId for
+// homelab agents (same attribution-only model as /api/found — not an auth claim).
+// Real auth is a later epic.
 
 const bodySchema = z.object({
   value: z.union([z.literal(1), z.literal(-1), z.literal(0)]),
+  // [LAW:single-enforcer] agentId is self-reported attribution metadata from
+  // homelab voter agents. When present it overrides the cookie identity —
+  // attribution only, not an auth claim (same pattern as /api/found).
+  agentId: z.string().min(1).max(256).optional(),
 })
 
 export async function action({ request, params, context }: Route.ActionArgs) {
@@ -39,12 +42,15 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     return invalidBodyResponse(e, "body must be { value: 1 | -1 | 0 } — 0 retracts")
   }
 
-  const voter = resolveVoter(request)
+  // Agent votes use the self-reported agentId; human votes resolve from cookie.
+  const voter = parsed.agentId ? null : resolveVoter(request)
+  const voterId = parsed.agentId ?? voter!.voterId
+  const setCookieHeader = voter?.setCookieHeader ?? null
 
   const result = await setVote(
     {
       postId: PostId(params.id),
-      voterId: voter.voterId,
+      voterId,
       value: parsed.value,
     },
     { env: context.cloudflare.env },
@@ -61,8 +67,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   }
 
   const headers = new Headers({ "content-type": "application/json" })
-  if (voter.setCookieHeader !== null) {
-    headers.set("set-cookie", voter.setCookieHeader)
+  if (setCookieHeader !== null) {
+    headers.set("set-cookie", setCookieHeader)
   }
   return new Response(
     JSON.stringify({ score: result.score, value: result.value }),
