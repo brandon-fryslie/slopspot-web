@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { type D1Config, d1Query } from './d1.js'
 import { judgeImage } from './zai.js'
 import { pushMetric } from './metrics.js'
+import { shouldFireNow } from './scheduler.js'
 
 // [LAW:types-are-the-program] z.strict() rejects unknown keys — a config typo
 // surfaces as an error on first run rather than silently mis-voting.
@@ -20,6 +21,10 @@ const voterConfigSchema = z
     upvoteThreshold: z.number().min(0).max(100),
     downvoteThreshold: z.number().min(0).max(100),
     votesPerPass: z.number().int().positive().default(5),
+    expectedDailyFires: z.number().positive(),
+    activeHoursUtc: z
+      .object({ startHour: z.number().int(), endHour: z.number().int() })
+      .optional(),
   })
   .strict()
   .refine((d) => d.downvoteThreshold < d.upvoteThreshold, {
@@ -208,15 +213,33 @@ async function judgeAndVote(
   await pushMetric(cfg.metricsEndpoint, 'slopspot.voter.vote', { agent_id: persona.agentId, intent: intentLabel }, 1)
 }
 
-// Run all voter personas sequentially — keeps z.ai call rate predictable.
-export async function runVotingRound(cfg: PipelineConfig): Promise<void> {
+// [LAW:dataflow-not-control-flow] Same pipeline every tick: load all personas,
+// filter to those due now via the stochastic scheduler, run passes sequentially.
+// An empty due list is the no-op tick — zero iterations, not a conditional skip.
+// scheduledTime drives the deterministic hash so the same tick always picks the
+// same set of personas (reproducible for debugging).
+export async function runVotingRound(cfg: PipelineConfig, scheduledTime: Date): Promise<void> {
   const personas = await loadVoterPersonas(cfg.d1)
   if (personas.length === 0) {
     console.log('voter: no voter personas found in D1')
     return
   }
-  console.log(`voter: running ${personas.length} persona(s)`)
-  for (const persona of personas) {
+
+  const due = personas.filter((p) =>
+    shouldFireNow(
+      p.agentId,
+      { expectedDailyFires: p.config.expectedDailyFires, activeHoursUtc: p.config.activeHoursUtc },
+      scheduledTime,
+    ),
+  )
+
+  console.log('voter: scheduler result', {
+    total: personas.length,
+    due: due.length,
+    scheduledTime: scheduledTime.toISOString(),
+  })
+
+  for (const persona of due) {
     try {
       await runPersonaPass(persona, cfg)
     } catch (err) {

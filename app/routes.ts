@@ -1,4 +1,4 @@
-import { type RouteConfig, index, route } from "@react-router/dev/routes"
+import { type RouteConfig, index, layout, route } from "@react-router/dev/routes"
 
 export default [
   index("routes/home.tsx"),
@@ -13,4 +13,9 @@ export default [
   route("p/:id", "routes/p.$id.tsx"),
   route("submit", "routes/submit.tsx"),
   route("media/:key", "routes/media.$key.ts"),
+  // [LAW:single-enforcer] Admin routes are nested under a layout that
+  // enforces ADMIN_KEY auth. Adding a new admin page = one child route here.
+  layout("routes/admin.tsx", [
+    route("admin/personas", "routes/admin.personas.tsx"),
+  ]),
 ] satisfies RouteConfig
