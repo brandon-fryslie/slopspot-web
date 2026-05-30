@@ -46,6 +46,15 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[parsed.styleFamily]
 
+  // Human-readable aspect label mirrors the composer's mapping so the LLM
+  // gets concrete framing rather than the raw ratio string.
+  const aspectLabel =
+    parsed.aspectRatio === "1:1" ? "square"
+    : parsed.aspectRatio === "16:9" ? "wide landscape"
+    : parsed.aspectRatio === "9:16" ? "tall portrait"
+    : parsed.aspectRatio === "4:3" ? "landscape"
+    : "portrait (3:4)"
+
   // [LAW:one-source-of-truth] REWRITE_DELIMITER is the shared contract between
   // this system prompt and the client-side stream parser in fork.$id.tsx.
   const systemPrompt = [
@@ -66,6 +75,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     "",
     `Style family: ${parsed.styleFamily}`,
     `Style seed: ${styleSeed}`,
+    `Aspect ratio: ${aspectLabel} — let this shape composition language where relevant.`,
   ].join("\n")
 
   // [LAW:single-enforcer] Pass request.signal so a client disconnect aborts

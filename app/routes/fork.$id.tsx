@@ -250,7 +250,11 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         throw new Error("rewrite stream ended without [PROMPT] delimiter")
       }
 
-      if (!rewrittenPrompt.trim()) {
+      // Trim and cap to the provider's promptMax — the LLM may write more than
+      // the selected provider accepts, and silently truncating matches the same
+      // constraint the textarea maxLength enforces during manual editing.
+      const submittablePrompt = rewrittenPrompt.trim().slice(0, promptMax)
+      if (!submittablePrompt) {
         throw new Error("rewrite produced an empty prompt")
       }
 
@@ -261,7 +265,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          prompt: rewrittenPrompt,
+          prompt: submittablePrompt,
           styleFamily,
           aspectRatio,
           providerId,
