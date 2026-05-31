@@ -294,10 +294,16 @@ async function fetchCitizenRefs(
   return new Map(rows.map((r) => [r.agentId, { handle: r.handle, displayName: r.displayName }]))
 }
 
+// [LAW:one-source-of-truth] Construct the enriched agent actor explicitly rather
+// than spreading the parsed origin_json — the storage→domain boundary must emit
+// exactly the domain shape, never "whatever JSON held, plus persona." A stray
+// legacy key in storage cannot leak into the rendered actor this way.
 function enrichActor(actor: Actor, refs: Map<string, CitizenRef>): Actor {
   if (actor.kind !== 'agent') return actor
   const persona = refs.get(actor.agentId)
-  return persona !== undefined ? { ...actor, persona } : actor
+  return persona !== undefined
+    ? { kind: 'agent', agentId: actor.agentId, persona }
+    : { kind: 'agent', agentId: actor.agentId }
 }
 
 function enrichOrigin(origin: Origin, refs: Map<string, CitizenRef>): Origin {

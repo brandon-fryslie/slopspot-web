@@ -31,27 +31,28 @@ import type { RecentRecipe } from '~/db/recent'
 import type { GenerationProvider } from '~/providers/types'
 
 // [LAW:types-are-the-program] Inputs the chooser needs are exactly three:
-// when the cron fired, what we've recently produced, and what providers are
-// available to pick from. Anything else (env, registry-via-side-effect) would
-// fold I/O into the function.
+// when the cron fired, what we've recently produced, and the provider the slop
+// will use (the author-persona's medium). Anything else (env, registry-via-
+// side-effect) would fold I/O into the function.
 //
 // `recent` is in most-recent-first order. The chooser's R-rule windows slice
 // from the head: `recent.slice(0, 1)` for R1, `recent.slice(0, 5)` for R2,
 // etc. An empty slice contributes no rejections and no downweights, so the
 // bootstrap case is the same code path as steady-state. [LAW:dataflow-not-control-flow]
 //
-// `bias` carries persona-flavor multipliers. Absent keys default to 1.0 (no-op).
-// Absent `bias` = all-ones on every dimension. Same chooser body every fire;
-// the bias values flow through the weight functions, never gating the body.
+// `bias` carries persona-flavor multipliers over the dimensions the chooser
+// samples — style family and aspect ratio. Absent keys default to 1.0 (no-op);
+// absent `bias` = all-ones on every dimension. Same chooser body every fire; the
+// bias values flow through the weight functions, never gating the body.
 // [LAW:dataflow-not-control-flow]
 //
-// [RECONCILE C] No `providerBias`: the provider is no longer chosen here. It is
-// the author-persona's medium, passed in as `provider`. Provider variety emerges
-// from citizen rotation, not a per-fire pick.
+// [RECONCILE C] No `providerBias`: the provider is not chosen here, it is the
+// passed-in medium. promptPrefix is not on `bias` either — it steers prompt
+// *composition* (composer.ts), not recipe *selection*, so it lives only on the
+// composer's input, never here where it would imply it affects the draw.
 export type PersonaBias = {
   styleFamilyBias?: Partial<Record<StyleFamily, number>>
   aspectRatioBias?: Partial<Record<AspectRatio, number>>
-  promptPrefix?: string
 }
 
 // [LAW:types-are-the-program] [RECONCILE C] The chooser takes the SINGLE provider
