@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "cherry-chrome-mcp": {
+    "chromedevtools/chrome-devtools-mcp": {
       "type": "stdio",
-      "command": "pnpm",
+      "command": "npx",
       "args": [
-        "dlx",
-        "github:brandon-fryslie/cherry-chrome-mcp"
+        "-y",
+        "chrome-devtools-mcp@latest"
       ],
       "env": {}
     }
