@@ -241,6 +241,10 @@ function toContent(row: FeedRow): Content {
           aspectRatio,
           subject,
           parentId: g.parentPostId === null ? undefined : PostId(g.parentPostId),
+          // The wish is genuinely optional (only Well-born generations have one),
+          // so a NULL column is a legal absence, not a violated invariant — map it
+          // to undefined rather than failing loud. [LAW:no-defensive-null-guards]
+          wish: g.wish ?? undefined,
         },
         status: toStatus(g),
       }

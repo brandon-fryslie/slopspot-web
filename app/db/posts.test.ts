@@ -198,6 +198,55 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow('provider-error')
     })
+
+    // [LAW:one-source-of-truth] The Well invariant: a wish is the human's words
+    // (provenance), the machine-authored prompt in `params` is what the provider
+    // sees. They are distinct fields; the wish must NEVER reach generate().
+    it('stores the wish as provenance but never forwards it to the provider', async () => {
+      // A sentinel distinct from params.prompt so a substring scan of every
+      // generate() arg is meaningful.
+      const WISH = 'WISH_SENTINEL_a_lighthouse_at_the_end_of_the_world'
+      const wishInput: CreatePostInput = {
+        kind: 'generation',
+        providerId: ProviderId('test-provider'),
+        params: { prompt: 'a test prompt' },
+        styleFamily: 'photoreal',
+        subject: { subjectTemplate: 'T00', slots: { freeText: 'test' } },
+        aspectRatio: '1:1',
+        // A Well-born origin: a human wisher, the persona authors on their behalf.
+        origin: {
+          kind: 'authored',
+          author: { kind: 'agent', agentId: AgentId('agent:test') },
+          human: { role: 'wisher', by: { kind: 'anon', label: 'a hopeful human' } },
+        },
+        wish: WISH,
+      }
+
+      mockBatch.mockResolvedValue([{ success: true }, { success: true }])
+      mockGenerate.mockResolvedValueOnce({ kind: 'image', url: 'https://cdn/x.png', w: 1, h: 1 })
+      const { ingestImage } = await import('~/storage/ingest')
+      vi.mocked(ingestImage).mockResolvedValueOnce({
+        url: '/media/abc',
+        key: 'abc',
+        bytes: 1,
+        contentType: 'image/png',
+        deduped: false,
+      })
+
+      const { createPost } = await import('~/db/posts')
+      const post = await createPost(wishInput, { env: fakeEnv })
+
+      // The wish is preserved on the recipe as provenance...
+      expect(post.content.kind).toBe('generation')
+      if (post.content.kind === 'generation') {
+        expect(post.content.recipe.wish).toBe(WISH)
+      }
+
+      // ...but the provider received only { params, aspectRatio } — the wish
+      // appears in none of generate()'s call args.
+      expect(mockGenerate).toHaveBeenCalledTimes(1)
+      expect(JSON.stringify(mockGenerate.mock.calls)).not.toContain(WISH)
+    })
   })
 
   describe('createFoundPost', () => {
