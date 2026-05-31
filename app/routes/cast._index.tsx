@@ -34,6 +34,10 @@ export async function loader({ context }: Route.LoaderArgs) {
   const personas = await listAllPersonas(context.cloudflare.env)
 
   const citizens = personas.map((p) => ({
+    // agentId is the stable, unique React key (the PK) — handle is nullable and
+    // displayName is not unique by schema. Mirrors /about/agents. It is never an
+    // href here; the link addresses the citizen by handle. [RECONCILE A]
+    agentId: p.agentId,
     handle: p.handle,
     displayName: p.displayName,
     guild: guildOf(p.role),
@@ -101,7 +105,7 @@ export default function CastIndex() {
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
                   {members.map((c) => (
-                    <CitizenCard key={c.displayName} citizen={c} />
+                    <CitizenCard key={c.agentId} citizen={c} />
                   ))}
                 </div>
               )}
