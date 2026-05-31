@@ -13,8 +13,9 @@ import { getProvider } from '~/providers'
 import { ingestImage } from '~/storage/ingest'
 import type {
   AspectRatio,
+  AuthoredOrigin,
+  FoundOrigin,
   Media,
-  Origin,
   Post,
   PostId,
   ProviderId,
@@ -36,7 +37,10 @@ export type CreatePostInput =
       styleFamily: StyleFamily
       subject: RecipeSubject
       aspectRatio: AspectRatio
-      origin: Origin
+      // [LAW:one-source-of-truth] A generation is AUTHORED — its origin must carry a
+      // persona author. Demanding AuthoredOrigin here pairs Content.kind with
+      // Origin.kind at construction: a 'found' origin cannot reach a generation row.
+      origin: AuthoredOrigin
       parentId?: PostId
     }
   | {
@@ -52,7 +56,10 @@ export type CreatePostInput =
       // dimensions and createPost rehosts the bytes. [LAW:single-enforcer]
       // every hosted image still goes through ingestImage.
       thumbnail?: { url: string; w: number; h: number; alt?: string }
-      origin: Origin
+      // [LAW:one-source-of-truth] A found slop is SUBMITTED, not authored — its origin
+      // credits a finder, never an author. FoundOrigin makes that the only shape a
+      // found row can carry.
+      origin: FoundOrigin
     }
 
 // [LAW:types-are-the-program] The caller's params failing the provider schema is

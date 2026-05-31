@@ -9,7 +9,7 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
-import { PostId, ProviderId, type Origin } from "~/lib/domain"
+import { PostId, ProviderId, type AuthoredOrigin } from "~/lib/domain"
 import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 
@@ -142,15 +142,23 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
   const voter = resolveVoter(request)
 
-  // [LAW:single-enforcer] Anonymous-forker attribution. The raw voter UUID
-  // never crosses the wire; authorLabel is the same redaction enforcer
-  // comments use, so the stored label is the same `anon-XXXXXX` shape
-  // comments already expose.
-  const origin: Origin = {
-    actor: {
-      kind: "anon",
-      label: authorLabel(voter.voterId),
-    },
+  // [LAW:types-are-the-program] A generation is reconstructed by the reader with an
+  // authored origin (Content.kind↔Origin.kind pairing). TS can't see that cross-field
+  // link, so we narrow; a generation with any other origin is a storage-integrity
+  // violation and is surfaced loud, never laundered. Post-migration this never fires.
+  if (parent.origin.kind !== "authored") {
+    throw new Error(`forkable generation ${parent.id} has non-authored origin`)
+  }
+
+  // [LAW:types-are-the-program] A bred slop is AUTHORED by its bloodline's persona:
+  // the fork INHERITS the parent's author (lineage, not house-assignment policy — that
+  // seam is owned elsewhere). The human who bred it is the optional `breeder` MODIFIER,
+  // never the author. The raw voter UUID never crosses the wire; authorLabel is the
+  // single redaction enforcer, so the breeder byline is the same `anon-XXXXXX` shape.
+  const origin: AuthoredOrigin = {
+    kind: "authored",
+    author: parent.origin.author,
+    human: { role: "breeder", by: { kind: "anon", label: authorLabel(voter.voterId) } },
   }
 
   try {

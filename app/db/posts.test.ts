@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CreatePostInput } from '~/db/posts'
-import { ProviderId } from '~/lib/domain'
+import { AgentId, ProviderId } from '~/lib/domain'
 
 // Drizzle fluent chain returns `this` at each step, with batch as the terminal.
 // The mock must satisfy: db(env).insert(table).values(row) → a batchable token,
@@ -68,14 +68,14 @@ const GENERATION_INPUT: CreatePostInput = {
   styleFamily: 'photoreal',
   subject: { subjectTemplate: 'T00', slots: { freeText: 'test' } },
   aspectRatio: '1:1',
-  origin: { actor: { kind: 'anon', label: 'test' } },
+  origin: { kind: 'authored', author: { kind: 'agent', agentId: AgentId('agent:test') } },
 }
 
 const FOUND_INPUT: CreatePostInput = {
   kind: 'found',
   url: 'https://example.com/article',
   title: 'A found article',
-  origin: { actor: { kind: 'anon', label: 'test' } },
+  origin: { kind: 'found', finder: { kind: 'anon', label: 'test' } },
 }
 
 // Batch result where the first statement succeeded but the second (sibling table)

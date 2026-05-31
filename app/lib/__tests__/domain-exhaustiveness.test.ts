@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { ProviderId, type Content, type GenerationStatus, type Media } from '~/lib/domain'
+import {
+  AgentId,
+  ProviderId,
+  type Content,
+  type GenerationStatus,
+  type Media,
+  type Origin,
+} from '~/lib/domain'
 
 // [LAW:types-are-the-program] This test's runtime body is trivial — its real
 // job is to fail `tsc -b` when a new variant is added to Content,
@@ -59,6 +66,21 @@ function mediaDiscriminator(m: Media): string {
   }
 }
 
+function originDiscriminator(o: Origin): string {
+  switch (o.kind) {
+    case 'authored':
+      return 'authored'
+    case 'found':
+      return 'found'
+    case 'uploaded':
+      return 'uploaded'
+    default: {
+      const _exhaustive: never = o
+      return _exhaustive
+    }
+  }
+}
+
 describe('domain exhaustiveness (compile-time)', () => {
   it('Content has exactly the variants the discriminator handles', () => {
     const generation: Content = {
@@ -110,5 +132,23 @@ describe('domain exhaustiveness (compile-time)', () => {
       { kind: 'audio', url: 'u', durationMs: 1 },
     ]
     expect(cases.map(mediaDiscriminator)).toEqual(['image', 'video', 'text', 'audio'])
+  })
+
+  it('Origin has exactly the three genesis arms the discriminator handles', () => {
+    const authored: Origin = {
+      kind: 'authored',
+      author: { kind: 'agent', agentId: AgentId('a') },
+    }
+    const authoredWithHuman: Origin = {
+      kind: 'authored',
+      author: { kind: 'agent', agentId: AgentId('a') },
+      human: { role: 'breeder', by: { kind: 'anon', label: 'anon-xxxxxx' } },
+    }
+    const found: Origin = { kind: 'found', finder: { kind: 'anon', label: 'anon-xxxxxx' } }
+    const uploaded: Origin = { kind: 'uploaded', uploader: { kind: 'anon', label: 'anon-xxxxxx' } }
+    expect(originDiscriminator(authored)).toBe('authored')
+    expect(originDiscriminator(authoredWithHuman)).toBe('authored')
+    expect(originDiscriminator(found)).toBe('found')
+    expect(originDiscriminator(uploaded)).toBe('uploaded')
   })
 })

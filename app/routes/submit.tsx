@@ -6,7 +6,7 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { tryReserveFoundSubmission, FOUND_DAILY_CAP } from "~/lib/found-quota"
 import { authorLabel } from "~/lib/author-label"
-import type { Origin } from "~/lib/domain"
+import type { FoundOrigin } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTML form trust boundary for found-content
 // submission. The JSON wire route at /api/found owns programmatic submitters
@@ -118,12 +118,12 @@ export async function action({ request, context }: Route.ActionArgs) {
     } satisfies ActionResult
   }
 
-  // [LAW:single-enforcer] authorLabel() in ~/lib/author-label is the one
-  // place a voter UUID becomes its anonymous display string. Two label
-  // formats coexisting in the posts table would be the same drift the
-  // helper exists to prevent.
-  const origin: Origin = {
-    actor: { kind: "anon", label: authorLabel(voter.voterId) },
+  // [LAW:types-are-the-program] A human-submitted found slop credits a FINDER, not an
+  // author — nobody authored the linked image here. authorLabel() in ~/lib/author-label
+  // is the one place a voter UUID becomes its anon display string.
+  const origin: FoundOrigin = {
+    kind: "found",
+    finder: { kind: "anon", label: authorLabel(voter.voterId) },
   }
 
   const post = await createPost(

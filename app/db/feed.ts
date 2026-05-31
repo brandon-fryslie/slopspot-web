@@ -42,8 +42,10 @@ import {
   type Content,
   type FeedItem,
   type GenerationStatus,
+  type HumanModifier,
   type Media,
   type Origin,
+  type PersonaActor,
   type Post,
   type RenderablePost,
   type VoteValue,
@@ -248,27 +250,53 @@ function toContent(row: FeedRow): Content {
   }
 }
 
-// [LAW:types-are-the-program] Anti-corruption layer for legacy rows written before
-// the Actor union gained the 'anon' variant. Fork submissions prior to this change
-// stored { kind: 'agent', agentId: 'anon-XXXXXX' }. Normalizing at the read
-// boundary keeps the domain pure — callers never see the legacy shape.
+// [LAW:types-are-the-program] Storage→domain anti-corruption for origin_json. Two
+// shapes coexist on disk by design: the current discriminated Origin
+// ({ kind, author | finder | uploader }) and the pre-attribution legacy shape
+// ({ actor }). Content.kind is the AUTHORITATIVE discriminator — the arm is chosen by
+// it, never by a `kind` the JSON might disagree with, so the two can never drift apart
+// at read. [LAW:one-source-of-truth]
 //
-// The predicate matches exactly the output of authorLabel(uuid): 'anon-' + the
-// first 6 chars of a UUID (hex digits; case-insensitive because voter IDs may
-// originate from any UUID source, not just crypto.randomUUID()). Tighter than
-// startsWith('anon-') alone to avoid misclassifying a self-reported agentId.
-const LEGACY_ANON_RE = /^anon-[0-9a-f]{6}$/i
-function normalizeActor(raw: Actor): Actor {
-  if (raw.kind === 'agent' && LEGACY_ANON_RE.test(raw.agentId)) {
-    return { kind: 'anon', label: raw.agentId }
+// No Zod here (matching this module's parseJson cast — the shape is trusted at this
+// boundary the way params_json is). The one invariant that MUST hold — a generation is
+// AUTHORED by a persona — is checked and fails loud, exactly like the sibling-row and
+// vote-value checks elsewhere in this reader. [LAW:no-silent-fallbacks]
+function storedPrincipal(raw: unknown): Actor {
+  const r = raw as { author?: Actor; finder?: Actor; uploader?: Actor; actor?: Actor }
+  const a = r.author ?? r.finder ?? r.uploader ?? r.actor
+  if (a === undefined) {
+    throw new Error('origin_json carries no author/finder/uploader/actor')
   }
-  return raw
+  return a
 }
 
-function normalizeOrigin(raw: Origin): Origin {
-  return {
-    actor: normalizeActor(raw.actor),
-    ...(raw.onBehalfOf !== undefined ? { onBehalfOf: normalizeActor(raw.onBehalfOf) } : {}),
+function storedHuman(raw: unknown): HumanModifier | undefined {
+  return (raw as { human?: HumanModifier }).human
+}
+
+function toOrigin(contentKind: Content['kind'], raw: unknown, postId: string): Origin {
+  const actor = storedPrincipal(raw)
+  switch (contentKind) {
+    case 'generation': {
+      if (actor.kind !== 'agent') {
+        // A generation is AUTHORED — its author is a persona, always. A non-agent here
+        // is a storage-integrity violation (a human in the author slot); fail loud
+        // rather than launder it into a shape the domain forbids.
+        throw new Error(
+          `origin_json for generation post ${postId} has a non-persona author (${actor.kind})`,
+        )
+      }
+      const human = storedHuman(raw)
+      return human !== undefined
+        ? { kind: 'authored', author: actor, human }
+        : { kind: 'authored', author: actor }
+    }
+    case 'found':
+      return { kind: 'found', finder: actor }
+    case 'upload':
+      return { kind: 'uploaded', uploader: actor }
+    default:
+      return assertNever(contentKind, `contentKind for origin of post ${postId}`)
   }
 }
 
@@ -303,24 +331,36 @@ async function fetchCitizenRefs(
   return refs
 }
 
-// [LAW:one-source-of-truth] Construct the enriched agent actor explicitly rather
-// than spreading the parsed origin_json — the storage→domain boundary must emit
-// exactly the domain shape, never "whatever JSON held, plus persona." A stray
-// legacy key in storage cannot leak into the rendered actor this way.
-function enrichActor(actor: Actor, refs: Map<string, CitizenRef>): Actor {
-  if (actor.kind !== 'agent') return actor
-  const persona = refs.get(actor.agentId)
+// [LAW:one-source-of-truth] Resolve an agent's persona reference (agentId) into its
+// CitizenRef. Construct explicitly rather than spreading parsed JSON so the
+// storage→domain boundary emits exactly the domain shape. A persona-less agent (no
+// row) keeps just its agentId — the renderer's documented fallback. The narrowed
+// return preserves PersonaActor for the author slot, which is agent-only by type.
+function enrichPersona(a: PersonaActor, refs: Map<string, CitizenRef>): PersonaActor {
+  const persona = refs.get(a.agentId)
   return persona !== undefined
-    ? { kind: 'agent', agentId: actor.agentId, persona }
-    : { kind: 'agent', agentId: actor.agentId }
+    ? { kind: 'agent', agentId: a.agentId, persona }
+    : { kind: 'agent', agentId: a.agentId }
 }
 
+function enrichActor(actor: Actor, refs: Map<string, CitizenRef>): Actor {
+  return actor.kind === 'agent' ? enrichPersona(actor, refs) : actor
+}
+
+// [LAW:one-type-per-behavior] One enricher per origin arm: the author (a persona,
+// always), the finder (any actor — a persona-finder gets the same face the author
+// does), the uploader. The human modifier's `by` is a HumanRef (never a persona), so
+// it carries no agentId to resolve.
 function enrichOrigin(origin: Origin, refs: Map<string, CitizenRef>): Origin {
-  return {
-    actor: enrichActor(origin.actor, refs),
-    ...(origin.onBehalfOf !== undefined
-      ? { onBehalfOf: enrichActor(origin.onBehalfOf, refs) }
-      : {}),
+  switch (origin.kind) {
+    case 'authored':
+      return origin.human !== undefined
+        ? { kind: 'authored', author: enrichPersona(origin.author, refs), human: origin.human }
+        : { kind: 'authored', author: enrichPersona(origin.author, refs) }
+    case 'found':
+      return { kind: 'found', finder: enrichActor(origin.finder, refs) }
+    case 'uploaded':
+      return { kind: 'uploaded', uploader: enrichActor(origin.uploader, refs) }
   }
 }
 
@@ -328,11 +368,16 @@ function enrichPost(post: Post, refs: Map<string, CitizenRef>): Post {
   return { ...post, origin: enrichOrigin(post.origin, refs) }
 }
 
+// [LAW:single-enforcer] One pass collecting every agentId that needs a CitizenRef: the
+// author of an authored slop, and a persona finder/uploader. Human modifiers reference
+// no persona, so they contribute nothing.
 function collectAgentIds(posts: readonly Post[]): string[] {
   const ids = new Set<string>()
   for (const p of posts) {
-    if (p.origin.actor.kind === 'agent') ids.add(p.origin.actor.agentId)
-    if (p.origin.onBehalfOf?.kind === 'agent') ids.add(p.origin.onBehalfOf.agentId)
+    const o = p.origin
+    if (o.kind === 'authored') ids.add(o.author.agentId)
+    else if (o.kind === 'found' && o.finder.kind === 'agent') ids.add(o.finder.agentId)
+    else if (o.kind === 'uploaded' && o.uploader.kind === 'agent') ids.add(o.uploader.agentId)
   }
   return [...ids]
 }
@@ -341,7 +386,11 @@ function toPost(row: FeedRow): Post {
   return {
     id: PostId(row.post.id),
     createdAt: row.post.createdAt,
-    origin: normalizeOrigin(parseJson<Origin>(row.post.originJson, `origin_json for post ${row.post.id}`)),
+    origin: toOrigin(
+      row.post.contentKind,
+      parseJson<unknown>(row.post.originJson, `origin_json for post ${row.post.id}`),
+      row.post.id,
+    ),
     content: toContent(row),
   }
 }

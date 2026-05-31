@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, GenerationStatus, RenderablePost, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, GenerationStatus, HumanRole, RenderablePost, VoteValue } from "~/lib/domain"
 
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
 // shape that the feed reader and the permalink reader both produce. The
@@ -321,19 +321,54 @@ function ActorBadge({ label, tone, href }: { label: string; tone: string; href?:
     : <span className={className}>{label}</span>
 }
 
+// [LAW:dataflow-not-control-flow] The human's role selects a connective phrase from a
+// closed map (exhaustive by type), not a branch. "The machine made it; the human
+// occasioned it" — the author leads, the human is the footnote.
+const HUMAN_ROLE_PHRASE: Record<HumanRole, string> = {
+  wisher: "from a wish by",
+  breeder: "bred by",
+  patron: "commissioned by",
+}
+
+// [LAW:types-are-the-program] Exhaustive switch on Origin.kind — every genesis renders
+// honestly. AUTHORED leads with the citizen (author), with the human (if any) as a
+// footnote; the machine is the author, never the human. FOUND credits the FINDER
+// (named + linked when a persona) and never implies authorship — found is outbound.
+// UPLOADED credits the uploader. Adding an Origin arm fails to compile here until
+// rendered.
 function OriginBadge({ origin }: { origin: Origin }) {
-  const a = actorLabel(origin.actor)
-  if (!origin.onBehalfOf) {
-    return <ActorBadge {...a} />
+  switch (origin.kind) {
+    case "authored": {
+      const author = actorLabel(origin.author)
+      if (origin.human === undefined) return <ActorBadge {...author} />
+      const human = actorLabel(origin.human.by)
+      return (
+        <span className="inline-flex items-center gap-1 font-mono">
+          <ActorBadge {...author} />
+          <span className="text-white/40">{HUMAN_ROLE_PHRASE[origin.human.role]}</span>
+          <ActorBadge {...human} />
+        </span>
+      )
+    }
+    case "found": {
+      const finder = actorLabel(origin.finder)
+      return (
+        <span className="inline-flex items-center gap-1 font-mono">
+          <span className="text-white/40">found by</span>
+          <ActorBadge {...finder} />
+        </span>
+      )
+    }
+    case "uploaded": {
+      const uploader = actorLabel(origin.uploader)
+      return (
+        <span className="inline-flex items-center gap-1 font-mono">
+          <span className="text-white/40">uploaded by</span>
+          <ActorBadge {...uploader} />
+        </span>
+      )
+    }
   }
-  const b = actorLabel(origin.onBehalfOf)
-  return (
-    <span className="inline-flex items-center gap-1 font-mono">
-      <ActorBadge {...a} />
-      <span className="text-white/40">for</span>
-      <ActorBadge {...b} />
-    </span>
-  )
 }
 
 function ProviderBadge({ providerId }: { providerId: string }) {
