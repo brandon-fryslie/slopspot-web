@@ -144,6 +144,11 @@ export const generations = sqliteTable(
     subjectTemplate: text('subject_template').notNull().default('T00'),
     slotsJson: text('slots_json').notNull().default('{"freeText":""}'),
     aspectRatio: text('aspect_ratio').notNull().default('1:1'),
+    // The human WISH (provenance). Nullable: only Well-born generations carry
+    // it; the provider never sees it (it is not part of params_json). Orthogonal
+    // to the status discriminator, like the variety fields above — written once
+    // at insert, never transitioned.
+    wish: text('wish'),
     status: text('status', {
       enum: ['pending', 'running', 'succeeded', 'failed'],
     }).notNull(),
