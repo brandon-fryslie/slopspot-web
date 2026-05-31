@@ -135,7 +135,9 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
-      origin: { actor: { kind: 'agent', agentId: persona.agentId } },
+      // [LAW:types-are-the-program] The firehose AUTHORS as a persona — no human
+      // modifier. author is the citizen; that is the whole attribution.
+      origin: { kind: 'authored', author: { kind: 'agent', agentId: persona.agentId } },
     },
     { env },
   )

@@ -1,7 +1,7 @@
 import type { Route } from "./+types/api.generate"
 import { z } from "zod"
 import { ApiError } from "@fal-ai/client"
-import { AgentId, ProviderId, type Origin } from "~/lib/domain"
+import { AgentId, ProviderId, type AuthoredOrigin } from "~/lib/domain"
 import { UnknownProviderError } from "~/providers"
 import { createPost, InvalidParamsError } from "~/db/posts"
 import { verifyChallenge, ChallengeConfigError } from "~/lib/challenge"
@@ -89,8 +89,10 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
 
   // agentId is self-reported, untrusted metadata — attribution only, not identity proof.
-  const origin: Origin = {
-    actor: { kind: "agent", agentId: AgentId(parsed.agentId) },
+  // [LAW:types-are-the-program] The agent API AUTHORS as a persona; no human modifier.
+  const origin: AuthoredOrigin = {
+    kind: "authored",
+    author: { kind: "agent", agentId: AgentId(parsed.agentId) },
   }
 
   try {

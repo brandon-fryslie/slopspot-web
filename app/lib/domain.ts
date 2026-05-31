@@ -111,12 +111,58 @@ export type Actor =
   | { kind: 'agent'; agentId: AgentId; persona?: CitizenRef }
   | { kind: 'anon'; label: string }
 
-// `onBehalfOf` captures real delegation (agent acting for a user, etc.). Depth-1 by
-// design: deeper delegation chains are not a use case anyone wants to render.
-export type Origin = {
-  actor: Actor
-  onBehalfOf?: Actor
-}
+// [LAW:one-source-of-truth] PersonaActor is the agent arm of Actor — derived, never a
+// parallel "persona author" type that could drift from Actor. The AUTHOR of a generated
+// slop is ALWAYS a persona (a citizen), never a human: this narrowing is what makes
+// "a human in the author slot" unrepresentable downstream.
+export type PersonaActor = Extract<Actor, { kind: 'agent' }>
+
+// [LAW:one-source-of-truth] A human participant's identity — "an Actor that is not a
+// persona." Derived from Actor so the set of human kinds stays in one place.
+export type HumanRef = Exclude<Actor, { kind: 'agent' }>
+
+// [LAW:types-are-the-program] The closed set of ways a human can MODIFY a
+// persona-authored slop. A free string cannot inhabit it — `role: 'finder'` does not
+// typecheck. The three are the thesis as a type: the human wished it, bred it, or
+// commissioned it; the human never authored it.
+export type HumanRole = 'wisher' | 'breeder' | 'patron'
+
+// [LAW:one-type-per-behavior] The human's optional relationship to an authored slop.
+// The role varies as DATA over one shape (the three roles carry identical structure —
+// a referenced human), so this is one type with a closed role, not three arms. The
+// human is referenced via `by`, never promoted into the author slot.
+export type HumanModifier = { role: HumanRole; by: HumanRef }
+
+// [LAW:types-are-the-program] [LAW:one-type-per-behavior] Origin is how a slop came to
+// be, modeled honestly per its genesis — a discriminated union, NOT one slop type per
+// origin (no WellSlop/UserPost/FirehosePost). It aligns 1:1 with Content.kind, which is
+// the authoritative discriminator: the pairing is synchronized at the write enforcer
+// (createPost's input arms) and the read enforcer (the feed reader switches off
+// posts.contentKind), never set independently. [LAW:one-source-of-truth]
+//
+//   authored  — a citizen GENERATED the image. `author` is a persona, ALWAYS; the
+//               human, when present, is an optional MODIFIER. "A human author with no
+//               persona" is structurally impossible: the human only ever appears inside
+//               `human`, and `author` is non-optional and persona-typed.
+//   found     — a slop SUBMITTED from elsewhere (Reddit-style outbound link). The actor
+//               FOUND it; nobody authored the image here, so there is no author slot at
+//               all — a finder is not an author. The finder may be a persona (the
+//               Ragpicker scavenges) or a human; both are honest finders, neither lies
+//               about authorship.
+//   uploaded  — raw bytes a participant contributed. The `uploader` is the actor; as
+//               with found, no authorship over the bytes is claimed.
+export type Origin =
+  | { kind: 'authored'; author: PersonaActor; human?: HumanModifier }
+  | { kind: 'found'; finder: Actor }
+  | { kind: 'uploaded'; uploader: Actor }
+
+// [LAW:types-are-the-program] Named arms so callers that produce one specific genesis
+// can demand exactly that arm. The write boundary pairs a 'generation' input with an
+// AuthoredOrigin and a 'found' input with a FoundOrigin — passing the wrong arm fails
+// to compile, which is how Content.kind↔Origin.kind stays paired by construction.
+export type AuthoredOrigin = Extract<Origin, { kind: 'authored' }>
+export type FoundOrigin = Extract<Origin, { kind: 'found' }>
+export type UploadedOrigin = Extract<Origin, { kind: 'uploaded' }>
 
 // [LAW:one-source-of-truth] Post carries no score. Votes are the source of truth;
 // score is a derived sum and lives on FeedItem (computed by the seed today, by a
