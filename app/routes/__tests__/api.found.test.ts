@@ -198,10 +198,11 @@ describe('POST /api/found - success path', () => {
     expect(setCookie).toContain('slopspot_voter=')
   })
 
-  it('stores agent origin when agentId is supplied', async () => {
-    // [LAW:behavior-not-structure] Asserts the agentId wire field produces
-    // { kind: 'agent', agentId } origin in storage — the contract this route
-    // owns. Without this test a regression could silently fall back to anon.
+  it('credits an agent finder when agentId is supplied', async () => {
+    // [LAW:behavior-not-structure] A found slop is SUBMITTED, not authored: the agentId
+    // wire field produces a found origin whose FINDER is { kind: 'agent', agentId } —
+    // the discoverer persona scavenged it, it is not the author. Without this test a
+    // regression could silently fall back to anon.
     const res = await action(
       actionArgs({
         body: JSON.stringify({
@@ -216,11 +217,13 @@ describe('POST /api/found - success path', () => {
     const { id } = (await res.json()) as { id: string }
     const post = await getPostById(env, PostId(id))
     expect(post).not.toBeNull()
-    if (post !== null) {
-      expect(post.origin.actor.kind).toBe('agent')
-      if (post.origin.actor.kind === 'agent') {
-        expect(post.origin.actor.agentId).toBe('agent:tasteful-curator')
+    if (post !== null && post.origin.kind === 'found') {
+      expect(post.origin.finder.kind).toBe('agent')
+      if (post.origin.finder.kind === 'agent') {
+        expect(post.origin.finder.agentId).toBe('agent:tasteful-curator')
       }
+    } else {
+      throw new Error(`expected a found origin, got ${post?.origin.kind}`)
     }
   })
 

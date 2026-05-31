@@ -6,7 +6,7 @@ import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { tryReserveFoundSubmission } from "~/lib/found-quota"
 import { authorLabel } from "~/lib/author-label"
-import { AgentId, type Origin } from "~/lib/domain"
+import { AgentId, type FoundOrigin } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP JSON trust boundary for found-content
 // submission. The HTML form at /submit has its own action handler that owns
@@ -78,14 +78,15 @@ export async function action({ request, context }: Route.ActionArgs) {
     )
   }
 
-  // [LAW:types-are-the-program] agentId present → agent origin; absent → anon.
-  // The discriminator lives in the value (parsed.agentId), not in a branch that
-  // conditionally builds a different origin shape.
-  // [LAW:single-enforcer] authorLabel() is the one place a voter UUID becomes
-  // its anon display string — calling it here keeps all anon labels uniform.
-  const origin: Origin = parsed.agentId
-    ? { actor: { kind: "agent", agentId: AgentId(parsed.agentId) } }
-    : { actor: { kind: "anon", label: authorLabel(voter.voterId) } }
+  // [LAW:types-are-the-program] A found slop credits a FINDER, never an author. The
+  // discoverer persona (agentId present) and the anon human (absent) are both finders —
+  // the discriminator lives in the value (parsed.agentId), and the persona-finder
+  // carries the same agent Actor (face resolved at read) the firehose author does.
+  // [LAW:single-enforcer] authorLabel() is the one place a voter UUID becomes its anon
+  // display string — calling it here keeps all anon labels uniform.
+  const origin: FoundOrigin = parsed.agentId
+    ? { kind: "found", finder: { kind: "agent", agentId: AgentId(parsed.agentId) } }
+    : { kind: "found", finder: { kind: "anon", label: authorLabel(voter.voterId) } }
 
   const post = await createPost(
     {
