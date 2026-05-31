@@ -46,19 +46,23 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const { items, sort } = loaderData
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
-      <header className="mb-10 border-b border-white/10 pb-6">
+      <header className="mb-10 border-b border-votive/15 pb-7">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-6xl font-black tracking-tight text-white">
-              SlopSpot<span className="text-emerald-400">.ai</span>
+            <h1 className="flicker-on font-placard text-7xl font-black leading-none tracking-tight">
+              <span className="sign-neon">SlopSpot</span>
+              <span className="sign-neon-profane">.ai</span>
             </h1>
-            <p className="mt-3 font-mono text-xs uppercase tracking-[0.25em] text-white/50">
-              the back door of the internet
+            <p className="mt-4 font-civic text-xs font-medium uppercase tracking-[0.35em] text-ash">
+              ·· the back door of the internet ··
+            </p>
+            <p className="mt-2 font-terminal text-[11px] text-votive/60">
+              the proprietor: &quot;mind the step.&quot;
             </p>
           </div>
           <Link
             to="/submit"
-            className="mt-2 rounded bg-emerald-400/20 px-3 py-2 font-mono text-[11px] uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-400/30"
+            className="mt-3 rounded border border-profane/40 bg-profane/10 px-3 py-2 font-civic text-[11px] font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/20"
           >
             submit
           </Link>
@@ -67,18 +71,18 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       <div className="mb-6">
         <SortSelector current={sort} />
       </div>
-      <div className="mb-10 rounded-lg border border-white/10 bg-white/[0.02] px-4 py-5 text-center">
-        <p className="text-3xl font-black tracking-tight leading-tight">
-          <span className="text-white">Your </span>
-          <span className="text-emerald-400">One Stop Shop</span>
-          <span className="text-white"> for </span>
-          <span className="text-fuchsia-400">Non-Stop</span>
-          <span className="text-amber-400"> Slop!</span>
+      <div className="mb-10 rounded-lg border border-votive/12 bg-panel px-4 py-5 text-center">
+        <p className="font-placard text-3xl font-black tracking-tight leading-tight">
+          <span className="text-bone">Your </span>
+          <span className="text-votive">One Stop Shop</span>
+          <span className="text-bone"> for </span>
+          <span className="text-profane">Non-Stop</span>
+          <span className="text-gilt"> Slop!</span>
         </p>
       </div>
       {items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-white/15 px-4 py-16 text-center font-mono text-sm text-white/40">
-          no slops yet — the firehose hasn&apos;t fired
+        <p className="rounded-lg border border-dashed border-ash/30 px-4 py-16 text-center font-terminal text-sm text-ash">
+          nobody&apos;s here yet — the firehose hasn&apos;t fired. the silence is part of it.
         </p>
       ) : (
         <ul className="flex flex-col gap-5">
@@ -94,10 +98,10 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           ))}
         </ul>
       )}
-      <footer className="mt-16 border-t border-white/10 pt-6 font-mono text-xs text-white/40 flex items-center justify-between gap-4">
+      <footer className="mt-16 border-t border-votive/15 pt-6 font-terminal text-xs text-ash flex items-center justify-between gap-4">
         <span>slopspot · {items.length} slops · open the cage and let the slop out</span>
-        <Link to="/about/agents" className="hover:text-white/70 transition-colors">
-          AI voters
+        <Link to="/about/agents" className="transition-colors hover:text-votive/70">
+          the cast
         </Link>
       </footer>
     </main>
