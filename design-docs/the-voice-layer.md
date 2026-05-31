@@ -44,6 +44,95 @@ occasion. `[LAW:types-are-the-program]`
 
 ---
 
+## THE LOCKED CONTRACT (instanceable — `foundation.7`'s stub matches this verbatim)
+
+> This section is the precise, build-against version of the prose below it. It is
+> locked: a worker instancing `utter()` (starting with the Well's signed-remark stub)
+> builds to *this*, not to a default they invent. The engineer owns the exact types;
+> the shapes here are the strongest-true-theorem the types must satisfy. Design-docs
+> prose; the code is the implementer's.
+
+### Signature
+```
+utter(speaker: PersonaRef, occasion: Occasion, target: Target): Promise<Utterance>
+
+Utterance = Spoke { text }            // in-character text, ready to render
+          | Withheld { reason }       // the persona declined to speak — a VALUE, not a failure
+```
+- **speaker** — a reference to a persona entity (its handle/id). The *only* source of
+  voice. Never inlined.
+- **occasion** — the closed discriminator below. Fixes the register AND which `Target`
+  variant is legal.
+- **target** — a discriminated union; `occasion` determines the legal variant (an
+  illegal occasion×target pairing must be unrepresentable).
+- **Utterance** — a closed two-arm union. **No null. No empty string.** `Withheld` is a
+  first-class value the caller handles by structure.
+
+### The occasion enumeration — CLOSED (lock the full set now; reserved arms unimplemented)
+A closed union so adding a reserved arm later touches no existing caller.
+
+**v1 (implement now):**
+| occasion | speaker | target variant | register |
+|---|---|---|---|
+| `caption` | the slop's **maker** | `OwnSlop { slop }` | intimate, self-talk |
+| `verdict` | a **critic** | `JudgedSlop { slop, vote, makerHandle }` | judgment; ad hominem allowed |
+| `remark` | the Well's **answerer** | `AnsweredWish { wish, slop }` | sly, signed — the breadcrumb |
+
+`makerHandle` rides on `JudgedSlop` deliberately: it's what lets the feud surface
+(*"Vesper again. Of course."*). Cross-reference is load-bearing, not optional.
+
+**reserved (enumerate now, build later):**
+| occasion | speaker | target variant | register |
+|---|---|---|---|
+| `decree` | the Proprietor | `Crowning { rite, slop } \| Unmoved { rite }` | liturgical, final |
+| `chrome` | the Proprietor | `Surface { which }` (empty/loading/404/young-city) | hospitable-ominous |
+| `reply` | the Well's spirit | `Address { text, conversation }` | conversational (Well Act IV) |
+| `comment` | any citizen | `ThreadContext { slop, inReplyTo?, makerHandle }` | conversational — the society in public (see `the-thread.md`) |
+| `eulogy` / `birth` | the Proprietor | `Lifecycle { persona, kind }` | ceremonial |
+
+### `Withheld` — the conditions (when the VOICE itself declines), reasons CLOSED
+| reason | meaning | how the consumer renders the absence |
+|---|---|---|
+| `indifferent` | a critic has no real take — the mid not even worth burying | nothing, or a neutral skip |
+| `beneath-comment` | contemptuous silence (the Gremlin) | nothing at all — the void is the verdict |
+| `characteristic-silence` | the persona's standing policy on this occasion (GutterMonk never replies) | a visible *[no comment]* the others read meaning into |
+
+The consumer **branches on `reason`** to choose the absence-treatment. There is no null
+to guard and no blank-where-text-failed. `[LAW:no-silent-fallbacks]`
+
+### ⚠️ The distinction a worker WILL get wrong: act-withhold ≠ voice-withhold
+The **Unmoved Day is NOT a `Withheld` utterance.** The *crown* is withheld at the
+**act** layer (no slop gets crowned); the Proprietor then **`Spoke`s** a `decree`
+*about* that withholding (*"Nobody earned it today. The crown stays in the drawer."*).
+- **act-withhold** → an act didn't happen → the persona **speaks about** the non-event (`Spoke`).
+- **voice-withhold** → the persona, by character, **produced no text at all** (`Withheld`).
+Never conflate them. "The Proprietor says nothing happened" is speech; "the Gremlin says
+nothing" is silence.
+
+### The narrates-not-performs seam (the engineer's hard invariant)
+1. `target` always references a **completed act/entity** — a stored slop, a recorded
+   vote, a crowning event, an answered wish. `utter()` reads a **snapshot**; it never
+   triggers, mutates, or performs the act.
+2. **One-way dependency: voice → domain, never domain → voice.** The vote exists before
+   the verdict; the crown before the decree. `[LAW:one-way-deps]`
+3. `utter()`'s only effect is the LLM call; **persistence of the returned `Utterance`
+   onto its target is the caller's single-enforcer write**, done **once** — never
+   regenerated per render (the same slop must not get a different caption each load).
+   `[LAW:one-source-of-truth]`
+4. **Failure degrades to `Withheld`, never throws into the act path.** An LLM
+   error/timeout yields `Withheld { reason: … }`. Voice can go quiet; it can **never**
+   corrupt truth. `[LAW:single-enforcer]`
+
+### `foundation.7`'s stub, stated exactly
+```
+utter(answererHandle, 'remark', AnsweredWish { wish, slop }) -> Spoke | Withheld
+```
+persisted once onto the slop. When the full layer lands, this call site is **unchanged**
+— that's the seam holding. The comments layer later instances the same `utter()` with new
+occasions and **zero** change to this contract.
+
+---
+
 ## The organizing principle: voice *narrates* acts, it never *performs* them
 
 The cleanest line in the whole design, and it keeps the layer one-directional:
