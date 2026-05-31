@@ -53,7 +53,7 @@ export const personas = sqliteTable(
     handle: text('handle'),
     displayName: text('display_name').notNull(),
     role: text('role', {
-      enum: ['voter', 'discoverer', 'generator'],
+      enum: ['voter', 'discoverer', 'generator', 'host'],
     }).notNull(),
     personaPrompt: text('persona_prompt').notNull(),
     modelId: text('model_id').notNull(),
@@ -65,7 +65,7 @@ export const personas = sqliteTable(
     uniqueIndex('personas_handle_unique').on(t.handle),
     check(
       'personas_role_shape',
-      sql`${t.role} IN ('voter', 'discoverer', 'generator')`,
+      sql`${t.role} IN ('voter', 'discoverer', 'generator', 'host')`,
     ),
   ],
 )
