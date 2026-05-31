@@ -231,6 +231,12 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
         size: 1,
         contentType: 'image/png',
       })
+      // Capture every INSERT .values(...) call so we can assert the wish is
+      // actually written to the generations row — the persistence invariant the
+      // returned-object check alone cannot catch (the recipe echoes input.wish
+      // regardless of what the insert stored).
+      const valuesSpy = vi.fn().mockReturnThis()
+      mockInsert.mockReturnValue({ values: valuesSpy })
 
       const { createPost } = await import('~/db/posts')
       const post = await createPost(wishInput, { env: fakeEnv })
@@ -240,6 +246,10 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       if (post.content.kind === 'generation') {
         expect(post.content.recipe.wish).toBe(WISH)
       }
+
+      // ...it IS persisted to the generations row (only that INSERT carries a
+      // wish field, so this asserts the storage write, not the posts INSERT)...
+      expect(valuesSpy).toHaveBeenCalledWith(expect.objectContaining({ wish: WISH }))
 
       // ...but the provider received only { params, aspectRatio } — the wish
       // appears in none of generate()'s call args.
