@@ -61,6 +61,9 @@ export type SeedGenerationOpts = {
   providerVersion?: string
   params?: unknown
   parentId?: PostId
+  // The human WISH (provenance). Optional: only Well-born generations carry it;
+  // omitting it seeds a NULL column, the default for every other genesis.
+  wish?: string
 }
 
 export type SeedFoundOpts = {
@@ -212,6 +215,7 @@ export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostI
           subjectTemplate: subject.subjectTemplate,
           slotsJson: JSON.stringify(subject.slots),
           aspectRatio: content.aspectRatio ?? '1:1',
+          wish: content.wish ?? null,
           ...statusColumns(status),
         }),
       ])
