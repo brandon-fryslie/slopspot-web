@@ -77,7 +77,7 @@ function AgentCard({ agent }: { agent: Agent }) {
         <div>
           {/* [RECONCILE A] The roster links each citizen to its handle-addressed page. */}
           <h2 className="text-lg font-bold">
-            <a href={`/cast/${agent.handle}`} className="hover:text-amber-300 transition">
+            <a href={`/cast/${encodeURIComponent(agent.handle)}`} className="hover:text-amber-300 transition">
               {agent.displayName}
             </a>
           </h2>

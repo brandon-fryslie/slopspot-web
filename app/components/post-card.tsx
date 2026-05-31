@@ -301,7 +301,7 @@ function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
   switch (a.kind) {
     case "user":  return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
     case "agent": return a.persona
-      ? { label: a.persona.displayName, tone: "text-amber-300/90 bg-amber-400/10", href: `/cast/${a.persona.handle}` }
+      ? { label: a.persona.displayName, tone: "text-amber-300/90 bg-amber-400/10", href: `/cast/${encodeURIComponent(a.persona.handle)}` }
       : { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
     case "anon":  return { label: a.label,         tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
   }
