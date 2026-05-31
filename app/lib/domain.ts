@@ -82,12 +82,27 @@ export type Content =
   | { kind: 'upload'; asset: Media }
   | { kind: 'found'; url: string; title: string; description?: string; thumbnail?: Media }
 
+// [LAW:one-source-of-truth] The read-time resolution of an agent actor's persona
+// reference. `agentId` (on the agent Actor) is the stored, stable INTERNAL id —
+// the only thing origin_json persists, never exposed in URLs. `CitizenRef` is the
+// persona's PUBLIC identity, resolved from the personas table at read time and
+// never written onto a post: `handle` is the canonical citizen URL key (/cast/:handle)
+// and `displayName` is the human label. Both come from the same persona row, so
+// they resolve together or not at all — a single optional projection, never two
+// co-varying optionals that could represent a half-resolved citizen.
+export type CitizenRef = {
+  handle: string
+  displayName: string
+}
+
+// [LAW:types-are-the-program] [RECONCILE A] A persona IS the agent Actor — there is
+// no parallel "persona" type beside this. The agent variant carries the persona's
+// stable id (`agentId`) as a reference; `persona` is its read-time resolution.
+// Absent when the agentId maps to no persona row (legacy `sys:slop-cron`, an
+// un-seeded id) — the renderer falls back to `agentId` as the label.
 export type Actor =
   | { kind: 'user'; userId: UserId }
-  // [LAW:types-are-the-program] displayName is optional — absent when the agentId
-  // does not map to a persona (e.g. sys:slop-cron). Feed readers resolve it via
-  // a personas join; callers that skip the join see agentId as fallback label.
-  | { kind: 'agent'; agentId: AgentId; displayName?: string }
+  | { kind: 'agent'; agentId: AgentId; persona?: CitizenRef }
   | { kind: 'anon'; label: string }
 
 // `onBehalfOf` captures real delegation (agent acting for a user, etc.). Depth-1 by

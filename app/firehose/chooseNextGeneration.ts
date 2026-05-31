@@ -18,7 +18,6 @@ import {
   SLOT_VOCABS,
   STYLE_FAMILIES,
   STYLE_FAMILY_ASPECT_BIAS,
-  STYLE_FAMILY_PROVIDER_WEIGHTS,
   TEMPLATE_SLOT_KEYS,
   type AspectRatio,
   type ChooserRecipeSubject,
@@ -43,17 +42,24 @@ import type { GenerationProvider } from '~/providers/types'
 // Absent `bias` = all-ones on every dimension. Same chooser body every fire;
 // the bias values flow through the weight functions, never gating the body.
 // [LAW:dataflow-not-control-flow]
+//
+// [RECONCILE C] No `providerBias`: the provider is no longer chosen here. It is
+// the author-persona's medium, passed in as `provider`. Provider variety emerges
+// from citizen rotation, not a per-fire pick.
 export type PersonaBias = {
   styleFamilyBias?: Partial<Record<StyleFamily, number>>
-  providerBias?: Partial<Record<string, number>>
   aspectRatioBias?: Partial<Record<AspectRatio, number>>
   promptPrefix?: string
 }
 
+// [LAW:types-are-the-program] [RECONCILE C] The chooser takes the SINGLE provider
+// the slop will use — the author-persona's medium — not a pool to pick from. The
+// provider is data the chooser consumes (to gate aspect ratios to what it serves
+// and to stamp `providerId` on the recipe), never a dimension it samples.
 export type ChooserInput = {
   scheduledTimeMs: number
   recent: readonly RecentRecipe[]
-  providers: readonly GenerationProvider<unknown>[]
+  provider: GenerationProvider<unknown>
   bias?: PersonaBias
 }
 
@@ -178,28 +184,6 @@ function slotWeights(
   return vocab.map((v) => (used.has(v) ? R6_DOWNWEIGHT : 1.0))
 }
 
-// R3 hard-rejects the most-recent providerId — but only when the candidate
-// pool still has ≥2 nonzero entries after the table lookup, otherwise the
-// reject would empty the pool. Matches the doc's "if ≥2 providers are
-// registered" intent: with the current STYLE_FAMILY_PROVIDER_WEIGHTS having
-// 3 nonzero entries per style, this fires uniformly.
-// `biasMult` multiplies per-provider — absent key = 1.0. [LAW:dataflow-not-control-flow]
-function providerWeights(
-  providers: readonly GenerationProvider<unknown>[],
-  styleFamily: StyleFamily,
-  recent: readonly RecentRecipe[],
-  biasMult?: Partial<Record<string, number>>,
-): number[] {
-  const table = STYLE_FAMILY_PROVIDER_WEIGHTS[styleFamily]
-  const r3Reject = recent[0]?.providerId
-  const raw = providers.map((p) => (table[p.id as string] ?? 0) * (biasMult?.[p.id as string] ?? 1.0))
-  const nonzero = raw.filter((w) => w > 0).length
-  if (nonzero >= 2 && r3Reject !== undefined) {
-    return providers.map((p, i) => (p.id === r3Reject ? 0 : raw[i]!))
-  }
-  return raw
-}
-
 // R4 hard-rejects the candidate aspect ratio if and only if the last two
 // recent posts share that same aspect ratio (two-in-a-row allowed, three-in-
 // a-row forbidden). Base weights × style-family bias multipliers from
@@ -248,17 +232,18 @@ function sampleSlots(
 }
 
 // [LAW:dataflow-not-control-flow] Same operations every fire — sample style →
-// sample subject → sample slots → sample provider → sample aspect. R-rules
-// feed weights, never branches. Persona bias multipliers flow through the
-// weight functions; absent bias = 1.0 on every dimension, making persona=null
-// and persona=all-ones identical code paths.
+// sample subject → sample slots → sample aspect. R-rules feed weights, never
+// branches. Persona bias multipliers flow through the weight functions; absent
+// bias = 1.0 on every dimension, making persona=null and persona=all-ones
+// identical code paths. [RECONCILE C] The provider is fixed (the author-persona's
+// medium), so it is not sampled — only its supportedAspectRatios gate the aspect draw.
 //
 // Prompt composition and params building are the caller's responsibility:
 // the caller awaits composePrompt (composer.ts), then calls
 // provider.defaultParamsForRecipe({ prompt, styleFamily, seed: paramsSeed }).
 // [LAW:one-way-deps] chooser stays pure — no env, no I/O.
 export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
-  const { scheduledTimeMs, recent, providers, bias } = input
+  const { scheduledTimeMs, recent, provider, bias } = input
 
   const styleFamily = pickWeighted(
     STYLE_FAMILIES,
@@ -275,13 +260,6 @@ export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
   )
 
   const slots = sampleSlots(subjectTemplate, recent, scheduledTimeMs)
-
-  const provider = pickWeighted(
-    providers,
-    providerWeights(providers, styleFamily, recent, bias?.providerBias),
-    scheduledTimeMs,
-    'provider',
-  )
 
   const aspectRatio = pickWeighted(
     ASPECT_RATIOS,

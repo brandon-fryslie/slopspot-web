@@ -18,6 +18,7 @@ function dayTicks(baseDate: Date): Date[] {
 function makePersona(agentId: string, config: Record<string, unknown>): Persona {
   return {
     agentId: AgentId(agentId),
+    handle: agentId,
     displayName: agentId,
     role: 'voter',
     personaPrompt: '',

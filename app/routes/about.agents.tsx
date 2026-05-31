@@ -27,6 +27,7 @@ export async function loader({ context }: Route.LoaderArgs) {
 
   const agents = personas.map((p, i) => ({
     agentId: p.agentId,
+    handle: p.handle,
     displayName: p.displayName,
     // Derive the one-line blurb in the loader — the full prompt is not sent to
     // the client (RR7 serializes all loader data to the browser).
@@ -74,8 +75,13 @@ function AgentCard({ agent }: { agent: Agent }) {
     <article className="rounded-lg border border-white/10 bg-white/[0.02] p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold">{agent.displayName}</h2>
-          <p className="mt-1 text-sm text-white/50 font-mono">{agent.agentId}</p>
+          {/* [RECONCILE A] The roster links each citizen to its handle-addressed page. */}
+          <h2 className="text-lg font-bold">
+            <a href={`/cast/${agent.handle}`} className="hover:text-amber-300 transition">
+              {agent.displayName}
+            </a>
+          </h2>
+          <p className="mt-1 text-sm text-white/50 font-mono">@{agent.handle}</p>
         </div>
         <div className="text-right shrink-0">
           <span className="text-white/40 text-xs">{agent.voteCount} votes</span>
