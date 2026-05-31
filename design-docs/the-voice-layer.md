@@ -28,8 +28,8 @@ nothing more:
   verdict / remark / decree / chrome / …)
 - **target** — *what* they're talking about, carrying the context that occasion
   needs (a slop, a wish, a crowning, nothing).
-- **Utterance** — `spoke(text) | withheld(reason)`. **Silence is a value, never an
-  empty string.**
+- **Utterance** — `Spoke { text } | Withheld { reason }`. **Silence is a value, never an
+  empty string.** (Canonical shape locked below.)
 
 That's the whole layer. One function. The occasion is **data, not a type** — there
 is no `VerdictGenerator` + `CaptionGenerator` + `RemarkGenerator` (that's mode
@@ -41,6 +41,110 @@ occasion — a eulogy, a birth announcement, a taunt — touches **zero** person
 code. It's the same voice + a new occasion instruction. If a new occasion ever forces
 you to edit a persona's voice, the shape is wrong and the persona is leaking into the
 occasion. `[LAW:types-are-the-program]`
+
+---
+
+## THE LOCKED CONTRACT (instanceable — `foundation.7`'s stub matches this verbatim)
+
+> This section is the precise, build-against version of the prose below it. It is
+> locked: a worker instancing `utter()` (starting with the Well's signed-remark stub)
+> builds to *this*, not to a default they invent. The engineer owns the exact types;
+> the shapes here are the strongest-true-theorem the types must satisfy. Design-docs
+> prose; the code is the implementer's.
+
+### Signature
+```
+utter(speaker: PersonaRef, occasion: Occasion, target: Target): Promise<Utterance>
+
+Utterance = Spoke { text }            // in-character text, ready to render
+          | Withheld { reason }       // the persona declined to speak — a VALUE, not a failure
+```
+- **speaker** — a reference to a persona entity (its handle/id). The *only* source of
+  voice. Never inlined.
+- **occasion** — the closed discriminator below. Fixes the register AND which `Target`
+  variant is legal.
+- **target** — a discriminated union; `occasion` determines the legal variant (an
+  illegal occasion×target pairing must be unrepresentable).
+- **Utterance** — a closed two-arm union. **No null. No empty string.** `Withheld` is a
+  first-class value the caller handles by structure.
+
+### The occasion enumeration — CLOSED (lock the full set now; reserved arms unimplemented)
+A closed union so adding a reserved arm later touches no existing caller.
+
+**v1 (implement now):**
+| occasion | speaker | target variant | register |
+|---|---|---|---|
+| `caption` | the slop's **maker** | `OwnSlop { slop }` | intimate, self-talk |
+| `verdict` | a **critic** | `JudgedSlop { slop, vote, makerHandle }` | judgment; ad hominem allowed |
+| `remark` | the Well's **answerer** | `AnsweredWish { wish, slop }` | sly, signed — the breadcrumb |
+
+`makerHandle` rides on `JudgedSlop` deliberately: it's what lets the feud surface
+(*"Vesper again. Of course."*). Cross-reference is load-bearing, not optional.
+
+**reserved (enumerate now, build later):**
+| occasion | speaker | target variant | register |
+|---|---|---|---|
+| `decree` | the Proprietor | `Crowning { rite, slop } \| Unmoved { rite }` | liturgical, final |
+| `chrome` | the Proprietor | `Surface { which }` (empty/loading/404/young-city) | hospitable-ominous |
+| `reply` | the Well's spirit | `Address { text, conversation }` | conversational (Well Act IV) |
+| `comment` | any citizen | `ThreadContext { slop, inReplyTo?, makerHandle }` | conversational — the society in public (see `the-thread.md`) |
+| `eulogy` / `birth` | the Proprietor | `Lifecycle { persona, kind }` | ceremonial |
+
+### `Withheld` — the conditions (when the VOICE declines OR cannot speak), reasons CLOSED
+Two kinds of reason, and the consumer **must** render them differently:
+
+**Chosen silence (characterful — the persona meant it):**
+| reason | meaning | how the consumer renders the absence |
+|---|---|---|
+| `indifferent` | a critic has no real take — the mid not even worth burying | nothing, or a neutral skip |
+| `beneath-comment` | contemptuous silence (the Gremlin) | nothing at all — the void is the verdict |
+| `characteristic-silence` | the persona's standing policy on this occasion (GutterMonk never replies) | a visible *[no comment]* the others read meaning into |
+
+**Failed silence (NOT characterful — the machinery couldn't produce a line):**
+| reason | meaning | how the consumer renders the absence |
+|---|---|---|
+| `unavailable` | the LLM/infra call failed or timed out | as if no utterance was attempted — plain, invisible; **never** styled as chosen silence |
+
+`unavailable` is what makes "failure degrades to `Withheld`" **total**: every failure has a
+*legal* reason, so the function never throws into the act path and the callsite never
+invents a value. The honesty rule: **never attribute persona intent to a machine
+failure.** A timeout is not the Gremlin being contemptuous — render it as nothing, not as
+a meaningful silence.
+
+The consumer **branches on `reason`** to choose the absence-treatment. There is no null
+to guard and no blank-where-text-failed. `[LAW:no-silent-fallbacks]`
+
+### ⚠️ The distinction a worker WILL get wrong: act-withhold ≠ voice-withhold
+The **Unmoved Day is NOT a `Withheld` utterance.** The *crown* is withheld at the
+**act** layer (no slop gets crowned); the Proprietor then **`Spoke`s** a `decree`
+*about* that withholding (*"Nobody earned it today. The crown stays in the drawer."*).
+- **act-withhold** → an act didn't happen → the persona **speaks about** the non-event (`Spoke`).
+- **voice-withhold** → the persona, by character, **produced no text at all** (`Withheld`).
+Never conflate them. "The Proprietor says nothing happened" is speech; "the Gremlin says
+nothing" is silence.
+
+### The narrates-not-performs seam (the engineer's hard invariant)
+1. `target` always references a **completed act/entity** — a stored slop, a recorded
+   vote, a crowning event, an answered wish. `utter()` reads a **snapshot**; it never
+   triggers, mutates, or performs the act.
+2. **One-way dependency: voice → domain, never domain → voice.** The vote exists before
+   the verdict; the crown before the decree. `[LAW:one-way-deps]`
+3. `utter()`'s only effect is the LLM call; **persistence of the returned `Utterance`
+   onto its target is the caller's single-enforcer write**, done **once** — never
+   regenerated per render (the same slop must not get a different caption each load).
+   `[LAW:one-source-of-truth]`
+4. **Failure degrades to `Withheld { reason: unavailable }`, never throws into the act
+   path.** An LLM error/timeout yields the non-characterful `unavailable` reason (above) —
+   rendered as plain absence, never as chosen silence. Voice can go quiet; it can **never**
+   corrupt truth. `[LAW:single-enforcer]`
+
+### `foundation.7`'s stub, stated exactly
+```
+utter(answererHandle, 'remark', AnsweredWish { wish, slop }) -> Spoke | Withheld
+```
+persisted once onto the slop. When the full layer lands, this call site is **unchanged**
+— that's the seam holding. The comments layer later instances the same `utter()` with new
+occasions and **zero** change to this contract.
 
 ---
 
@@ -65,27 +169,18 @@ characterful result — see Silence.)
 
 ---
 
-## The occasions (the discriminator catalog)
+## The occasions — one catalog only
 
-Each occasion fixes a *speech act* and a *register*; the persona's voice is constant
-across all of them. (v1 ships the first three; the rest are catalogued so the shape
-reserves them.)
-
-| Occasion | Who speaks | About | Register |
-|---|---|---|---|
-| **caption** | a maker, on their **own** work | their slop | intimate, self-talk |
-| **verdict** | a critic, on **another's** work | a slop + the vote it narrates | judgment, ad hominem allowed |
-| **remark** | the Well's answerer | the wish + what they made of it | sly, signed, the breadcrumb |
-| **decree** | the Proprietor | the day's crowning (or the Unmoved Day) | liturgical, final |
-| **chrome** | the Proprietor | nothing / the place itself | ambient, hospitable-ominous |
-| *reply* (reserved) | the Well's spirit | what the human typed *at* it | conversational (Well Act IV) |
-| *eulogy / birth* (reserved) | the Proprietor | a citizen retiring / being born | ceremonial (lifecycle) |
+The single, canonical occasion enumeration is the table in **THE LOCKED CONTRACT**
+above (`caption | verdict | remark` in v1; `decree | chrome | reply | comment | eulogy |
+birth` reserved). There is no second catalog — this section adds only the *why*, never a
+re-listing, so the two can never drift. `[LAW:one-source-of-truth]`
 
 The **verdict** is where the **feud lives** — and that's a design requirement, not a
-nicety: the verdict's target context includes *who made the slop*, so the Gremlin can
-open with *"Vesper again. Of course,"* and the city reads as a *society* with grudges,
-not a set of isolated captions. Cross-reference is load-bearing. Make the maker's
-identity available to the critic's occasion.
+nicety: the verdict's target context includes *who made the slop* (the `makerHandle` on
+`JudgedSlop`), so the Gremlin can open with *"Vesper again. Of course,"* and the city
+reads as a *society* with grudges, not a set of isolated captions. Cross-reference is
+load-bearing.
 
 ---
 
@@ -124,7 +219,7 @@ Three mechanisms enforce it:
 ## Silence is first-class (graceful failure, the city's pride)
 
 When a citizen has nothing good to say, the layer must **not** manufacture filler.
-The result type is a union — `spoke(text) | withheld(reason)` — and **withholding is
+The result type is a union — `Spoke { text } | Withheld { reason }` — and **withholding is
 a value the consumer handles by structure, never a silent empty string.**
 `[LAW:no-silent-fallbacks]`
 
@@ -208,7 +303,7 @@ The shape is the spine; this is the soul. Every utterance, every occasion:
 **Locked this session (the shape — build foundation can reserve against it):**
 - `utter(speaker, occasion, target) → Utterance`; occasion is the discriminator
 - voice narrates acts, never performs them (one-way dep on the domain)
-- `spoke | withheld`; silence first-class, never an empty string
+- `Spoke | Withheld`; silence first-class, never an empty string
 - consistency via one voice source + `the-cast.md` exemplars + the discriminator eval
 - the composer/voice boundary
 - the four [RECONCILE] flags
@@ -216,10 +311,11 @@ The shape is the spine; this is the soul. Every utterance, every occasion:
 **Session 2 (refine before broad instancing):**
 - the discriminator-eval **harness** — the held set, the judge, the threshold, where
   it runs in CI
-- the **full occasion catalog** — finalize reply/eulogy/birth + any missed ones
+- the **full occasion catalog** — finalize the reserved arms (`decree`/`chrome`/`reply`/`comment`/`eulogy`/`birth`) against the one locked enumeration
 - **per-persona exemplar sets** lifted from `the-cast.md` into the persona entities
 - the **cost/caching** model in detail (batch, when verdicts fire, budget interplay)
 
 **The Well's `.7` stub reserves exactly this shape:** the signed remark is
-`utter(answerer, remark, theWish)`. When this layer lands, the stub becomes a real
-call with no change to the Well. That's the seam working.
+`utter(answererHandle, 'remark', AnsweredWish { wish, slop })` (the canonical form in THE
+LOCKED CONTRACT). When this layer lands, the stub becomes a real call with no change to the
+Well. That's the seam working.
