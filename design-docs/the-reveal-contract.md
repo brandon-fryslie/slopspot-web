@@ -59,7 +59,7 @@ dawning breaks and the whole haunted-box design collapses into "a confusing prom
 3. **Provider is NOT on the headline.** Medium lives in the recipe drawer
    (`foundation.9`/provider-as-medium). The serial number never headlines.
 4. **The name is the citizen's, not the prompt.** A raw-prompt dump or *"Untitled"* in the
-   name slot is a FAIL (`back-door-ndr.1`).
+   name slot is a FAIL — the placard is the citizen's title for the work.
 5. **The wish-gap is shown, not hidden.** On a wished slop, the human's words sit *visible*
    next to the result that ignored them — the gap is the art, never papered over.
 
