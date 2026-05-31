@@ -47,4 +47,11 @@ UPDATE posts
        )
    )
  WHERE posts.content_kind = 'generation'
-   AND json_extract(posts.origin_json, '$.actor.kind') = 'anon';
+   AND json_extract(posts.origin_json, '$.actor.kind') = 'anon'
+   -- Only rewrite rows whose bloodline actually resolves to a persona. An
+   -- unresolvable chain (orphaned / malformed parent) would otherwise produce
+   -- agentId: null — masking a storage violation as a usable agent. Leaving such a
+   -- row untouched preserves the reader's fail-loud behavior instead. In current
+   -- prod every one of the nine rows resolves (to sys:slop-cron), so this gate is a
+   -- safety net, not a partial backfill.
+   AND (SELECT agent FROM resolved WHERE start_id = posts.id) IS NOT NULL;
