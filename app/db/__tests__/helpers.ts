@@ -14,6 +14,7 @@
 import { db } from '~/db/client'
 import { comments, found, generations, posts, uploads, votes } from '~/db/schema'
 import {
+  AgentId,
   PostId,
   type GenerationStatus,
   type Media,
@@ -31,7 +32,14 @@ const DEFAULT_IMAGE: Media = {
   h: 1024,
 }
 
-const DEFAULT_ORIGIN: Origin = { actor: { kind: 'anon', label: 'anon-tester' } }
+// [LAW:types-are-the-program] Default is an AUTHORED origin with a persona author —
+// the dominant case and the only one valid for the default generation content. The
+// reader maps this single principal actor per content kind (author / finder /
+// uploader), so it seeds every kind without a per-kind default.
+const DEFAULT_ORIGIN: Origin = {
+  kind: 'authored',
+  author: { kind: 'agent', agentId: AgentId('sys:test') },
+}
 
 const DEFAULT_SUBJECT: RecipeSubject = {
   subjectTemplate: 'T00',

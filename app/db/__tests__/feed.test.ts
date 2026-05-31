@@ -443,31 +443,74 @@ describe('app/db/feed.ts - getFeed', () => {
     })
   })
 
-  describe('legacy actor normalization', () => {
-    it('rewrites { kind: agent, agentId: "anon-XXXXXX" } to { kind: anon, label }', async () => {
-      // [LAW:types-are-the-program] feed.ts's anti-corruption layer rewrites
-      // legacy origin rows at the read boundary; the domain never sees the
-      // legacy shape. This test pins that contract.
-      const legacyOrigin: Origin = {
-        actor: { kind: 'agent', agentId: AgentId('anon-abc123') },
+  describe('origin reconstruction (Content.kind -> Origin arm)', () => {
+    it('reconstructs a generation as an authored origin with a persona author', async () => {
+      // [LAW:types-are-the-program] Content.kind is the authoritative discriminator:
+      // a generation reconstructs to the `authored` arm, author always a persona.
+      const origin: Origin = {
+        kind: 'authored',
+        author: { kind: 'agent', agentId: AgentId('firehose-cron-v1') },
       }
-      await seedPost(env, { id: 'post-legacy-actor', origin: legacyOrigin })
+      await seedPost(env, { id: 'post-authored', origin })
 
       const [item] = await getFeed(env)
-      expect(item.post.origin.actor).toEqual({ kind: 'anon', label: 'anon-abc123' })
+      expect(item.post.origin).toEqual({
+        kind: 'authored',
+        author: { kind: 'agent', agentId: 'firehose-cron-v1' },
+      })
     })
 
-    it('leaves non-legacy agent actors unchanged', async () => {
-      const origin: Origin = {
-        actor: { kind: 'agent', agentId: AgentId('firehose-cron-v1') },
-      }
-      await seedPost(env, { id: 'post-real-agent', origin })
+    it('reconstructs the legacy { actor } shape by content kind', async () => {
+      // The pre-attribution shape stored a single `actor`. The reader maps it to the
+      // arm chosen by Content.kind — here a generation → authored author — so old rows
+      // keep rendering without a data migration of the cleanly-mappable majority.
+      const legacy = { actor: { kind: 'agent', agentId: 'firehose-cron-v1' } } as unknown as Origin
+      await seedPost(env, { id: 'post-legacy', origin: legacy })
 
       const [item] = await getFeed(env)
-      expect(item.post.origin.actor).toEqual({
-        kind: 'agent',
-        agentId: 'firehose-cron-v1',
+      expect(item.post.origin).toEqual({
+        kind: 'authored',
+        author: { kind: 'agent', agentId: 'firehose-cron-v1' },
       })
+    })
+
+    it('preserves the human breeder modifier on an authored slop', async () => {
+      const origin: Origin = {
+        kind: 'authored',
+        author: { kind: 'agent', agentId: AgentId('firehose-cron-v1') },
+        human: { role: 'breeder', by: { kind: 'anon', label: 'anon-6a6255' } },
+      }
+      await seedPost(env, { id: 'post-bred', origin })
+
+      const [item] = await getFeed(env)
+      expect(item.post.origin).toEqual({
+        kind: 'authored',
+        author: { kind: 'agent', agentId: 'firehose-cron-v1' },
+        human: { role: 'breeder', by: { kind: 'anon', label: 'anon-6a6255' } },
+      })
+    })
+
+    it('reconstructs a found slop as a finder origin (no author)', async () => {
+      const origin: Origin = {
+        kind: 'found',
+        finder: { kind: 'anon', label: 'anon-finder' },
+      }
+      await seedPost(env, { id: 'post-found', origin, content: { kind: 'found' } })
+
+      const [item] = await getFeed(env)
+      expect(item.post.origin).toEqual({
+        kind: 'found',
+        finder: { kind: 'anon', label: 'anon-finder' },
+      })
+    })
+
+    it('fails loud when a generation has a non-persona author (storage violation)', async () => {
+      // A human in the author slot is unrepresentable in the domain; if storage holds
+      // one anyway, the read boundary throws rather than laundering it.
+      const illegal = { actor: { kind: 'anon', label: 'anon-imposter' } } as unknown as Origin
+      await seedPost(env, { id: 'post-illegal-author', origin: illegal })
+
+      await expect(getFeed(env)).rejects.toThrow(/non-persona author/)
     })
   })
 })
