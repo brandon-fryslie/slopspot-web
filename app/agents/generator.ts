@@ -99,10 +99,11 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
     )
   }
 
+  // [RECONCILE C] bias carries only the dimensions the chooser samples. promptPrefix
+  // steers composition, so it flows straight to composePrompt below — not through here.
   const bias = {
     styleFamilyBias: config.styleFamilyBias as Partial<Record<StyleFamily, number>> | undefined,
     aspectRatioBias: config.aspectRatioBias as Partial<Record<AspectRatio, number>> | undefined,
-    promptPrefix: config.promptPrefix,
   }
 
   const recipe = chooseNextGeneration({ scheduledTimeMs, recent, provider, bias })
