@@ -48,13 +48,37 @@ type VoterPersona = {
 }
 
 // Minimal types for the feed API response — only the fields the voter needs.
+// Origin is a discriminated union on the public feed contract: a generated slop is
+// `authored` (author always a persona), a submission is `found` (a finder), raw bytes
+// are `uploaded`. Only the responsible actor matters to the voter (self-vote skip), so
+// each arm exposes its actor under its own key.
+type FeedActor = { kind: string; agentId?: string }
+type FeedOrigin =
+  | { kind: 'authored'; author: FeedActor }
+  | { kind: 'found'; finder: FeedActor }
+  | { kind: 'uploaded'; uploader: FeedActor }
+
 type FeedPost = {
   id: string
   content: {
     kind: string
     status?: { kind: string; output?: { kind: string; url: string } }
   }
-  origin: { actor: { kind: string; agentId?: string } }
+  origin: FeedOrigin
+}
+
+// The agentId of the persona responsible for a slop (author / finder / uploader), or
+// undefined when a human is responsible. Mirrors the inverse of the old single `actor`
+// field: one place to read "whose slop is this" across all three genesis arms.
+function originAgentId(origin: FeedOrigin): string | undefined {
+  switch (origin.kind) {
+    case 'authored':
+      return origin.author.kind === 'agent' ? origin.author.agentId : undefined
+    case 'found':
+      return origin.finder.kind === 'agent' ? origin.finder.agentId : undefined
+    case 'uploaded':
+      return origin.uploader.kind === 'agent' ? origin.uploader.agentId : undefined
+  }
 }
 
 type FeedItem = {
@@ -150,8 +174,9 @@ async function runPersonaPass(persona: VoterPersona, cfg: PipelineConfig): Promi
   const candidates = feed
     .flatMap((item) => {
       if (item.myVote !== null) return []
-      const actor = item.post.origin.actor
-      if (actor.kind === 'agent' && actor.agentId === agentId) return []
+      // Skip slops this persona is responsible for — never vote on your own work,
+      // whether you authored, found, or uploaded it.
+      if (originAgentId(item.post.origin) === agentId) return []
       const url = imageUrl(item, cfg.siteUrl)
       if (url === null) return []
       return [{ item, url }]
