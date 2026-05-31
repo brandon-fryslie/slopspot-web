@@ -1,13 +1,15 @@
 // [LAW:single-enforcer] The firehose's recipe chooser. Pure function — takes
-// (scheduledTimeMs, recent, providers) and returns a recipe with all variety
+// (scheduledTimeMs, recent, provider) and returns a recipe with all variety
 // fields. Prompt composition and params building are downstream concerns that
 // require env/I/O (composer.ts) and belong in the caller (generator.ts).
 //
 // [LAW:types-are-the-program] `chooseNextGeneration` is a pure function: it
-// takes (scheduledTimeMs, recent, providers) and returns a complete recipe.
-// No clocks, no env, no I/O. All R-rules (R1..R6) are expressed as weighted-
-// distribution modifiers, not control-flow branches — empty `recent` reduces
-// every rule to a no-op without a "first run" check.
+// takes (scheduledTimeMs, recent, provider) and returns a complete recipe.
+// No clocks, no env, no I/O. All anti-rep rules (R1, R2, R4, R5, R6) are
+// expressed as weighted-distribution modifiers, not control-flow branches —
+// empty `recent` reduces every rule to a no-op without a "first run" check.
+// [RECONCILE C] The provider is a single fixed input (the author-persona's
+// medium), not a pool to pick from — there is no R3 (provider rotation).
 
 import type { ProviderId } from '~/lib/domain'
 import {

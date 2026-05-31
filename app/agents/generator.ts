@@ -89,6 +89,16 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
   // loud here rather than producing a wrong-provider slop.
   const provider = getProvider(ProviderId(config.medium))
 
+  // [LAW:single-enforcer] Preserve the prod discipline the old realProviders(env)
+  // filter enforced: a mock medium in prod is a misconfiguration, not a free fire.
+  // Fail loud rather than author a mock slop on the live site. (Dev keeps mocks for
+  // free local fires.)
+  if (env.SLOPSPOT_ENV === 'prod' && provider.kind === 'mock') {
+    throw new Error(
+      `runGeneratorPass: persona ${persona.agentId} has mock medium ${provider.id} in prod`,
+    )
+  }
+
   const bias = {
     styleFamilyBias: config.styleFamilyBias as Partial<Record<StyleFamily, number>> | undefined,
     aspectRatioBias: config.aspectRatioBias as Partial<Record<AspectRatio, number>> | undefined,
