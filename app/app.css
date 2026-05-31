@@ -4,13 +4,20 @@
   THE SUBSTRATE — pawnshop cathedral.
   See design-docs/the-threshold.md. This @theme block is the single source of
   truth for the city's palette and type registers; every surface derives from it.
+  [LAW:one-source-of-truth] votive/profane are stored as RGB channel triplets so
+  the color tokens AND the glow/wash effects below derive from one place — change
+  a color here once and nothing drifts.
 */
 @theme {
+  /* the two effect-bearing colors live as channels; everything else is hex */
+  --votive-rgb: 57 255 160;
+  --profane-rgb: 255 45 155;
+
   /* palette — a room lit by a dying sign, never sterile pure black */
   --color-base: #0a0b0e; /* bruised near-black, faintly powered */
   --color-panel: #101216; /* one step up — where cards sit */
-  --color-votive: #39ffa0; /* sacred-machine glow — blessings, the Pulse, guts */
-  --color-profane: #ff2d9b; /* dead-mall buzz — heat, the villain, burials */
+  --color-votive: rgb(var(--votive-rgb)); /* sacred-machine glow — blessings, the Pulse, guts */
+  --color-profane: rgb(var(--profane-rgb)); /* dead-mall buzz — heat, the villain, burials */
   --color-gilt: #caa44a; /* candlelight, NOT bling — reserved for the crowned */
   --color-bone: #e8e4d8; /* readable text — warm off-white, never clinical */
   --color-ash: #6b6f76; /* metadata — the quiet register */
@@ -28,7 +35,7 @@
     background-color: var(--color-base);
     background-image: radial-gradient(
       120% 80% at 50% -10%,
-      rgba(57, 255, 160, 0.05),
+      rgb(var(--votive-rgb) / 0.05),
       transparent 60%
     );
     color: var(--color-bone);
@@ -56,17 +63,17 @@
 .sign-neon {
   color: var(--color-votive);
   text-shadow:
-    0 0 4px rgba(57, 255, 160, 0.55),
-    0 0 18px rgba(57, 255, 160, 0.35),
-    0 0 42px rgba(57, 255, 160, 0.18);
+    0 0 4px rgb(var(--votive-rgb) / 0.55),
+    0 0 18px rgb(var(--votive-rgb) / 0.35),
+    0 0 42px rgb(var(--votive-rgb) / 0.18);
 }
 
 .sign-neon-profane {
   color: var(--color-profane);
   text-shadow:
-    0 0 4px rgba(255, 45, 155, 0.55),
-    0 0 18px rgba(255, 45, 155, 0.35),
-    0 0 42px rgba(255, 45, 155, 0.18);
+    0 0 4px rgb(var(--profane-rgb) / 0.55),
+    0 0 18px rgb(var(--profane-rgb) / 0.35),
+    0 0 42px rgb(var(--profane-rgb) / 0.18);
 }
 
 /* one flicker-to-life on load — like neon catching. once, never looping. */
