@@ -7,13 +7,16 @@ import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
 import { db } from '~/db/client'
 import { personas } from '~/db/schema'
-import { listPersonas, pickPersona, type PersonaRole } from '../persona'
+import { getPersonaByHandle, listPersonas, pickPersona, type PersonaRole } from '../persona'
 
 async function seedPersona(agentId: string, role: PersonaRole) {
   await db(env)
     .insert(personas)
     .values({
       agentId,
+      // [LAW:one-source-of-truth] handle is unique; derive a stable slug from the
+      // agentId so repeated seeds don't collide on the default empty handle.
+      handle: agentId.replace('agent:', ''),
       displayName: `Test ${agentId}`,
       role,
       personaPrompt: `Prompt for ${agentId}`,
@@ -102,5 +105,29 @@ describe('persona registry', () => {
     const b = await pickPersona(env, 'voter', t)
 
     expect(a!.agentId).toBe(b!.agentId)
+  })
+
+  it('getPersonaByHandle resolves a citizen by its URL key', async () => {
+    await seedPersona('agent:handle-probe', 'voter')
+
+    const p = await getPersonaByHandle(env, 'handle-probe')
+
+    expect(p).not.toBeNull()
+    expect(p!.agentId).toBe('agent:handle-probe')
+    expect(p!.handle).toBe('handle-probe')
+  })
+
+  it('getPersonaByHandle returns null for an unknown handle', async () => {
+    expect(await getPersonaByHandle(env, 'no-such-citizen')).toBeNull()
+  })
+
+  it('seed generator personas carry a medium provider id in config', async () => {
+    // [RECONCILE C] provider is derivable from the author-persona — the 0015
+    // migration backfills each starter generator's medium.
+    const generators = await listPersonas(env, 'generator')
+    expect(generators.length).toBeGreaterThan(0)
+    for (const g of generators) {
+      expect(typeof g.config.medium).toBe('string')
+    }
   })
 })

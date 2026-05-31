@@ -38,6 +38,7 @@ import {
   PostId,
   ProviderId,
   type Actor,
+  type CitizenRef,
   type Content,
   type FeedItem,
   type GenerationStatus,
@@ -271,39 +272,60 @@ function normalizeOrigin(raw: Origin): Origin {
   }
 }
 
-// [LAW:one-source-of-truth] Persona displayNames are authoritative in the
-// personas table. Feed readers resolve them here rather than storing a
-// redundant copy in origin_json. One batch query per feed load regardless
-// of how many posts have agent origins.
-async function fetchPersonaDisplayNames(
+// [LAW:one-source-of-truth] [RECONCILE A] A persona's public identity (handle +
+// displayName) is authoritative in the personas table. Feed readers resolve the
+// agent Actor's reference (agentId) into a CitizenRef here rather than storing a
+// redundant copy in origin_json. One batch query per feed load regardless of how
+// many posts have agent origins. handle and displayName come from the same row,
+// so the resolution is atomic — never a half-populated CitizenRef.
+async function fetchCitizenRefs(
   database: ReturnType<typeof db>,
   agentIds: readonly string[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, CitizenRef>> {
   if (agentIds.length === 0) return new Map()
   const rows = await database
-    .select({ agentId: personas.agentId, displayName: personas.displayName })
+    .select({
+      agentId: personas.agentId,
+      handle: personas.handle,
+      displayName: personas.displayName,
+    })
     .from(personas)
     .where(inArray(personas.agentId, agentIds))
-  return new Map(rows.map((r) => [r.agentId, r.displayName]))
+  // [LAW:types-are-the-program] A CitizenRef carries the citizen's NAME always and
+  // its handle (null until minted). Every resolved persona row produces one — the
+  // name is what attribution shows, the handle is what lights the /cast link.
+  // [LAW:one-source-of-truth] The agentId-label fallback is for a genuinely
+  // persona-less actor (no row here), never for an un-minted-but-named citizen.
+  const refs = new Map<string, CitizenRef>()
+  for (const r of rows) {
+    refs.set(r.agentId, { handle: r.handle, displayName: r.displayName })
+  }
+  return refs
 }
 
-function enrichActor(actor: Actor, names: Map<string, string>): Actor {
+// [LAW:one-source-of-truth] Construct the enriched agent actor explicitly rather
+// than spreading the parsed origin_json — the storage→domain boundary must emit
+// exactly the domain shape, never "whatever JSON held, plus persona." A stray
+// legacy key in storage cannot leak into the rendered actor this way.
+function enrichActor(actor: Actor, refs: Map<string, CitizenRef>): Actor {
   if (actor.kind !== 'agent') return actor
-  const displayName = names.get(actor.agentId)
-  return displayName !== undefined ? { ...actor, displayName } : actor
+  const persona = refs.get(actor.agentId)
+  return persona !== undefined
+    ? { kind: 'agent', agentId: actor.agentId, persona }
+    : { kind: 'agent', agentId: actor.agentId }
 }
 
-function enrichOrigin(origin: Origin, names: Map<string, string>): Origin {
+function enrichOrigin(origin: Origin, refs: Map<string, CitizenRef>): Origin {
   return {
-    actor: enrichActor(origin.actor, names),
+    actor: enrichActor(origin.actor, refs),
     ...(origin.onBehalfOf !== undefined
-      ? { onBehalfOf: enrichActor(origin.onBehalfOf, names) }
+      ? { onBehalfOf: enrichActor(origin.onBehalfOf, refs) }
       : {}),
   }
 }
 
-function enrichPost(post: Post, names: Map<string, string>): Post {
-  return { ...post, origin: enrichOrigin(post.origin, names) }
+function enrichPost(post: Post, refs: Map<string, CitizenRef>): Post {
+  return { ...post, origin: enrichOrigin(post.origin, refs) }
 }
 
 function collectAgentIds(posts: readonly Post[]): string[] {
@@ -539,10 +561,10 @@ export async function getFeed(
 
   const renderables = rows.map((row) => rowToRenderablePost(row))
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
-  const names = await fetchPersonaDisplayNames(database, agentIds)
+  const refs = await fetchCitizenRefs(database, agentIds)
 
   return renderables.map((r, i): FeedItem => ({
-    post: enrichPost(r.post, names),
+    post: enrichPost(r.post, refs),
     score: r.score,
     myVote: r.myVote,
     commentCount: r.commentCount,
@@ -574,8 +596,8 @@ export async function getFeedItemById(
 
   const renderable = rowToRenderablePost(rows[0])
   const agentIds = collectAgentIds([renderable.post])
-  const names = await fetchPersonaDisplayNames(database, agentIds)
-  return { ...renderable, post: enrichPost(renderable.post, names) }
+  const refs = await fetchCitizenRefs(database, agentIds)
+  return { ...renderable, post: enrichPost(renderable.post, refs) }
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels

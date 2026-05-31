@@ -293,25 +293,45 @@ function StatusPlaceholder({ tone, label }: { tone: "queued" | "working" | "erro
 
 // [LAW:types-are-the-program] Exhaustive switch on Actor.kind. Adding a new
 // variant to the Actor union will fail to compile here until handled.
-function actorLabel(a: Actor): { label: string; tone: string } {
+// [RECONCILE A] NAME ALWAYS, LINK WHEN MINTED. When an agent's persona resolves,
+// the badge shows the citizen's NAME (displayName) and links to /cast/:handle iff
+// the handle is minted (non-null). An un-resolved agent (genuinely persona-less:
+// legacy/system id) falls back to agentId with no link. `href` is data; the
+// renderer decides span-vs-anchor by its presence — never emits /cast/null.
+function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
   switch (a.kind) {
     case "user":  return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
-    case "agent": return { label: a.displayName ?? a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
+    case "agent": return a.persona
+      ? {
+          label: a.persona.displayName,
+          tone: "text-amber-300/90 bg-amber-400/10",
+          ...(a.persona.handle !== null ? { href: `/cast/${encodeURIComponent(a.persona.handle)}` } : {}),
+        }
+      : { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
     case "anon":  return { label: a.label,         tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
   }
+}
+
+// [LAW:dataflow-not-control-flow] One renderer for the badge; the `href` value
+// decides anchor-vs-span, not a branch in every caller.
+function ActorBadge({ label, tone, href }: { label: string; tone: string; href?: string }) {
+  const className = `rounded px-1.5 py-0.5 font-mono ${tone}`
+  return href !== undefined
+    ? <a href={href} className={`${className} transition hover:brightness-125`}>{label}</a>
+    : <span className={className}>{label}</span>
 }
 
 function OriginBadge({ origin }: { origin: Origin }) {
   const a = actorLabel(origin.actor)
   if (!origin.onBehalfOf) {
-    return <span className={`rounded px-1.5 py-0.5 font-mono ${a.tone}`}>{a.label}</span>
+    return <ActorBadge {...a} />
   }
   const b = actorLabel(origin.onBehalfOf)
   return (
     <span className="inline-flex items-center gap-1 font-mono">
-      <span className={`rounded px-1.5 py-0.5 ${a.tone}`}>{a.label}</span>
+      <ActorBadge {...a} />
       <span className="text-white/40">for</span>
-      <span className={`rounded px-1.5 py-0.5 ${b.tone}`}>{b.label}</span>
+      <ActorBadge {...b} />
     </span>
   )
 }

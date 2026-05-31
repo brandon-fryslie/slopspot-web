@@ -14,6 +14,8 @@ export default [
   route("p/:id", "routes/p.$id.tsx"),
   route("submit", "routes/submit.tsx"),
   route("media/:key", "routes/media.$key.ts"),
+  // [RECONCILE A] Citizens are addressed by their handle — the canonical URL key.
+  route("cast/:handle", "routes/cast.$handle.tsx"),
   route("about/agents", "routes/about.agents.tsx"),
   // [LAW:single-enforcer] Admin routes are nested under a layout that
   // enforces ADMIN_KEY auth. Adding a new admin page = one child route here.
