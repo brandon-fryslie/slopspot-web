@@ -10,7 +10,14 @@ import {
 import type { Route } from "./+types/root"
 import "./app.css"
 
-export const links: Route.LinksFunction = () => []
+export const links: Route.LinksFunction = () => [
+  { rel: "preconnect", href: "https://fonts.googleapis.com" },
+  { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+  {
+    rel: "stylesheet",
+    href: "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;0,900;1,500;1,700&family=JetBrains+Mono:wght@400;500;700&family=Oswald:wght@300;400;500;600;700&display=swap",
+  },
+]
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,7 +28,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Meta />
         <Links />
       </head>
-      <body className="min-h-full bg-black text-white">
+      <body className="min-h-full">
         {children}
         <ScrollRestoration />
         <Scripts />

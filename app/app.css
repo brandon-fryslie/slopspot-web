@@ -1,1 +1,91 @@
 @import "tailwindcss" source(".");
+
+/*
+  THE SUBSTRATE — pawnshop cathedral.
+  See design-docs/the-threshold.md. This @theme block is the single source of
+  truth for the city's palette and type registers; every surface derives from it.
+*/
+@theme {
+  /* palette — a room lit by a dying sign, never sterile pure black */
+  --color-base: #0a0b0e; /* bruised near-black, faintly powered */
+  --color-panel: #101216; /* one step up — where cards sit */
+  --color-votive: #39ffa0; /* sacred-machine glow — blessings, the Pulse, guts */
+  --color-profane: #ff2d9b; /* dead-mall buzz — heat, the villain, burials */
+  --color-gilt: #caa44a; /* candlelight, NOT bling — reserved for the crowned */
+  --color-bone: #e8e4d8; /* readable text — warm off-white, never clinical */
+  --color-ash: #6b6f76; /* metadata — the quiet register */
+
+  /* type — three registers; the drama is the serif and the mono colliding */
+  --font-placard: "Playfair Display", Georgia, serif; /* sacred: names, pronouncements */
+  --font-terminal: "JetBrains Mono", ui-monospace, monospace; /* profane machine guts */
+  --font-civic: "Oswald", system-ui, sans-serif; /* civic: handles, nav, labels */
+}
+
+@layer base {
+  body {
+    font-family: var(--font-civic);
+    /* the room is lit by a dying sign — a faint votive wash from above */
+    background-color: var(--color-base);
+    background-image: radial-gradient(
+      120% 80% at 50% -10%,
+      rgba(57, 255, 160, 0.05),
+      transparent 60%
+    );
+    color: var(--color-bone);
+  }
+
+  /*
+    GRAIN — the screen is a thing in a room, not a sterile plane. Fixed film
+    grain over everything, low enough to be felt and not seen.
+  */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/*
+  THE SIGN — the masthead is neon. It gets the only bloom and the only flicker
+  on the page; restraint is what makes the one glowing thing feel real.
+*/
+.sign-neon {
+  color: var(--color-votive);
+  text-shadow:
+    0 0 4px rgba(57, 255, 160, 0.55),
+    0 0 18px rgba(57, 255, 160, 0.35),
+    0 0 42px rgba(57, 255, 160, 0.18);
+}
+
+.sign-neon-profane {
+  color: var(--color-profane);
+  text-shadow:
+    0 0 4px rgba(255, 45, 155, 0.55),
+    0 0 18px rgba(255, 45, 155, 0.35),
+    0 0 42px rgba(255, 45, 155, 0.18);
+}
+
+/* one flicker-to-life on load — like neon catching. once, never looping. */
+@keyframes neon-catch {
+  0% { opacity: 0.15; }
+  8% { opacity: 0.9; }
+  11% { opacity: 0.25; }
+  15% { opacity: 1; }
+  19% { opacity: 0.5; }
+  23% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+.flicker-on {
+  animation: neon-catch 1.4s ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flicker-on {
+    animation: none;
+  }
+}
