@@ -1,13 +1,15 @@
 // [LAW:single-enforcer] The firehose's recipe chooser. Pure function — takes
-// (scheduledTimeMs, recent, providers) and returns a recipe with all variety
+// (scheduledTimeMs, recent, provider) and returns a recipe with all variety
 // fields. Prompt composition and params building are downstream concerns that
 // require env/I/O (composer.ts) and belong in the caller (generator.ts).
 //
 // [LAW:types-are-the-program] `chooseNextGeneration` is a pure function: it
-// takes (scheduledTimeMs, recent, providers) and returns a complete recipe.
-// No clocks, no env, no I/O. All R-rules (R1..R6) are expressed as weighted-
-// distribution modifiers, not control-flow branches — empty `recent` reduces
-// every rule to a no-op without a "first run" check.
+// takes (scheduledTimeMs, recent, provider) and returns a complete recipe.
+// No clocks, no env, no I/O. All anti-rep rules (R1, R2, R4, R5, R6) are
+// expressed as weighted-distribution modifiers, not control-flow branches —
+// empty `recent` reduces every rule to a no-op without a "first run" check.
+// [RECONCILE C] The provider is a single fixed input (the author-persona's
+// medium), not a pool to pick from — there is no R3 (provider rotation).
 
 import type { ProviderId } from '~/lib/domain'
 import {
@@ -18,7 +20,6 @@ import {
   SLOT_VOCABS,
   STYLE_FAMILIES,
   STYLE_FAMILY_ASPECT_BIAS,
-  STYLE_FAMILY_PROVIDER_WEIGHTS,
   TEMPLATE_SLOT_KEYS,
   type AspectRatio,
   type ChooserRecipeSubject,
@@ -30,30 +31,38 @@ import type { RecentRecipe } from '~/db/recent'
 import type { GenerationProvider } from '~/providers/types'
 
 // [LAW:types-are-the-program] Inputs the chooser needs are exactly three:
-// when the cron fired, what we've recently produced, and what providers are
-// available to pick from. Anything else (env, registry-via-side-effect) would
-// fold I/O into the function.
+// when the cron fired, what we've recently produced, and the provider the slop
+// will use (the author-persona's medium). Anything else (env, registry-via-
+// side-effect) would fold I/O into the function.
 //
 // `recent` is in most-recent-first order. The chooser's R-rule windows slice
 // from the head: `recent.slice(0, 1)` for R1, `recent.slice(0, 5)` for R2,
 // etc. An empty slice contributes no rejections and no downweights, so the
 // bootstrap case is the same code path as steady-state. [LAW:dataflow-not-control-flow]
 //
-// `bias` carries persona-flavor multipliers. Absent keys default to 1.0 (no-op).
-// Absent `bias` = all-ones on every dimension. Same chooser body every fire;
-// the bias values flow through the weight functions, never gating the body.
+// `bias` carries persona-flavor multipliers over the dimensions the chooser
+// samples — style family and aspect ratio. Absent keys default to 1.0 (no-op);
+// absent `bias` = all-ones on every dimension. Same chooser body every fire; the
+// bias values flow through the weight functions, never gating the body.
 // [LAW:dataflow-not-control-flow]
+//
+// [RECONCILE C] No `providerBias`: the provider is not chosen here, it is the
+// passed-in medium. promptPrefix is not on `bias` either — it steers prompt
+// *composition* (composer.ts), not recipe *selection*, so it lives only on the
+// composer's input, never here where it would imply it affects the draw.
 export type PersonaBias = {
   styleFamilyBias?: Partial<Record<StyleFamily, number>>
-  providerBias?: Partial<Record<string, number>>
   aspectRatioBias?: Partial<Record<AspectRatio, number>>
-  promptPrefix?: string
 }
 
+// [LAW:types-are-the-program] [RECONCILE C] The chooser takes the SINGLE provider
+// the slop will use — the author-persona's medium — not a pool to pick from. The
+// provider is data the chooser consumes (to gate aspect ratios to what it serves
+// and to stamp `providerId` on the recipe), never a dimension it samples.
 export type ChooserInput = {
   scheduledTimeMs: number
   recent: readonly RecentRecipe[]
-  providers: readonly GenerationProvider<unknown>[]
+  provider: GenerationProvider<unknown>
   bias?: PersonaBias
 }
 
@@ -178,28 +187,6 @@ function slotWeights(
   return vocab.map((v) => (used.has(v) ? R6_DOWNWEIGHT : 1.0))
 }
 
-// R3 hard-rejects the most-recent providerId — but only when the candidate
-// pool still has ≥2 nonzero entries after the table lookup, otherwise the
-// reject would empty the pool. Matches the doc's "if ≥2 providers are
-// registered" intent: with the current STYLE_FAMILY_PROVIDER_WEIGHTS having
-// 3 nonzero entries per style, this fires uniformly.
-// `biasMult` multiplies per-provider — absent key = 1.0. [LAW:dataflow-not-control-flow]
-function providerWeights(
-  providers: readonly GenerationProvider<unknown>[],
-  styleFamily: StyleFamily,
-  recent: readonly RecentRecipe[],
-  biasMult?: Partial<Record<string, number>>,
-): number[] {
-  const table = STYLE_FAMILY_PROVIDER_WEIGHTS[styleFamily]
-  const r3Reject = recent[0]?.providerId
-  const raw = providers.map((p) => (table[p.id as string] ?? 0) * (biasMult?.[p.id as string] ?? 1.0))
-  const nonzero = raw.filter((w) => w > 0).length
-  if (nonzero >= 2 && r3Reject !== undefined) {
-    return providers.map((p, i) => (p.id === r3Reject ? 0 : raw[i]!))
-  }
-  return raw
-}
-
 // R4 hard-rejects the candidate aspect ratio if and only if the last two
 // recent posts share that same aspect ratio (two-in-a-row allowed, three-in-
 // a-row forbidden). Base weights × style-family bias multipliers from
@@ -248,17 +235,18 @@ function sampleSlots(
 }
 
 // [LAW:dataflow-not-control-flow] Same operations every fire — sample style →
-// sample subject → sample slots → sample provider → sample aspect. R-rules
-// feed weights, never branches. Persona bias multipliers flow through the
-// weight functions; absent bias = 1.0 on every dimension, making persona=null
-// and persona=all-ones identical code paths.
+// sample subject → sample slots → sample aspect. R-rules feed weights, never
+// branches. Persona bias multipliers flow through the weight functions; absent
+// bias = 1.0 on every dimension, making persona=null and persona=all-ones
+// identical code paths. [RECONCILE C] The provider is fixed (the author-persona's
+// medium), so it is not sampled — only its supportedAspectRatios gate the aspect draw.
 //
 // Prompt composition and params building are the caller's responsibility:
 // the caller awaits composePrompt (composer.ts), then calls
 // provider.defaultParamsForRecipe({ prompt, styleFamily, seed: paramsSeed }).
 // [LAW:one-way-deps] chooser stays pure — no env, no I/O.
 export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
-  const { scheduledTimeMs, recent, providers, bias } = input
+  const { scheduledTimeMs, recent, provider, bias } = input
 
   const styleFamily = pickWeighted(
     STYLE_FAMILIES,
@@ -275,13 +263,6 @@ export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
   )
 
   const slots = sampleSlots(subjectTemplate, recent, scheduledTimeMs)
-
-  const provider = pickWeighted(
-    providers,
-    providerWeights(providers, styleFamily, recent, bias?.providerBias),
-    scheduledTimeMs,
-    'provider',
-  )
 
   const aspectRatio = pickWeighted(
     ASPECT_RATIOS,

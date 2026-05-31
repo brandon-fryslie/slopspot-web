@@ -25,6 +25,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 
 // [LAW:single-enforcer] app/agents/persona.ts is the only reader/writer of
@@ -40,6 +41,16 @@ export const personas = sqliteTable(
   'personas',
   {
     agentId: text('agent_id').primaryKey(),
+    // [LAW:one-source-of-truth] [RECONCILE A] The canonical citizen URL key —
+    // a stable, unique, human-readable slug (/cast/:handle). agentId stays the
+    // INTERNAL id and is never exposed in URLs. NULLABLE: a null handle means
+    // "not yet minted" — minting the canonical named-cast handles is F9's job.
+    // [LAW:types-are-the-program] null vs a string is the strongest true theorem
+    // (un-minted vs addressable); an empty-string sentinel would be a false one
+    // that also collides as a second illegal NULL on the unique index. SQLite
+    // treats NULLs as distinct under the index, so any number of un-minted rows
+    // coexist; only minted handles are constrained unique.
+    handle: text('handle'),
     displayName: text('display_name').notNull(),
     role: text('role', {
       enum: ['voter', 'discoverer', 'generator'],
@@ -51,6 +62,7 @@ export const personas = sqliteTable(
   },
   (t) => [
     index('personas_role_idx').on(t.role),
+    uniqueIndex('personas_handle_unique').on(t.handle),
     check(
       'personas_role_shape',
       sql`${t.role} IN ('voter', 'discoverer', 'generator')`,

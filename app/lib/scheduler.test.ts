@@ -18,6 +18,9 @@ function dayTicks(baseDate: Date): Date[] {
 function makePersona(agentId: string, config: Record<string, unknown>): Persona {
   return {
     agentId: AgentId(agentId),
+    // Match the production handle format: a slug derived from the agentId
+    // (e.g. 'agent:a' -> 'a'), not the raw internal id.
+    handle: agentId.replace('agent:', ''),
     displayName: agentId,
     role: 'voter',
     personaPrompt: '',
