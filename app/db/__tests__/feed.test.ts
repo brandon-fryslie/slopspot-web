@@ -616,6 +616,43 @@ describe('app/db/feed.ts - getPostById', () => {
     expect(result.content.asset).toEqual(asset)
   })
 
+  // [LAW:behavior-not-structure] The read-side dual of posts.test.ts's wish
+  // persistence test: that proves createPost WRITES the wish to the generations
+  // row; this proves the storage→domain reader RECONSTRUCTS it through a real D1
+  // round-trip. The mapping `wish: g.wish ?? undefined` is an optional field — a
+  // drift that drops it from the projection or maps a stored wish to undefined
+  // compiles clean, so only a behavioral test catches it. Both halves of the
+  // optional are asserted: a stored wish round-trips verbatim, and a non-Well
+  // generation (NULL column) reconstructs to undefined, never a laundered null.
+  it('round-trips a Well-born generation wish verbatim', async () => {
+    const wish = 'a lighthouse at the end of the world'
+    const id = await seedPost(env, {
+      id: 'post-with-wish',
+      content: { kind: 'generation', wish },
+    })
+
+    const result = await getPostById(env, id)
+    if (!result || result.content.kind !== 'generation') {
+      throw new Error('expected generation')
+    }
+    expect(result.content.recipe.wish).toBe(wish)
+  })
+
+  it('reconstructs a wishless generation with recipe.wish undefined (NULL column)', async () => {
+    const id = await seedPost(env, {
+      id: 'post-without-wish',
+      content: { kind: 'generation' },
+    })
+
+    const result = await getPostById(env, id)
+    if (!result || result.content.kind !== 'generation') {
+      throw new Error('expected generation')
+    }
+    // [LAW:no-defensive-null-guards] absence is undefined (a legal optional),
+    // not null smuggled through — the field is genuinely absent.
+    expect(result.content.recipe.wish).toBeUndefined()
+  })
+
   it('returns a found post with its url, title, description, and thumbnail', async () => {
     const thumbnail = {
       kind: 'image' as const,
