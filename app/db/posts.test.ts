@@ -228,9 +228,8 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       vi.mocked(ingestImage).mockResolvedValueOnce({
         url: '/media/abc',
         key: 'abc',
-        bytes: 1,
+        size: 1,
         contentType: 'image/png',
-        deduped: false,
       })
 
       const { createPost } = await import('~/db/posts')
