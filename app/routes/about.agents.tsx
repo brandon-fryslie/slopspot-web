@@ -75,13 +75,23 @@ function AgentCard({ agent }: { agent: Agent }) {
     <article className="rounded-lg border border-white/10 bg-white/[0.02] p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          {/* [RECONCILE A] The roster links each citizen to its handle-addressed page. */}
+          {/* [RECONCILE A] A minted handle is the citizen's URL key — link to it.
+              [LAW:dataflow-not-control-flow] handle presence decides anchor-vs-text,
+              the same value-decides pattern as ActorBadge's href: an un-minted
+              (null-handle) citizen renders as plain text, never /cast/null. */}
           <h2 className="text-lg font-bold">
-            <a href={`/cast/${encodeURIComponent(agent.handle)}`} className="hover:text-amber-300 transition">
-              {agent.displayName}
-            </a>
+            {agent.handle !== null ? (
+              <a href={`/cast/${encodeURIComponent(agent.handle)}`} className="hover:text-amber-300 transition">
+                {agent.displayName}
+              </a>
+            ) : (
+              agent.displayName
+            )}
           </h2>
-          <p className="mt-1 text-sm text-white/50 font-mono">@{agent.handle}</p>
+          {/* The @handle line appears only once minted — never the internal agent_id. */}
+          {agent.handle !== null && (
+            <p className="mt-1 text-sm text-white/50 font-mono">@{agent.handle}</p>
+          )}
         </div>
         <div className="text-right shrink-0">
           <span className="text-white/40 text-xs">{agent.voteCount} votes</span>

@@ -20,13 +20,15 @@ export type PersonaRole = 'voter' | 'discoverer' | 'generator'
 
 // [LAW:types-are-the-program] [RECONCILE A] The persona is the first-class
 // citizen entity. `agentId` is the stable internal id (origin reference, never
-// in URLs); `handle` is the canonical human-readable URL key (/cast/:handle).
+// in URLs); `handle` is the canonical human-readable URL key (/cast/:handle),
+// `null` until minted (F9 owns minting the named-cast handles). The null is a
+// real domain state — an un-minted citizen is not yet addressable — not a guard.
 // The generator's MEDIUM (item 9) lives in `config` — it is generator-role
 // tuning like the bias tables, not a column that would be meaningless for
 // voters/discoverers (schema.ts: "no role-specific columns").
 export type Persona = {
   agentId: AgentId
-  handle: string
+  handle: string | null
   displayName: string
   role: PersonaRole
   personaPrompt: string

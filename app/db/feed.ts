@@ -291,7 +291,16 @@ async function fetchCitizenRefs(
     })
     .from(personas)
     .where(inArray(personas.agentId, agentIds))
-  return new Map(rows.map((r) => [r.agentId, { handle: r.handle, displayName: r.displayName }]))
+  // [LAW:types-are-the-program] A CitizenRef carries the citizen's NAME always and
+  // its handle (null until minted). Every resolved persona row produces one — the
+  // name is what attribution shows, the handle is what lights the /cast link.
+  // [LAW:one-source-of-truth] The agentId-label fallback is for a genuinely
+  // persona-less actor (no row here), never for an un-minted-but-named citizen.
+  const refs = new Map<string, CitizenRef>()
+  for (const r of rows) {
+    refs.set(r.agentId, { handle: r.handle, displayName: r.displayName })
+  }
+  return refs
 }
 
 // [LAW:one-source-of-truth] Construct the enriched agent actor explicitly rather

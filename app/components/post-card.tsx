@@ -293,15 +293,20 @@ function StatusPlaceholder({ tone, label }: { tone: "queued" | "working" | "erro
 
 // [LAW:types-are-the-program] Exhaustive switch on Actor.kind. Adding a new
 // variant to the Actor union will fail to compile here until handled.
-// [RECONCILE A] When an agent's persona reference resolves, the badge carries
-// the citizen's `handle` so attribution links to /cast/:handle — the persona's
-// public identity. An un-resolved agent (legacy/system id) falls back to agentId
-// with no link. `href` is data; the renderer decides span-vs-anchor by its presence.
+// [RECONCILE A] NAME ALWAYS, LINK WHEN MINTED. When an agent's persona resolves,
+// the badge shows the citizen's NAME (displayName) and links to /cast/:handle iff
+// the handle is minted (non-null). An un-resolved agent (genuinely persona-less:
+// legacy/system id) falls back to agentId with no link. `href` is data; the
+// renderer decides span-vs-anchor by its presence — never emits /cast/null.
 function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
   switch (a.kind) {
     case "user":  return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
     case "agent": return a.persona
-      ? { label: a.persona.displayName, tone: "text-amber-300/90 bg-amber-400/10", href: `/cast/${encodeURIComponent(a.persona.handle)}` }
+      ? {
+          label: a.persona.displayName,
+          tone: "text-amber-300/90 bg-amber-400/10",
+          ...(a.persona.handle !== null ? { href: `/cast/${encodeURIComponent(a.persona.handle)}` } : {}),
+        }
       : { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
     case "anon":  return { label: a.label,         tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
   }

@@ -37,7 +37,10 @@ export async function loader({ context, params }: Route.LoaderArgs) {
 
   return {
     citizen: {
-      handle: persona.handle,
+      // getPersonaByHandle matched on params.handle, so it IS this citizen's
+      // (minted, non-null) handle — use the URL value directly rather than
+      // re-narrowing the nullable column. [LAW:one-source-of-truth]
+      handle: params.handle,
       displayName: persona.displayName,
       role: persona.role,
       // [LAW:one-source-of-truth] The blurb is the persona prompt's first line —

@@ -86,12 +86,18 @@ export type Content =
 // reference. `agentId` (on the agent Actor) is the stored, stable INTERNAL id —
 // the only thing origin_json persists, never exposed in URLs. `CitizenRef` is the
 // persona's PUBLIC identity, resolved from the personas table at read time and
-// never written onto a post: `handle` is the canonical citizen URL key (/cast/:handle)
-// and `displayName` is the human label. Both come from the same persona row, so
-// they resolve together or not at all — a single optional projection, never two
-// co-varying optionals that could represent a half-resolved citizen.
+// never written onto a post.
+//
+// [LAW:types-are-the-program] The decomposition is honest about what is always
+// true vs. conditional: `displayName` is the citizen's NAME — every resolved
+// persona has one, so it is non-null. `handle` is the canonical URL key
+// (/cast/:handle) and is `null` until minted (F9 owns minting). So a CitizenRef
+// is "a named citizen, addressable iff handle is non-null." The render rule
+// everywhere is NAME ALWAYS, LINK WHEN MINTED. The agentId-label fallback (in the
+// renderer) is reserved for a genuinely persona-less actor — never for an
+// un-minted-but-named citizen.
 export type CitizenRef = {
-  handle: string
+  handle: string | null
   displayName: string
 }
 
