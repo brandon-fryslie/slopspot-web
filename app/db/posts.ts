@@ -42,6 +42,10 @@ export type CreatePostInput =
       // Origin.kind at construction: a 'found' origin cannot reach a generation row.
       origin: AuthoredOrigin
       parentId?: PostId
+      // The human wish, when this generation was born of a Well wish. Stored as
+      // provenance; never forwarded to the provider (it is not part of params).
+      // [LAW:one-source-of-truth]
+      wish?: string
     }
   | {
       kind: 'found'
@@ -167,6 +171,7 @@ async function createGenerationPost(
         subjectTemplate: input.subject.subjectTemplate,
         slotsJson: JSON.stringify(input.subject.slots),
         aspectRatio: input.aspectRatio,
+        wish: input.wish ?? null,
         status: 'running',
         startedAt,
       }),
@@ -306,6 +311,7 @@ async function createGenerationPost(
         aspectRatio: input.aspectRatio,
         subject: input.subject,
         parentId: input.parentId,
+        wish: input.wish,
       },
       status: { kind: 'succeeded', output, completedAt },
     },

@@ -44,6 +44,15 @@ export type Media =
 //      provider translates `aspectRatio` to its native shape at its own
 //      boundary. [LAW:single-enforcer]
 //   3. Lineage (`parentId?`): set on forks, undefined otherwise.
+//   4. Provenance (`wish?`): the human WISH that occasioned a Well-born slop —
+//      their words, NEVER a generation input. It is a sibling of `params`, not
+//      inside it, so the only thing that crosses to the image provider is
+//      `params` + `aspectRatio`; the wish cannot ride along by construction.
+//      Absent for non-Well genesis (firehose, fork, direct API).
+//      [LAW:one-source-of-truth] reconciled with the human wisher on the
+//      origin: the origin records *who* wished, this records *what* was wished —
+//      the gap between this and the machine-authored prompt in `params` is the
+//      Well's entire art, so both halves persist forever.
 //
 // `styleFamily`/`aspectRatio`/`subject` are required (not optional) — every
 // Content.kind === 'generation' row carries them by construction. User uploads
@@ -57,6 +66,7 @@ export type Generation = {
   aspectRatio: AspectRatio
   subject: RecipeSubject
   parentId?: PostId
+  wish?: string
 }
 
 // [LAW:types-are-the-program] Generation is async. `output` only exists in the
