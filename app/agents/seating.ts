@@ -50,6 +50,13 @@ export function selectSeat(
 ): Persona {
   const weights = candidates.map((p) => seatWeight(p, wish))
   const total = weights.reduce((sum, w) => sum + w, 0)
+  // A non-positive total means a future `seatWeight` has rejected every
+  // candidate — a misconfiguration, not a seatable state. Fail loud rather than
+  // let `target` go 0/NaN and silently bias toward the last persona (the same
+  // discipline as the firehose's pickWeighted). `!(total > 0)` also catches NaN.
+  if (!(total > 0)) {
+    throw new Error(`selectSeat: total weight not positive (total=${total})`)
+  }
   const target = rng() * total
   // Cumulative-threshold scan: the inherent shape of weighted sampling, not
   // skipped work. The trailing return covers the floating-point edge where
