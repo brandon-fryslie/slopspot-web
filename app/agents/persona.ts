@@ -18,8 +18,15 @@ import { AgentId } from '~/lib/domain'
 
 export type PersonaRole = 'voter' | 'discoverer' | 'generator'
 
+// [LAW:types-are-the-program] [RECONCILE A] The persona is the first-class
+// citizen entity. `agentId` is the stable internal id (origin reference, never
+// in URLs); `handle` is the canonical human-readable URL key (/cast/:handle).
+// The generator's MEDIUM (item 9) lives in `config` — it is generator-role
+// tuning like the bias tables, not a column that would be meaningless for
+// voters/discoverers (schema.ts: "no role-specific columns").
 export type Persona = {
   agentId: AgentId
+  handle: string
   displayName: string
   role: PersonaRole
   personaPrompt: string
@@ -70,12 +77,29 @@ function rowToPersona(row: DbPersona): Persona {
   }
   return {
     agentId: AgentId(row.agentId),
+    handle: row.handle,
     displayName: row.displayName,
     role: row.role as PersonaRole,
     personaPrompt: row.personaPrompt,
     modelId: row.modelId,
     config,
   }
+}
+
+// [LAW:single-enforcer] Resolve a citizen by its canonical URL key. The /cast
+// page and every handle-addressed surface funnel through here. Returns null on
+// miss — the wire decides the 404 status; the reader does not throw on absence.
+// The handle column's unique index guarantees at most one row.
+export async function getPersonaByHandle(
+  env: Env,
+  handle: string,
+): Promise<Persona | null> {
+  const rows = await db(env)
+    .select()
+    .from(personas)
+    .where(eq(personas.handle, handle))
+    .limit(1)
+  return rows.length === 0 ? null : rowToPersona(rows[0])
 }
 
 // [LAW:single-enforcer] The only writer for persona config. All config updates

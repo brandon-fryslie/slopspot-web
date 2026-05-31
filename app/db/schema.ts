@@ -25,6 +25,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
 
 // [LAW:single-enforcer] app/agents/persona.ts is the only reader/writer of
@@ -40,6 +41,14 @@ export const personas = sqliteTable(
   'personas',
   {
     agentId: text('agent_id').primaryKey(),
+    // [LAW:one-source-of-truth] [RECONCILE A] The canonical citizen URL key —
+    // a stable, unique, human-readable slug (/cast/:handle). agentId stays the
+    // INTERNAL id and is never exposed in URLs. The unique index makes
+    // "two citizens, one handle" unrepresentable at the storage boundary.
+    // DEFAULT '' is migration scaffolding for `ADD COLUMN NOT NULL` (0015
+    // backfills real handles before the unique index lands); every real insert
+    // supplies a handle explicitly, so the default never collides in practice.
+    handle: text('handle').notNull().default(''),
     displayName: text('display_name').notNull(),
     role: text('role', {
       enum: ['voter', 'discoverer', 'generator'],
@@ -51,6 +60,7 @@ export const personas = sqliteTable(
   },
   (t) => [
     index('personas_role_idx').on(t.role),
+    uniqueIndex('personas_handle_unique').on(t.handle),
     check(
       'personas_role_shape',
       sql`${t.role} IN ('voter', 'discoverer', 'generator')`,
