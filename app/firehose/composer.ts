@@ -24,7 +24,21 @@ export type ComposerInput = {
   styleFamily: StyleFamily
   subject: RecipeSubject
   aspectRatio: AspectRatio
-  promptPrefix?: string
+  // [RECONCILE B] The persona's authoring voice — the single steering input a
+  // persona contributes to composition. The firehose passes the generator
+  // persona's voice; the Well passes the seated citizen's. One composer, one
+  // voice per persona, identical across both paths. Taken as a value (not the
+  // whole Persona) so the composer never re-parses config_json — the persona's
+  // own trust boundary already projected it. [LAW:one-source-of-truth]
+  voice?: string
+  // [RECONCILE B] The human WISH that occasioned a Well fire — provenance, never
+  // the prompt. The composer READS it to steer Haiku in the persona's voice; the
+  // returned (machine-authored) prompt is what reaches the provider. Absent for
+  // the firehose. [LAW:dataflow-not-control-flow] The wish reaches the provider
+  // ONLY through Haiku's transmutation — the fallback is recipe-only, so a wish
+  // cannot leak verbatim even when Haiku is unavailable. foundation.3's isolation
+  // (the wish is never a generation input) holds here by construction, not a guard.
+  wish?: string
   // [LAW:single-enforcer] The chosen provider's authoritative max prompt
   // length. Passed from generator.ts via provider.promptMaxLength so the
   // constraint travels from its declaration site to the composition step.
@@ -36,13 +50,17 @@ export type ComposerInput = {
 // unconditionally; a failure swaps the value to the renderTemplate output
 // without changing the return signature.
 export async function composePrompt(input: ComposerInput, env: Env): Promise<string> {
-  const { styleFamily, subject, aspectRatio, promptPrefix, maxLength } = input
+  const { styleFamily, subject, aspectRatio, voice, wish, maxLength } = input
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
 
   const rendered = renderTemplate(subject)
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[styleFamily]
-  const fallback = promptPrefix
-    ? `${promptPrefix}, ${rendered}, ${styleSeed}`
+  // [LAW:dataflow-not-control-flow] The wish is NOT in the fallback — not as a
+  // guard against leaking it, but because the fallback's job is a recipe-only
+  // machine prompt; the wish's only authoring path is Haiku. Same recipe shape
+  // whether or not a wish was made.
+  const fallback = voice
+    ? `${voice}, ${rendered}, ${styleSeed}`
     : `${rendered}, ${styleSeed}`
 
   if (!apiKey) {
@@ -58,7 +76,13 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
     `Write a vivid image generation prompt for a ${styleFamily} piece depicting ${rendered}.`,
     `Aspect ratio: ${aspectLabel}.`,
     `Style notes: ${styleSeed}.`,
-    promptPrefix ? `Voice / tone: ${promptPrefix}.` : null,
+    voice ? `Voice / tone: ${voice}.` : null,
+    // [RECONCILE B] The wish steers, it is never echoed. Haiku transmutes the
+    // visitor's intent in the persona's voice; the returned prompt is the
+    // machine's — recognizably related to the wish, never obedient to it.
+    wish
+      ? `A visitor wished for: ${JSON.stringify(wish)}. Reinterpret their wish in your own voice — transmute their intent, never repeat their words back. The result must be recognizably related to the wish yet unmistakably your own authorship, not obedient to their literal request.`
+      : null,
     maxLength ? `Keep the prompt under ${maxLength} characters.` : null,
     'Output only the prompt text itself — no preamble, no quotes, no explanation.',
   ]
