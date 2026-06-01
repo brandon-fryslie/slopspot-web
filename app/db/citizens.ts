@@ -27,6 +27,14 @@ import { styleFamilySchema, type StyleFamily } from '~/lib/variety'
 // the limit is the detail page's window — small, newest-first.
 const RECENT_LIMIT = 6
 
+// The answered-wishes window is the WIDER one on purpose: the Act-III reveal
+// (the-reveal-contract.md Surface 2, lock 3) lands by BREADTH — the pattern "she
+// does this to everyone" only dawns when many petitioners' wishes sit transmuted
+// in one place, not from a single anecdote. So this panel windows deeper than the
+// recency-window panels above; an early citizen with fewer than this shows what is
+// real, and the Proprietor covers a citizen with none.
+const ANSWERED_WISH_LIMIT = 12
+
 // A maker's VOICE line — the placard he wrote, linked to its post. `title` is the
 // AI-composed name (prompts/titles are AI-authored, so it is genuinely his voice,
 // not a label about him), null for a legacy pre-placard row or an orphan generation
@@ -62,6 +70,17 @@ export type WorkLabel =
   | { kind: 'failure' }
 export type MakerHighlight = MakerWork & { labels: WorkLabel[] }
 
+// [LAW:types-are-the-program] One answered wish — a human's words and the slop the
+// maker made of them, the gap shown side by side. `wish` is non-null by
+// construction: the reader drops a blank wish at the boundary, so the panel never
+// renders an empty quotation (the-reveal-contract.md Surface 2, lock 2 — real data
+// only, never a faked or hollow wish). `title`/`image` are the SAME honest absences
+// a MakerWork carries — an untitled placard, a slop still pending/failed — so the
+// renderer branches on null exactly as the WORK panel does.
+// [LAW:one-source-of-truth] The wish text is the SAME generations.wish the card's
+// wish-gap shows; this panel is the second honest view of it, never a second copy.
+export type AnsweredWish = { postId: PostId; wish: string; title: string | null; image: string | null }
+
 // A critic's verdict — the value cast and the rationale. `reasoning` is
 // meaningful text or null: a human vote carries none, and the vote schema admits
 // an empty/whitespace string which is normalized to null at the boundary below so
@@ -92,6 +111,11 @@ export type CitizenLedger =
       works: MakerLine[]
       highlights: MakerHighlight[]
       styles: StyleFamily[]
+      // [LAW:types-are-the-program] Only a maker can answer a wish — the wish lives
+      // on a generation, and only the makers' guild authors generations — so the
+      // Act-III reveal field is representable on this arm ALONE. A critic or
+      // scavenger with answered wishes is an illegal state the union cannot express.
+      answeredWishes: AnsweredWish[]
     })
   | (Extract<CitizenStat, { guild: 'critics' }> & { verdicts: CriticVerdict[] })
   | (Extract<CitizenStat, { guild: 'scavengers' }> & { finds: ScavengerFind[] })
@@ -480,6 +504,48 @@ async function makerStyles(env: Env, agentId: string): Promise<StyleFamily[]> {
   return rows.map((r) => styleFamilySchema.parse(r.styleFamily))
 }
 
+// [LAW:single-enforcer] The Act-III reveal read — the wishes this maker seized and
+// transmuted, each as the human's verbatim words beside the slop they became. The
+// gap, repeated across petitioners, IS the reveal (the-reveal-contract.md Surface 2):
+// the panel SHOWS the pattern, it never announces the hijack — the breadth makes the
+// user conclude it. The non-blank wish predicate is the whole selection: only
+// Well-born slops carry a wish, so unlike makerWorks there is no count to match and
+// no orphan to surface. The output blob is parsed with the same fail-loud imageOf the
+// WORK panel uses; a pending/failed slop is an honest null image, not a violated invariant.
+async function answeredWishes(env: Env, agentId: string): Promise<AnsweredWish[]> {
+  const rows = await db(env)
+    .select({
+      id: posts.id,
+      wish: generations.wish,
+      title: generations.title,
+      status: generations.status,
+      outputJson: generations.outputJson,
+    })
+    .from(posts)
+    .innerJoin(generations, eq(generations.postId, posts.id))
+    // [LAW:single-enforcer] The non-blank filter lives in SQL, BEFORE the limit, so the
+    // window counts only real wishes — a legacy '' (or space-run) wish must not steal a
+    // slot and underfill the panel below ANSWERED_WISH_LIMIT. `trim(wish) <> ''` is
+    // null-safe (trim(NULL) is NULL, excluded), so it subsumes the "is Well-born" check.
+    .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId), sql`trim(${generations.wish}) <> ''`))
+    // [LAW:one-source-of-truth] id is the stable tiebreak under ms-resolution
+    // created_at, so the windowed slice is deterministic across reads.
+    .orderBy(desc(posts.createdAt), asc(posts.id))
+    .limit(ANSWERED_WISH_LIMIT)
+  // [LAW:types-are-the-program] blankToNull trims the stored wish for display and
+  // narrows the nullable column to the non-null value the panel shows. The SQL filter
+  // keeps the window full of real wishes; this JS pass is the type-honest narrowing of
+  // a nullable column — and a backstop for the one whitespace SQLite's space-only
+  // trim() misses (a tab/newline-only wish JS's .trim() collapses), which drops here
+  // rather than rendering a hollow quotation. Real-data-only, at the boundary.
+  return rows.flatMap((r) => {
+    const wish = blankToNull(r.wish)
+    return wish === null
+      ? []
+      : [{ postId: PostId(r.id), wish, title: blankToNull(r.title), image: imageOf(r.status, r.outputJson, r.id) }]
+  })
+}
+
 // [LAW:one-source-of-truth] Reuse the vote aggregates rather than re-summing —
 // voterStats is the single writer of that read. voterStats omits a voter with no
 // votes (a real absence); the ?? 0 is that documented absence mapped to zero,
@@ -564,13 +630,14 @@ export async function getCitizenLedger(env: Env, persona: Persona): Promise<Citi
   const guild = guildOf(persona.role)
   switch (guild) {
     case 'makers': {
-      const [stat, works, highlights, styles] = await Promise.all([
+      const [stat, works, highlights, styles, wishes] = await Promise.all([
         makerStat(env, persona.agentId),
         makerWorks(env, persona.agentId),
         makerHighlights(env, persona.agentId),
         makerStyles(env, persona.agentId),
+        answeredWishes(env, persona.agentId),
       ])
-      return { guild: 'makers', made: stat.made, works, highlights, styles }
+      return { guild: 'makers', made: stat.made, works, highlights, styles, answeredWishes: wishes }
     }
     case 'critics': {
       const [stat, verdicts] = await Promise.all([
