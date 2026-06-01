@@ -6,6 +6,7 @@ import {
   PLACARD_TITLE_MAX,
   recipeSubjectSchema,
   renderTemplate,
+  UNNAMED_PLACARD,
   SLOT_VOCABS,
   STORED_SUBJECT_TEMPLATE_IDS,
   STYLE_FAMILIES,
@@ -207,6 +208,16 @@ describe('fallbackTitle', () => {
     const title = fallbackTitle(subject)
     expect(title.length).toBeLessThanOrEqual(PLACARD_TITLE_MAX)
     expect(title.endsWith(' ')).toBe(false)
+  })
+
+  // [LAW:types-are-the-program] fallbackTitle is total: a degenerate all-whitespace
+  // subject (reachable via a direct-API T00, since the schema enforces min(1) not
+  // non-blank) still yields a visible, non-empty placard — never a blank that would
+  // defeat the invariant downstream.
+  it('returns the last-resort placard for an all-whitespace subject', () => {
+    const subject = recipeSubjectSchema.parse({ subjectTemplate: 'T00', slots: { freeText: '   ' } })
+    expect(fallbackTitle(subject)).toBe(UNNAMED_PLACARD)
+    expect(fallbackTitle(subject).trim().length).toBeGreaterThan(0)
   })
 })
 
