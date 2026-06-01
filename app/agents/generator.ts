@@ -110,16 +110,16 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
   const recipe = chooseNextGeneration({ scheduledTimeMs, recent, provider, bias })
 
   // [LAW:single-enforcer] composePrompt is the one place prompt text is
-  // generated from a recipe; the persona's voice and maxLength flow from the
-  // provider's declared constraint so paramsSchema validation never rejects a
-  // too-long prompt. The firehose passes no wish — that seed is the Well's path
-  // through this same composer.
+  // generated from a recipe; promptPrefix (the persona's voice) and maxLength
+  // flow from the provider's declared constraint so paramsSchema validation
+  // never rejects a too-long prompt. The firehose passes no wish — that seed is
+  // the Well's path through this same composer.
   const prompt = await composePrompt(
     {
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
-      voice: config.promptPrefix,
+      promptPrefix: config.promptPrefix,
       maxLength: provider.promptMaxLength,
     },
     env,
