@@ -40,8 +40,17 @@ export async function recordRemark(
   // remark would masquerade downstream as the voice layer's "no utterance" (a chosen
   // absence), which is a different fact than "the write failed." The caller decides
   // whether a failed remark is fatal to the slop (it is not — see authorSlop).
-  const raw = result as unknown as { success: boolean; error?: string }
+  const raw = result as unknown as { success: boolean; error?: string; meta?: { changes?: number } }
   if (!raw.success) {
     throw new Error(`recordRemark: generations UPDATE failed for ${postId}: ${raw.error ?? 'unknown'}`)
+  }
+  // [LAW:no-silent-fallbacks] A succeeded UPDATE that changed 0 rows means the target
+  // generation row was absent — the remark went nowhere. That is the exact silent
+  // drop this writer exists to prevent (a missing remark must not masquerade as the
+  // voice layer's "no utterance"), so completing the loud-failure contract means
+  // catching it too, not only the D1-error case above. Only assert when the result
+  // reports a row count; a shape without `changes` is not evidence of 0.
+  if (raw.meta?.changes === 0) {
+    throw new Error(`recordRemark: generations UPDATE changed 0 rows for ${postId} (no such generation)`)
   }
 }
