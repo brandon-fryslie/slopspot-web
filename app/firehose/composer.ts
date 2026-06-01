@@ -20,11 +20,36 @@ const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const REQUEST_TIMEOUT_MS = 15_000
 const MAX_TOKENS = 300
 
+// [LAW:single-enforcer] The composer owns its outbound Haiku request, so it caps
+// the human wish it embeds — unbounded visitor input must not bloat a paid API
+// call. This is the request-protection sibling of the maxLength output truncation
+// below, NOT trust-boundary validation (the Well's submission action owns that).
+const WISH_SEED_MAX = 1000
+
 export type ComposerInput = {
   styleFamily: StyleFamily
   subject: RecipeSubject
   aspectRatio: AspectRatio
+  // [RECONCILE B] The persona's authoring voice — the single steering input a
+  // persona contributes to composition. The firehose passes the generator
+  // persona's voice; the Well passes the seated citizen's. One composer, one
+  // voice per persona, identical across both paths. Taken as a value (not the
+  // whole Persona) so the composer never re-parses config_json — the persona's
+  // own trust boundary already projected it. [LAW:one-source-of-truth] Named
+  // `promptPrefix` to match the persisted persona config key (renaming the whole
+  // concept to `voice` is a migration this ticket forbids; one name across the
+  // config→composer boundary beats a prettier name with a translation seam).
   promptPrefix?: string
+  // [RECONCILE B] The human WISH that occasioned a Well fire. The composer READS
+  // it to steer Haiku in the persona's voice; the returned prompt is ALWAYS the
+  // machine's authorship (Haiku output) or the recipe-only fallback — the raw
+  // wish is never assigned as the prompt. [LAW:dataflow-not-control-flow] That
+  // is the isolation guarantee: not "no wish word may appear" (the Well's whole
+  // point is that the result is recognizably related to the wish), but "the wish
+  // is never passed through raw." foundation.3's structural isolation (the wish
+  // is not a generation input field) is a separate, type-level guarantee.
+  // Absent for the firehose.
+  wish?: string
   // [LAW:single-enforcer] The chosen provider's authoritative max prompt
   // length. Passed from generator.ts via provider.promptMaxLength so the
   // constraint travels from its declaration site to the composition step.
@@ -36,11 +61,20 @@ export type ComposerInput = {
 // unconditionally; a failure swaps the value to the renderTemplate output
 // without changing the return signature.
 export async function composePrompt(input: ComposerInput, env: Env): Promise<string> {
-  const { styleFamily, subject, aspectRatio, promptPrefix, maxLength } = input
+  const { styleFamily, subject, aspectRatio, promptPrefix, wish, maxLength } = input
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
+
+  // [LAW:single-enforcer] Cap the embedded wish at the request boundary the
+  // composer owns. slice is a pure transform applied to the value — when the
+  // wish is absent it is undefined throughout, no branch around the embed.
+  const wishSeed = wish?.slice(0, WISH_SEED_MAX)
 
   const rendered = renderTemplate(subject)
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[styleFamily]
+  // [LAW:dataflow-not-control-flow] The wish is NOT in the fallback — not as a
+  // guard against leaking it, but because the fallback's job is a recipe-only
+  // machine prompt; the wish's only authoring path is Haiku. Same recipe shape
+  // whether or not a wish was made.
   const fallback = promptPrefix
     ? `${promptPrefix}, ${rendered}, ${styleSeed}`
     : `${rendered}, ${styleSeed}`
@@ -59,6 +93,12 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
     `Aspect ratio: ${aspectLabel}.`,
     `Style notes: ${styleSeed}.`,
     promptPrefix ? `Voice / tone: ${promptPrefix}.` : null,
+    // [RECONCILE B] The wish steers; Haiku transmutes the visitor's intent in the
+    // persona's voice. The returned prompt is the machine's authorship —
+    // recognizably related to the wish, never obedient to it.
+    wishSeed
+      ? `A visitor wished for: ${JSON.stringify(wishSeed)}. Reinterpret their wish in your own voice — transmute their intent, never repeat their words back. The result must be recognizably related to the wish yet unmistakably your own authorship, not obedient to their literal request.`
+      : null,
     maxLength ? `Keep the prompt under ${maxLength} characters.` : null,
     'Output only the prompt text itself — no preamble, no quotes, no explanation.',
   ]
