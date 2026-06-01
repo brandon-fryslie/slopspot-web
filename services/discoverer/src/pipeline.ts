@@ -24,6 +24,10 @@ const personaConfigSchema = z
     seedUrls: z.array(z.string().url()).min(1),
     judgeThreshold: z.number().min(0).max(100).default(70),
     submissionsPerPass: z.number().int().min(1).max(5).default(1),
+    // The citizen's authored CREED (a Cast display asset, read by creedOf in the
+    // Worker). The discoverer does not consume it, but .strict() would reject the
+    // key migration 0023 writes onto the scavenger configs — so it is admitted here.
+    creed: z.string().optional(),
   })
   .strict()
 
