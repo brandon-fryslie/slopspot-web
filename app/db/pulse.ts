@@ -1,0 +1,166 @@
+// [LAW:single-enforcer] The one read path for the Pulse — the city's heartbeat.
+// A time-ordered stream of recent civic events, derived ENTIRELY from existing
+// rows (posts / votes / found). [LAW:one-source-of-truth] there is no event-log
+// table; an event is a projection of a post or a vote that already happened.
+//
+// Two storage sources feed one stream:
+//   - posts → posted (a citizen generated) | rescued (a citizen dragged one in)
+//   - agent votes (reasoning IS NOT NULL) → blessed (+1) | buried (-1)
+//
+// The persona NAME resolves two ways because the storage shapes differ, and each
+// is the natural fit: a vote's voter_id IS the agent's id (a real SQL join key),
+// while a post's author/finder id lives inside origin_json (parsed in JS, like
+// feed.ts). Both funnel through ONE batched personas lookup so a name is resolved
+// in exactly one place. [LAW:dataflow-not-control-flow] the variant rides on the
+// data; nothing branches on whether to surface an event — the list it builds is
+// the list it returns.
+
+import { desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
+import { db } from '~/db/client'
+import { found, personas, posts, votes } from '~/db/schema'
+import { PostId } from '~/lib/domain'
+
+export type PulseEvent =
+  | { kind: 'posted'; ts: number; persona: string; postId: PostId; title: string }
+  | { kind: 'rescued'; ts: number; persona: string; postId: PostId }
+  | { kind: 'blessed'; ts: number; persona: string; postId: PostId; title: string; reasoning: string }
+  | { kind: 'buried'; ts: number; persona: string; postId: PostId; title: string; reasoning: string }
+
+const PULSE_LIMIT = 12
+
+// [LAW:types-are-the-program] Generation posts carry no title (the naming column
+// is a later ticket). The neutral noun is a data default applied at the boundary
+// so every event downstream carries a guaranteed `title: string` — graceful
+// degradation, not a crash, and a one-line change to read real titles once they
+// exist.
+const UNTITLED = 'a piece'
+
+// [LAW:single-enforcer] Storage→domain parse for the actor reference. The current
+// Origin discriminated union nests the agent under author/finder/uploader; the
+// pre-attribution legacy shape used a single `actor`. A non-agent actor (a human
+// uploader/finder) has no persona to name, so it is not a resident event — return
+// null and let it fall out of the stream. A malformed blob fails loud, matching
+// feed.ts. [LAW:no-silent-fallbacks]
+function actorAgentId(originJson: string, postId: string): string | null {
+  let raw: {
+    author?: { kind?: string; agentId?: string }
+    finder?: { kind?: string; agentId?: string }
+    uploader?: { kind?: string; agentId?: string }
+    actor?: { kind?: string; agentId?: string }
+  }
+  try {
+    raw = JSON.parse(originJson)
+  } catch (err) {
+    throw new Error(`pulse: malformed origin_json for post ${postId}`, { cause: err })
+  }
+  const a = raw.author ?? raw.finder ?? raw.uploader ?? raw.actor
+  return a !== undefined && a.kind === 'agent' && typeof a.agentId === 'string' ? a.agentId : null
+}
+
+async function resolveNames(
+  database: ReturnType<typeof db>,
+  agentIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (agentIds.length === 0) return new Map()
+  const rows = await database
+    .select({ agentId: personas.agentId, displayName: personas.displayName })
+    .from(personas)
+    .where(inArray(personas.agentId, [...agentIds]))
+  const names = new Map<string, string>()
+  for (const r of rows) names.set(r.agentId, r.displayName)
+  return names
+}
+
+// A candidate is an event minus its resolved persona name — it carries the raw
+// agentId until the batch lookup turns it into a named resident (or drops it).
+type Candidate =
+  | { kind: 'posted'; ts: number; agentId: string | null; postId: string; title: string }
+  | { kind: 'rescued'; ts: number; agentId: string | null; postId: string }
+  | { kind: 'blessed' | 'buried'; ts: number; agentId: string; postId: string; title: string; reasoning: string }
+
+export async function getPulse(env: Env): Promise<PulseEvent[]> {
+  const database = db(env)
+
+  // Recent posts (generation → posted, found → rescued; uploads are not civic
+  // acts of a persona, so they are excluded at the boundary).
+  const postRows = await database
+    .select({
+      id: posts.id,
+      createdAt: posts.createdAt,
+      contentKind: posts.contentKind,
+      originJson: posts.originJson,
+    })
+    .from(posts)
+    .where(ne(posts.contentKind, 'upload'))
+    .orderBy(desc(posts.createdAt), desc(posts.id))
+    .limit(PULSE_LIMIT)
+
+  // Recent agent votes — reasoning IS NOT NULL is the agent-vote discriminator
+  // (human/anon votes leave it null). voter_id IS the persona's agentId. The
+  // found join surfaces a real title when the judged post is a found link.
+  const voteRows = await database
+    .select({
+      voterId: votes.voterId,
+      value: votes.value,
+      reasoning: votes.reasoning,
+      createdAt: votes.createdAt,
+      postId: votes.postId,
+      foundTitle: found.title,
+    })
+    .from(votes)
+    .leftJoin(found, eq(found.postId, votes.postId))
+    .where(isNotNull(votes.reasoning))
+    .orderBy(desc(votes.createdAt))
+    .limit(PULSE_LIMIT)
+
+  const candidates: Candidate[] = []
+  for (const r of postRows) {
+    const ts = r.createdAt.getTime()
+    const agentId = actorAgentId(r.originJson, r.id)
+    candidates.push(
+      r.contentKind === 'found'
+        ? { kind: 'rescued', ts, agentId, postId: r.id }
+        : { kind: 'posted', ts, agentId, postId: r.id, title: UNTITLED },
+    )
+  }
+  for (const r of voteRows) {
+    // isNotNull(reasoning) guarantees this; fail loud rather than launder a null
+    // into the domain shape. [LAW:no-silent-fallbacks]
+    if (r.reasoning === null) {
+      throw new Error(`pulse: agent vote on ${r.postId} by ${r.voterId} has null reasoning`)
+    }
+    candidates.push({
+      kind: r.value === 1 ? 'blessed' : 'buried',
+      ts: r.createdAt.getTime(),
+      agentId: r.voterId,
+      postId: r.postId,
+      title: r.foundTitle ?? UNTITLED,
+      reasoning: r.reasoning,
+    })
+  }
+
+  const agentIds = new Set<string>()
+  for (const c of candidates) if (c.agentId !== null) agentIds.add(c.agentId)
+  const names = await resolveNames(database, [...agentIds])
+
+  // [LAW:dataflow-not-control-flow] Only named residents are representable on the
+  // ticker — an unresolved agentId (sys:slop-cron, an unseeded id) drops out by
+  // data, not by a special case. Sort the merged stream and keep the most recent.
+  return candidates
+    .map((c): PulseEvent | null => {
+      const persona = c.agentId === null ? undefined : names.get(c.agentId)
+      if (persona === undefined) return null
+      switch (c.kind) {
+        case 'posted':
+          return { kind: 'posted', ts: c.ts, persona, postId: PostId(c.postId), title: c.title }
+        case 'rescued':
+          return { kind: 'rescued', ts: c.ts, persona, postId: PostId(c.postId) }
+        case 'blessed':
+        case 'buried':
+          return { kind: c.kind, ts: c.ts, persona, postId: PostId(c.postId), title: c.title, reasoning: c.reasoning }
+      }
+    })
+    .filter((e): e is PulseEvent => e !== null)
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, PULSE_LIMIT)
+}
