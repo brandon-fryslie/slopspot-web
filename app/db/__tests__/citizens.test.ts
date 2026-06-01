@@ -130,7 +130,7 @@ async function seedVote(opts: {
 const image = (url: string): Media => ({ kind: 'image', url, w: 8, h: 8 })
 
 describe('app/db/citizens.ts - getCitizenLedger', () => {
-  it('makers: counts authored generations and surfaces recent works (placard + image) newest-first', async () => {
+  it('makers: counts authored generations and surfaces recent placard lines newest-first', async () => {
     await seedPost({ id: 'm_1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
     await seedSucceededGeneration('m_1', image('/media/aaa'), 'I gave it a hallway')
     await seedPost({ id: 'm_2', createdAt: 200, contentKind: 'generation', originJson: authored('agent:maker') })

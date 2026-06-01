@@ -138,7 +138,7 @@ function WorkThumb({ work }: { work: MakerWork }) {
   return (
     <Link
       to={`/p/${work.postId}`}
-      aria-label="View this work"
+      aria-label={work.title ?? 'an untitled piece'}
       className="block aspect-square overflow-hidden rounded-sm border border-votive/12 bg-base transition hover:border-votive/40"
     >
       {work.image !== null ? (
@@ -196,7 +196,7 @@ function HighlightCard({ highlight }: { highlight: MakerHighlight }) {
 // The maker's body in one line: how much they made, and the territory they work in
 // most. An empty style list (a maker with only orphan rows, no countable family)
 // drops the "works mostly in" clause by data — the count alone remains.
-function WorkStats({ made, styles }: { made: number; styles: string[] }) {
+function WorkStats({ made, styles }: { made: number; styles: readonly string[] }) {
   return (
     <p className="mt-4 font-terminal text-[11px] uppercase tracking-wider text-ash">
       <span className="text-bone">{made}</span> made
