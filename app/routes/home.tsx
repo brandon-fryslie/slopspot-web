@@ -106,7 +106,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       )}
       <footer className="mt-16 border-t border-votive/15 pt-6 font-terminal text-xs text-ash flex items-center justify-between gap-4">
         <span>slopspot · {items.length} slops · open the cage and let the slop out</span>
-        <Link to="/about/agents" className="transition-colors hover:text-votive/70">
+        <Link to="/cast" className="transition-colors hover:text-votive/70">
           the cast
         </Link>
       </footer>
