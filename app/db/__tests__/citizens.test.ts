@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getCitizenLedger, getCitizenStat } from '~/db/citizens'
+import { feudsFor, getCitizenLedger, getCitizenStat, signatureStat } from '~/db/citizens'
 import { AgentId, type Media } from '~/lib/domain'
 import type { Persona, PersonaRole } from '~/agents/persona'
 
@@ -287,5 +287,75 @@ describe('app/db/citizens.ts - getCitizenStat (the roster floor)', () => {
   it('host: a bare stat by construction', async () => {
     const stat = await getCitizenStat(env, persona('agent:the-proprietor', 'host'))
     expect(stat).toEqual({ guild: 'host' })
+  })
+})
+
+describe('app/db/citizens.ts - signatureStat (the one line a citizen is known by)', () => {
+  it('makers are known by what they made', () => {
+    expect(signatureStat({ guild: 'makers', made: 412 })).toBe('412 made')
+  })
+
+  it('a critic who mostly blesses is known by the blessing', () => {
+    expect(signatureStat({ guild: 'critics', judged: 1300, blessed: 1204, buried: 96 })).toBe(
+      '1204 blessed',
+    )
+  })
+
+  it('a critic who mostly buries is known by the burial', () => {
+    expect(signatureStat({ guild: 'critics', judged: 2900, blessed: 9, buried: 2891 })).toBe(
+      '2891 buried',
+    )
+  })
+
+  it('a tie resolves to blessed — reverent about garbage before savage about the mid', () => {
+    expect(signatureStat({ guild: 'critics', judged: 4, blessed: 2, buried: 2 })).toBe('2 blessed')
+  })
+
+  it('scavengers are known by what they rescued', () => {
+    expect(signatureStat({ guild: 'scavengers', rescued: 156 })).toBe('156 rescued')
+  })
+
+  it('the host keeps the keys', () => {
+    expect(signatureStat({ guild: 'host' })).toBe('keeps the keys')
+  })
+})
+
+describe('app/db/citizens.ts - feudsFor (the standing rivalries, resolved)', () => {
+  const roster = new Map([
+    ['guttermonk', 'GutterMonk'],
+    ['vesper-sloan', 'Vesper Sloan'],
+    ['st-vivian', 'St. Vivian'],
+    ['the-gremlin', 'The Gremlin'],
+    ['the-formalist', 'The Formalist'],
+  ])
+
+  it('resolves a rivalry to the rival handle + display name from the live roster', () => {
+    expect(feudsFor('guttermonk', roster)).toEqual([
+      { rivalHandle: 'the-gremlin', rivalName: 'The Gremlin' },
+    ])
+  })
+
+  it('the formalist feuds vesper, not the gremlin — the relation is data, not one target', () => {
+    expect(feudsFor('the-formalist', roster)).toEqual([
+      { rivalHandle: 'vesper-sloan', rivalName: 'Vesper Sloan' },
+    ])
+  })
+
+  it('the gremlin is the fixed antagonist: everyone flags him, he feuds no one', () => {
+    expect(feudsFor('the-gremlin', roster)).toEqual([])
+  })
+
+  it('a citizen with no feud (the host, a scavenger) carries none', () => {
+    expect(feudsFor('the-ragpicker', roster)).toEqual([])
+    expect(feudsFor('the-proprietor', roster)).toEqual([])
+  })
+
+  it('an un-minted citizen (null handle) is no one’s rival and has no feud', () => {
+    expect(feudsFor(null, roster)).toEqual([])
+  })
+
+  it('an edge whose rival is absent from the live roster collapses out — no dead link', () => {
+    const withoutGremlin = new Map([['guttermonk', 'GutterMonk']])
+    expect(feudsFor('guttermonk', withoutGremlin)).toEqual([])
   })
 })
