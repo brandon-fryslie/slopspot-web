@@ -53,6 +53,10 @@ const generatorPersonaConfigSchema = z.object({
   styleFamilyBias: styleFamilyBiasSchema,
   aspectRatioBias: aspectRatioBiasSchema,
   promptPrefix: z.string().optional(),
+  // The citizen's authored CREED (a Cast display asset, read by creedOf). The
+  // generator does not consume it, but .strict() would reject the key migration
+  // 0021 writes onto the maker configs — so it is admitted here explicitly.
+  creed: z.string().optional(),
 }).strict()
 
 export type GeneratorPersonaConfig = z.infer<typeof generatorPersonaConfigSchema>
