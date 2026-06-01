@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, Verdict, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
 import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
@@ -543,20 +543,32 @@ function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor 
   )
 }
 
+// [LAW:dataflow-not-control-flow] The robe is the disposition VALUE, not an if-chain:
+// a total map over the closed union, so a BLESSING and a BURIAL each pull their own
+// glyph + color and a third disposition would break this literal at compile time. The
+// blessing keeps the gilt cross; the burial wears the profane magenta the down-vote
+// already uses — the same votive/profane duality the votes carry, so savagery (the
+// Gremlin's blade) no longer renders in a saint's gold robes.
+const VERDICT_ROBES: Record<VerdictDisposition, { glyph: string; bylineClass: string; accentClass: string }> = {
+  blessed: { glyph: "✚", bylineClass: "text-gilt", accentClass: "border-gilt/40" },
+  buried: { glyph: "✗", bylineClass: "text-profane", accentClass: "border-profane/50" },
+}
+
 // [LAW:dataflow-not-control-flow] The named critic's hot take — the blurb the city
 // actually has an OPINION in, not neutral museum-speak (the-back-door.md §The Card).
 // It renders only where a verdict value exists; both halves are guaranteed non-empty
 // by the read boundary, so there is no "no verdict yet" branch here. The critic line
 // is the SACRED register (placard serif), the byline the profane mono — the high/low
 // typographic collision every card is built on (the-back-door.md §type-as-collision).
-function VerdictLine({ verdict }: { verdict: Verdict }) {
+export function VerdictLine({ verdict }: { verdict: Verdict }) {
+  const robe = VERDICT_ROBES[verdict.disposition]
   return (
-    <figure className="mx-3 mb-1 mt-2 border-l-2 border-gilt/40 pl-3">
+    <figure className={`mx-3 mb-1 mt-2 border-l-2 ${robe.accentClass} pl-3`}>
       <blockquote className="font-placard text-[15px] italic leading-snug text-bone/90">
         {`“${verdict.text}”`}
       </blockquote>
       <figcaption className="mt-1 font-terminal text-[11px] text-ash">
-        — {verdict.critic} <span className="text-gilt">✚</span>
+        — {verdict.critic} <span className={robe.bylineClass}>{robe.glyph}</span>
       </figcaption>
     </figure>
   )

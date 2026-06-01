@@ -778,7 +778,21 @@ describe('app/db/feed.ts - verdict', () => {
     expect(item.verdict).toEqual({
       critic: 'St. Vivian',
       text: 'Four steps and it still found the void. Devastating. I wept.',
+      disposition: 'blessed',
     })
+  })
+
+  it('derives the disposition from the representative vote sign: +1 blessed, -1 buried', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const blessed = await seedPost(env, { id: 'post-disp-bless', createdAt: ms(1000) })
+    const buried = await seedPost(env, { id: 'post-disp-bury', createdAt: ms(2000) })
+    await seedVote(env, { postId: blessed, voterId: 'agent:vivian', value: 1, reasoning: 'Canonized.' })
+    await seedVote(env, { postId: buried, voterId: 'agent:gremlin', value: -1, reasoning: 'Buried.' })
+
+    const items = await getFeed(env)
+    expect(items.find((i) => i.post.id === blessed)?.verdict?.disposition).toBe('blessed')
+    expect(items.find((i) => i.post.id === buried)?.verdict?.disposition).toBe('buried')
   })
 
   it('leaves verdict undefined when no vote carries reasoning', async () => {
@@ -821,7 +835,7 @@ describe('app/db/feed.ts - verdict', () => {
     })
 
     const [item] = await getFeed(env)
-    expect(item.verdict).toEqual({ critic: 'The Gremlin', text: 'Mid. Aggressively mid. Buried.' })
+    expect(item.verdict).toEqual({ critic: 'The Gremlin', text: 'Mid. Aggressively mid. Buried.', disposition: 'buried' })
   })
 
   it('surfaces an older meaningful line when the newest vote has blank reasoning', async () => {
@@ -848,6 +862,7 @@ describe('app/db/feed.ts - verdict', () => {
     expect(item.verdict).toEqual({
       critic: 'St. Vivian',
       text: 'The sixth finger reaches. Canonized.',
+      disposition: 'blessed',
     })
   })
 
@@ -904,6 +919,7 @@ describe('app/db/feed.ts - verdict', () => {
     expect(item.verdict).toEqual({
       critic: 'St. Vivian',
       text: 'A blessing that keeps its name.',
+      disposition: 'blessed',
     })
   })
 
@@ -935,6 +951,7 @@ describe('app/db/feed.ts - verdict', () => {
     expect(item?.verdict).toEqual({
       critic: 'The Gremlin',
       text: 'Another forest. The trees won. Buried.',
+      disposition: 'buried',
     })
   })
 })
