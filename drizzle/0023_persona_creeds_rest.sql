@@ -2,9 +2,10 @@
 -- an authored character ASSET, not a prose derivation. 0021 authored the three
 -- makers' creeds and made creedOf prefer config_json.creed, falling back to the
 -- prose-slice of persona_prompt only when the key is absent. This folds in the
--- CD-authored creeds for the remaining citizens — the 8 critics, the 3 scavengers,
--- and the Proprietor — so EVERY /cast card leads with an authored line. After this,
--- the prose-slice is strictly the fallback for a future un-authored persona.
+-- CD-authored creeds for the remaining citizens — the critics, the scavengers, and
+-- the Proprietor (the exact agent_id set is the rollback clause below) — so EVERY
+-- /cast card leads with an authored line. After this, the prose-slice is strictly
+-- the fallback for a future un-authored persona.
 --
 -- [LAW:one-source-of-truth] The creed lives in D1 with the rest of persona config,
 -- tuned by SQL without a redeploy — the same store creedOf already reads from.
