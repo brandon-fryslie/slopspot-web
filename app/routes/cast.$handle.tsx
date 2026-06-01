@@ -330,7 +330,7 @@ function feudHeadline(feud: Feud, rival: React.ReactNode): React.ReactNode {
     case 'declares':
       return <>⚔ at war with {rival}</>
     case 'targeted-by':
-      return <>⚔ {rival} has marked them</>
+      return <>⚔ marked by {rival}</>
     default: {
       const _exhaustive: never = feud.stance
       return _exhaustive
