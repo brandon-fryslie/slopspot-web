@@ -148,9 +148,9 @@ export type RecentVote = {
   createdAt: Date
 }
 
-// [LAW:single-enforcer] The one read path for per-voter recent votes used by
-// the public /about/agents roster. Returns the most-recent `limit` votes cast
-// by `voterId`, newest first.
+// [LAW:single-enforcer] The one read path for per-voter recent votes — a
+// critic's recent verdicts on the public Cast citizen page (via the citizen
+// ledger). Returns the most-recent `limit` votes cast by `voterId`, newest first.
 export async function recentVotesForVoter(
   env: Env,
   voterId: string,

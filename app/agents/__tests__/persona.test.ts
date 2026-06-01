@@ -8,6 +8,7 @@ import { env } from 'cloudflare:test'
 import { db } from '~/db/client'
 import { personas } from '~/db/schema'
 import {
+  creedOf,
   getPersonaByHandle,
   guildOf,
   listAllPersonas,
@@ -170,5 +171,32 @@ describe('the host guild and the Proprietor', () => {
     expect(host.map((c) => c.handle)).toEqual(['the-proprietor'])
     expect(roster.filter((c) => guildOf(c.role) === 'makers').length).toBeGreaterThan(0)
     expect(roster.filter((c) => guildOf(c.role) === 'critics').length).toBeGreaterThan(0)
+  })
+})
+
+describe('creedOf — the public creed, never the raw prompt', () => {
+  it('extracts the first sentence of the body after the "You are <Name> —" preamble', () => {
+    const prompt =
+      'You are The Gremlin — the city burier, and you live to bury. Most of it deserves the dark and you send it there.'
+    expect(creedOf(prompt)).toBe('the city burier, and you live to bury.')
+  })
+
+  it('handles the makers’ "Generator persona — <Name>, ..." preamble', () => {
+    const prompt =
+      'Generator persona — GutterMonk, an ascetic of the render farm. He works stark and liminal.'
+    expect(creedOf(prompt)).toBe('GutterMonk, an ascetic of the render farm.')
+  })
+
+  it('never leaks the rest of the bible — the creed is one sentence, not the body', () => {
+    const prompt =
+      'You are St. Vivian — solemn, generous, devout. You do not laugh at slop; you kneel to it. The one sin you cannot bless is mere competence.'
+    const creed = creedOf(prompt)
+    expect(creed).toBe('solemn, generous, devout.')
+    expect(creed).not.toContain('kneel')
+    expect(creed).not.toContain('competence')
+  })
+
+  it('falls back to the first sentence when there is no em-dash preamble', () => {
+    expect(creedOf('A plain line. A second one.')).toBe('A plain line.')
   })
 })

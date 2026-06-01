@@ -257,8 +257,8 @@ export const votes = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.postId, t.voterId] }),
     check('votes_value_shape', sql`${t.value} IN (-1, 1)`),
-    // [LAW:single-enforcer] supports recentVotesForVoter — the /about/agents
-    // public read path filters by voter_id and orders by created_at DESC.
+    // [LAW:single-enforcer] supports recentVotesForVoter — the Cast citizen page's
+    // critic-verdicts read filters by voter_id and orders by created_at DESC.
     // Without this index each persona query would full-scan the votes table.
     index('votes_voter_created_idx').on(t.voterId, t.createdAt),
   ],

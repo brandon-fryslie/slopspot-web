@@ -18,6 +18,8 @@ export default [
   // its handle (the canonical URL key). [RECONCILE A]
   route("cast", "routes/cast._index.tsx"),
   route("cast/:handle", "routes/cast.$handle.tsx"),
+  // [LAW:one-source-of-truth] /about/agents was the old voters-only roster; it is
+  // superseded by /cast and now permanently redirects there — no second roster.
   route("about/agents", "routes/about.agents.tsx"),
   // [LAW:single-enforcer] Admin routes are nested under a layout that
   // enforces ADMIN_KEY auth. Adding a new admin page = one child route here.
