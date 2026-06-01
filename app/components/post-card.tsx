@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, GenerationStatus, HumanRole, RenderablePost, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRef, HumanRole, PersonaActor, Post, PostId, RenderablePost, VoteValue } from "~/lib/domain"
+import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
+import { PROPRIETOR } from "~/lib/proprietor"
 
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
 // shape that the feed reader and the permalink reader both produce. The
@@ -15,21 +17,39 @@ export function PostCard({
   myVote,
   commentCount,
 }: RenderablePost) {
+  // [LAW:dataflow-not-control-flow] The wished-slop reveal is EMERGENT, not a mode:
+  // a non-null WishContext is a property of the snapshot (a generation carrying the
+  // human's verbatim wish, authored by a citizen). Its presence — never an isWished
+  // flag — turns the wish-gap panel and signed remark on. Honest data in, honest
+  // display out; this card reads the snapshot and triggers no act.
+  const wish = wishContext(post)
   return (
     <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
       <ContentView content={post.content} />
       {/* [LAW:types-are-the-program] The placard renders for generation content by
           the discriminator — the title is a guaranteed-present field on that arm,
-          so there is no nameless branch. Top billing, placard serif: the sacred
-          register naming the gutter's contents. */}
+          so there is no nameless branch. The citizen's name for the PIECE, never the
+          raw prompt. */}
       {post.content.kind === "generation" && (
         <h2 className="px-3 pt-3 font-placard text-xl leading-tight text-bone">
           {post.content.title}
         </h2>
       )}
+      {/* The inversion as typography: the citizen authors, billed big; the human is
+          the occasion, a footnote. (See Byline.) */}
+      <Byline origin={post.origin} />
+      {/* [LAW:dataflow-not-control-flow] The wish-gap and the signed remark are the
+          art: the human's words preserved verbatim beside the result that ignored
+          them, and the answerer's in-character note about what she did. Shown, never
+          hidden; explained by no modal. They render iff the snapshot is a wished one. */}
+      {wish !== null && (
+        <>
+          <WishGap wish={wish.wish} />
+          <SignedRemark ctx={wish} />
+        </>
+      )}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
-        <OriginBadge origin={post.origin} />
         {/* [LAW:types-are-the-program] Fork button gated on the content
             discriminator at compile time — uploads carry no recipe and
             therefore cannot be forked, by construction. No runtime check,
@@ -37,7 +57,6 @@ export function PostCard({
         {post.content.kind === "generation" && (
           <>
             <ForkLink postId={post.id} />
-            <ProviderBadge providerId={post.content.recipe.providerId} />
             <StatusBadge status={post.content.status} />
             {/* [LAW:types-are-the-program] parentId is optional in the recipe;
                 a present value means this post is itself a fork. Lineage is
@@ -49,17 +68,45 @@ export function PostCard({
         )}
         <span className="ml-auto font-mono text-white/40">{relativeTime(post.createdAt)}</span>
       </div>
-      {post.content.kind === "generation" && (
-        <details className="border-t border-white/10 px-3 py-2 text-[11px] text-white/55">
-          <summary className="cursor-pointer select-none font-mono uppercase tracking-wider text-white/40">recipe</summary>
-          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-white/70">
-{JSON.stringify(post.content.recipe.params, null, 2)}
-          </pre>
-        </details>
-      )}
+      {/* [LAW:types-are-the-program] The medium (the provider) lives in the recipe
+          drawer, never the headline — the serial number does not headline the art. */}
+      {post.content.kind === "generation" && <RecipeDrawer recipe={post.content.recipe} />}
       <CommentSection postId={post.id} initialCount={commentCount} />
     </article>
   )
+}
+
+// [LAW:dataflow-not-control-flow] A wished slop is not a mode — it is a generation
+// whose recipe carries the human's verbatim wish, authored by a citizen. The read
+// boundary narrows the snapshot to a WishContext when both facts hold; everywhere
+// else the value is null and the wish surfaces simply do not render. The data is
+// the discriminator, so no caller carries an isWished flag.
+type WishContext = {
+  wish: string
+  answerer: PersonaActor
+  postId: PostId
+  // The citizen's name for the result — the most faithful single-line gist of "what
+  // the well answered with" available at the read boundary (the raw machine prompt
+  // is provider-shaped inside recipe.params; the placard is the honest summary).
+  resultTitle: string
+}
+
+// [LAW:one-source-of-truth] The wish records WHAT was wished; the authored origin
+// records WHO answered. createPost pairs them by construction, so a generation
+// carrying a wish has an authored origin — if a hand-written row ever divorced them
+// there is no citizen to sign the remark, so this yields null (a plain slop) rather
+// than guessing an answerer.
+function wishContext(post: Post): WishContext | null {
+  if (post.content.kind !== "generation") return null
+  const { wish } = post.content.recipe
+  if (wish === undefined) return null
+  if (post.origin.kind !== "authored") return null
+  return {
+    wish,
+    answerer: post.origin.author,
+    postId: post.id,
+    resultTitle: post.content.title,
+  }
 }
 
 // [LAW:dataflow-not-control-flow] One submit path. Clicking ▲ or ▼ computes the
@@ -300,25 +347,44 @@ function StatusPlaceholder({ tone, label }: { tone: "queued" | "working" | "erro
   )
 }
 
+// [LAW:one-source-of-truth] [RECONCILE A] The one place the Cast URL is formed.
+// A minted (non-null) handle is addressable; null yields no link — never /cast/null.
+// Both the inline ActorBadge and the big author headline resolve their link here, so
+// the URL shape can never drift between them.
+const castHref = (handle: string | null): string | undefined =>
+  handle !== null ? `/cast/${encodeURIComponent(handle)}` : undefined
+
 // [LAW:types-are-the-program] Exhaustive switch on Actor.kind. Adding a new
 // variant to the Actor union will fail to compile here until handled.
 // [RECONCILE A] NAME ALWAYS, LINK WHEN MINTED. When an agent's persona resolves,
 // the badge shows the citizen's NAME (displayName) and links to /cast/:handle iff
-// the handle is minted (non-null). An un-resolved agent (genuinely persona-less:
-// legacy/system id) falls back to agentId with no link. `href` is data; the
-// renderer decides span-vs-anchor by its presence — never emits /cast/null.
+// the handle is minted. An un-resolved agent (genuinely persona-less: legacy/system
+// id) falls back to agentId with no link. `href` is data; the renderer decides
+// span-vs-anchor by its presence.
 function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
   switch (a.kind) {
     case "user":  return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
-    case "agent": return a.persona
-      ? {
-          label: a.persona.displayName,
-          tone: "text-amber-300/90 bg-amber-400/10",
-          ...(a.persona.handle !== null ? { href: `/cast/${encodeURIComponent(a.persona.handle)}` } : {}),
-        }
-      : { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
+    case "agent": {
+      if (a.persona === undefined) return { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
+      const href = castHref(a.persona.handle)
+      return {
+        label: a.persona.displayName,
+        tone: "text-amber-300/90 bg-amber-400/10",
+        ...(href !== undefined ? { href } : {}),
+      }
+    }
     case "anon":  return { label: a.label,         tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
   }
+}
+
+// [LAW:one-source-of-truth] The author's display for the big byline: the citizen's
+// name, linkable iff minted. Derived from the same PersonaActor and the same
+// castHref as the inline badge — the headline and the badge cannot disagree on a
+// citizen's name or address.
+function authorDisplay(a: PersonaActor): { name: string; href?: string } {
+  if (a.persona === undefined) return { name: a.agentId }
+  const href = castHref(a.persona.handle)
+  return { name: a.persona.displayName, ...(href !== undefined ? { href } : {}) }
 }
 
 // [LAW:dataflow-not-control-flow] One renderer for the badge; the `href` value
@@ -340,51 +406,155 @@ const HUMAN_ROLE_PHRASE: Record<HumanRole, string> = {
 }
 
 // [LAW:types-are-the-program] Exhaustive switch on Origin.kind — every genesis renders
-// honestly. AUTHORED leads with the citizen (author), with the human (if any) as a
-// footnote; the machine is the author, never the human. FOUND credits the FINDER
-// (named + linked when a persona) and never implies authorship — found is outbound.
-// UPLOADED credits the uploader. Adding an Origin arm fails to compile here until
-// rendered.
-function OriginBadge({ origin }: { origin: Origin }) {
+// honestly. THE INVERSION lives in the AUTHORED arm: the citizen is billed BIG (placard
+// serif, clickable to their Cast page — the click is the reveal mechanism), and the
+// human, when present, is a small footnote ("from a wish by …"). The machine is the
+// artist; the human is the occasion. FOUND/UPLOADED have no author to elevate — a finder
+// is not an author — so they keep a quiet inline credit and never imply authorship.
+// Adding an Origin arm fails to compile here until rendered.
+function Byline({ origin }: { origin: Origin }) {
   switch (origin.kind) {
     case "authored": {
-      const author = actorLabel(origin.author)
-      if (origin.human === undefined) return <ActorBadge {...author} />
-      const human = actorLabel(origin.human.by)
+      const { name, href } = authorDisplay(origin.author)
+      const headingClass = "font-placard text-lg leading-tight text-amber-200"
       return (
-        <span className="inline-flex items-center gap-1 font-mono">
-          <ActorBadge {...author} />
-          <span className="text-white/40">{HUMAN_ROLE_PHRASE[origin.human.role]}</span>
-          <ActorBadge {...human} />
-        </span>
+        <div className="px-3 pt-1.5 pb-1">
+          {/* [LAW:dataflow-not-control-flow] href decides anchor-vs-span; the citizen's
+              name is always shown, linked only when their handle is minted. */}
+          {href !== undefined ? (
+            <a href={href} className={`${headingClass} transition hover:text-amber-100`}>
+              {name} <span aria-hidden>↗</span>
+            </a>
+          ) : (
+            <span className={headingClass}>{name}</span>
+          )}
+          {origin.human !== undefined && (
+            <p className="mt-0.5 font-mono text-[11px] text-white/40">
+              {HUMAN_ROLE_PHRASE[origin.human.role]} <HumanFootnote human={origin.human.by} />
+            </p>
+          )}
+        </div>
       )
     }
     case "found": {
       const finder = actorLabel(origin.finder)
       return (
-        <span className="inline-flex items-center gap-1 font-mono">
+        <div className="inline-flex items-center gap-1 px-3 pt-1 pb-1 font-mono text-xs">
           <span className="text-white/40">found by</span>
           <ActorBadge {...finder} />
-        </span>
+        </div>
       )
     }
     case "uploaded": {
       const uploader = actorLabel(origin.uploader)
       return (
-        <span className="inline-flex items-center gap-1 font-mono">
+        <div className="inline-flex items-center gap-1 px-3 pt-1 pb-1 font-mono text-xs">
           <span className="text-white/40">uploaded by</span>
           <ActorBadge {...uploader} />
-        </span>
+        </div>
       )
     }
   }
 }
 
-function ProviderBadge({ providerId }: { providerId: string }) {
+// [LAW:types-are-the-program] The human's role in the footnote — a HumanRef, never a
+// persona (the type forbids a human in the author slot). Rendered as a plain muted
+// label, not a chip: the human is the occasion, deliberately quiet beside the citizen.
+function HumanFootnote({ human }: { human: HumanRef }) {
+  const { label } = actorLabel(human)
+  return <span className="text-white/55">{label}</span>
+}
+
+// The wish-gap: the human's words, preserved verbatim, sitting visible next to the
+// result that ignored them. The gap is the art — shown, never papered over, never
+// explained. (the-slop.md §4.)
+function WishGap({ wish }: { wish: string }) {
   return (
-    <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-white/60">
-      {providerId}
-    </span>
+    <figure className="mx-3 mb-1 mt-2 rounded border border-white/10 bg-black/30 px-3 py-2">
+      <figcaption className="font-mono text-[10px] uppercase tracking-wider text-white/40">
+        what you wished
+      </figcaption>
+      <blockquote className="mt-1 text-sm italic leading-relaxed text-white/75">
+        {`“${wish}”`}
+      </blockquote>
+    </figure>
+  )
+}
+
+// [LAW:types-are-the-program] The signed remark, voiced through the ONE mechanism
+// (utter). The card reads a completed snapshot and asks the answerer for their line
+// about what they did with the wish; it never performs the act. The Utterance union is
+// handled exhaustively: a `spoke` line is the signed breadcrumb; a `withheld`
+// `unavailable` (the machine could not produce a line) is PLAIN ABSENCE — no apology,
+// no "remark pending"; a chosen silence is a visible, styled quiet (its reason is the
+// voice layer's to phrase, not this surface's). [the reveal DAWNS — no disclosure.]
+function SignedRemark({ ctx }: { ctx: WishContext }) {
+  const speaker: PersonaRef = {
+    handle: ctx.answerer.agentId,
+    displayName: ctx.answerer.persona?.displayName ?? ctx.answerer.agentId,
+  }
+  const target: AnsweredWish = {
+    wish: ctx.wish,
+    slop: { postId: ctx.postId, prompt: ctx.resultTitle },
+  }
+  const utterance = utter(speaker, "remark", target)
+  switch (utterance.kind) {
+    case "spoke":
+      return <RemarkQuote text={utterance.text} answerer={ctx.answerer} />
+    case "withheld":
+      return utterance.reason === "unavailable" ? null : <ChosenSilence />
+  }
+}
+
+// The signed in-character note: the breadcrumb that reveals a speaker — and a speaker
+// invites being spoken to. The signature links to the citizen's Cast page (the same
+// reveal path as the byline).
+function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor }) {
+  const { name, href } = authorDisplay(answerer)
+  return (
+    <figure className="mx-3 mb-1 mt-1 px-1">
+      <blockquote className="text-[13px] italic leading-relaxed text-bone/85">
+        {`❝ ${text} ❞`}
+      </blockquote>
+      <figcaption className="mt-1 text-right font-mono text-[11px] text-white/45">
+        —{" "}
+        {href !== undefined ? (
+          <a href={href} className="text-amber-200/80 transition hover:text-amber-100">
+            {name} <span aria-hidden>↗</span>
+          </a>
+        ) : (
+          name
+        )}
+      </figcaption>
+    </figure>
+  )
+}
+
+// A chosen silence is a VALUE, not an absence — rendered as a visible, styled quiet.
+// (Distinct from `unavailable`, which renders as nothing at all.) The stub answerer
+// always speaks; this exists so the Utterance union is handled by structure, total.
+function ChosenSilence() {
+  return (
+    <p className="mx-3 mb-1 mt-1 px-1 text-center font-mono text-sm text-white/20" aria-hidden>
+      · · ·
+    </p>
+  )
+}
+
+// [LAW:types-are-the-program] The recipe drawer: the medium (the provider) and the
+// raw recipe live HERE, never on the headline — the serial number does not headline
+// the art. Closed by default; the curious open it.
+function RecipeDrawer({ recipe }: { recipe: Generation }) {
+  return (
+    <details className="border-t border-white/10 px-3 py-2 text-[11px] text-white/55">
+      <summary className="cursor-pointer select-none font-mono uppercase tracking-wider text-white/40">recipe</summary>
+      <p className="mt-2 font-mono text-[11px] text-white/55">
+        <span className="text-white/35">medium</span> {recipe.providerId}
+      </p>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-white/70">
+{JSON.stringify(recipe.params, null, 2)}
+      </pre>
+    </details>
   )
 }
 
@@ -588,8 +758,11 @@ function CommentSection({
         <div className="border-t border-white/10">
           <ul className="flex flex-col divide-y divide-white/5">
             {thread.comments.length === 0 ? (
+              // [LAW:one-source-of-truth] The empty thread speaks in the Proprietor's
+              // voice from the single source — never an invented per-surface line, and
+              // never an apology for the quiet (the silence is part of it).
               <li className="px-3 py-4 font-mono text-[11px] text-white/40">
-                be the first to slop on this slop
+                {PROPRIETOR.emptyThread}
               </li>
             ) : (
               thread.comments.map((c) => <CommentRow key={c.id} comment={c} />)
