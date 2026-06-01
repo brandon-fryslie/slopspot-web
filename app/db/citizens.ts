@@ -232,7 +232,11 @@ async function scavengerFinds(env: Env, agentId: string): Promise<ScavengerFind[
     .where(and(eq(posts.contentKind, 'found'), foundBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
-  return rows.map((r) => ({ postId: PostId(r.id), title: r.title }))
+  // [LAW:single-enforcer] Normalize the find title at the read boundary, the same
+  // collapse the maker's placard and critic's reasoning take — so a blank title
+  // (an orphan's null, a '' write) is one absence here and the renderer never has
+  // to defend against an empty label it should never receive.
+  return rows.map((r) => ({ postId: PostId(r.id), title: blankToNull(r.title) }))
 }
 
 // [LAW:single-enforcer] The Cast's one cheap entry point for a citizen's counts —
