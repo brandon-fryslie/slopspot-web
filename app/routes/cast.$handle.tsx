@@ -14,11 +14,11 @@ import {
   type CitizenLedger,
   type CriticVerdict,
   type MakerWork,
-  type ScavengerFind,
 } from '~/db/citizens'
 import { PortraitFrame, portraitStateOf } from '~/components/portrait-frame'
 import { listProviders } from '~/providers'
 import { PROPRIETOR } from '~/lib/proprietor'
+import type { PostId } from '~/lib/domain'
 import type { Route } from './+types/cast.$handle'
 
 export function meta({ data }: Route.MetaArgs) {
@@ -121,31 +121,46 @@ function WorkThumb({ work }: { work: MakerWork }) {
   )
 }
 
-function FindRow({ find }: { find: ScavengerFind }) {
+// [LAW:one-type-per-behavior] A maker's placard and a scavenger's find are the
+// same act — a citizen's recent line, in the placard serif, linked to its post,
+// with one honest label when the line is absent (a legacy untitled generation,
+// an orphan untitled rescue). The absent label is the only thing that differs
+// between the two callers, so it is a prop, not a second component.
+function PlacardLine({ postId, text, absent }: { postId: PostId; text: string | null; absent: string }) {
   return (
     <li className="text-sm">
       <Link
-        to={`/p/${find.postId}`}
+        to={`/p/${postId}`}
         className="font-placard italic text-bone/80 transition-colors hover:text-votive"
       >
-        {find.title ?? <span className="text-ash">an untitled rescue</span>}
+        {text ?? <span className="text-ash">{absent}</span>}
       </Link>
     </li>
   )
 }
 
 // [LAW:types-are-the-program] The citizen's body is determined by their guild —
-// one exhaustive switch lays out the panels each guild has. A critic shows
-// verdicts and a ledger; a maker shows (silent) voice and work; a scavenger shows
-// voice and a haul; the host, who makes/judges/scavenges nothing, shows only his
-// greeting. Adding a guild forces an arm here before it compiles.
+// one exhaustive switch lays out the panels each guild has. Each panel of recent
+// lines is the citizen's VOICE: a maker's placard titles, a critic's verdict
+// reasoning, a scavenger's haul. A maker and critic each have a second, distinct
+// projection (the maker's images, the critic's tally); a scavenger's one textual
+// deed needs only one panel. The host, who makes/judges/scavenges nothing, shows
+// only his greeting. Adding a guild forces an arm here before it compiles.
 function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
   switch (ledger.guild) {
     case 'makers':
       return (
         <>
           <Panel heading="Voice">
-            <ProprietorLine>{PROPRIETOR.noVoice}</ProprietorLine>
+            {ledger.works.length === 0 ? (
+              <ProprietorLine>{PROPRIETOR.noVoice}</ProprietorLine>
+            ) : (
+              <ul className="space-y-1.5">
+                {ledger.works.map((w) => (
+                  <PlacardLine key={w.postId} postId={w.postId} text={w.title} absent="an untitled piece" />
+                ))}
+              </ul>
+            )}
           </Panel>
           <Panel heading="Work">
             {ledger.works.length === 0 ? (
@@ -188,23 +203,22 @@ function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
         </>
       )
     case 'scavengers':
+      // [LAW:one-source-of-truth] A scavenger's only textual deed is what he
+      // dragged home — the finds ARE his voice, so they render once, in one
+      // panel. A separate empty Voice panel would be a perpetual blank (we store
+      // no salvage narration) and a second home for the same finds.
       return (
-        <>
-          <Panel heading="Voice">
-            <ProprietorLine>{PROPRIETOR.noVoice}</ProprietorLine>
-          </Panel>
-          <Panel heading="The haul">
-            {ledger.finds.length === 0 ? (
-              <ProprietorLine>{PROPRIETOR.noWork}</ProprietorLine>
-            ) : (
-              <ul className="space-y-1.5">
-                {ledger.finds.map((f) => (
-                  <FindRow key={f.postId} find={f} />
-                ))}
-              </ul>
-            )}
-          </Panel>
-        </>
+        <Panel heading="The haul">
+          {ledger.finds.length === 0 ? (
+            <ProprietorLine>{PROPRIETOR.noWork}</ProprietorLine>
+          ) : (
+            <ul className="space-y-1.5">
+              {ledger.finds.map((f) => (
+                <PlacardLine key={f.postId} postId={f.postId} text={f.title} absent="an untitled rescue" />
+              ))}
+            </ul>
+          )}
+        </Panel>
       )
     case 'host':
       return (
