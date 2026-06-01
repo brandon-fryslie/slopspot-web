@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentId, PostId } from "~/lib/domain";
 import {
+  type AnsweredWish,
   type ChosenSilenceReason,
+  type Occasion,
+  type OccasionTarget,
   type Utterance,
   type WithheldReason,
   spoke,
@@ -92,18 +95,26 @@ describe("Utterance value space is exhaustive", () => {
   });
 });
 
-// Type-level acceptance: illegal occasion/target pairings are UNREPRESENTABLE.
-// The `@ts-expect-error` directives FAIL the build if the call ever type-checks;
-// the runtime calls are harmless (every bad shape degrades to Withheld).
-describe("illegal occasion/target pairings are unrepresentable", () => {
-  it("rejects mismatched and reserved occasions at compile time", () => {
-    // @ts-expect-error — 'remark' fixes the target to AnsweredWish, not a string
-    expect(utter(answerer, "remark", "not a wish")).toBeDefined();
-    // @ts-expect-error — 'caption' is reserved: its target is `never`
-    expect(utter(answerer, "caption", answeredWish)).toBeDefined();
-    // @ts-expect-error — 'verdict' is reserved: its target is `never`
-    expect(utter(answerer, "verdict", answeredWish)).toBeDefined();
-    // @ts-expect-error — 'decree' is not a v1 occasion
-    expect(utter(answerer, "decree", answeredWish)).toBeDefined();
+// Compile-time proof that each occasion fixes its legal target, which is what
+// makes an illegal occasion/target pairing unwritable: `utter` accepts only
+// `OccasionTarget[O]`, so proving the map proves the constraint. Each binding is
+// an exact type-equality; a drift turns the `= true` into a type error.
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
+
+describe("each occasion fixes its legal target (unrepresentable pairings)", () => {
+  it("binds remark→AnsweredWish, reserves caption/verdict, excludes non-v1", () => {
+    const remarkBound: Equal<OccasionTarget["remark"], AnsweredWish> = true;
+    const captionReserved: Equal<OccasionTarget["caption"], never> = true;
+    const verdictReserved: Equal<OccasionTarget["verdict"], never> = true;
+    const decreeExcluded: Equal<Extract<Occasion, "decree">, never> = true;
+    expect([
+      remarkBound,
+      captionReserved,
+      verdictReserved,
+      decreeExcluded,
+    ]).toEqual([true, true, true, true]);
   });
 });
