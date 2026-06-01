@@ -26,10 +26,22 @@ import { PostId, type Media, type VoteValue } from '~/lib/domain'
 // the limit is the detail page's window — small, newest-first.
 const RECENT_LIMIT = 6
 
-// A maker's work item. `image` is the succeeded output's URL, or null while the
-// generation is still pending/running or it failed — a real absence (no image
-// yet), rendered as a placeholder frame, NOT a violated invariant.
-export type MakerWork = { postId: PostId; image: string | null }
+// A maker's work item — two projections of one generation the shrine renders
+// separately: `title` is his VOICE, `image` is his WORK.
+//
+// `title` is the AI-composed placard — the maker's own words (prompts/titles are
+// AI-authored), so it is genuinely his voice, not a label about him. It is null
+// for a legacy pre-placard row (empty stored title) or an orphan generation post
+// (no sibling row), collapsed to one honest absence the shrine renders as an
+// untitled piece — the SAME absence the scavenger's untitled rescue carries.
+// [LAW:one-source-of-truth] Deliberately NOT the feed's subject-derived fallback:
+// that mechanical placard is a card-rendering convenience, never words the maker
+// said, so it has no place in his voice.
+//
+// `image` is the succeeded output's URL, or null while the generation is still
+// pending/running or it failed — a real absence (no image yet), rendered as a
+// placeholder frame, NOT a violated invariant.
+export type MakerWork = { postId: PostId; title: string | null; image: string | null }
 
 // A critic's verdict — the value cast and the rationale. `reasoning` is
 // meaningful text or null: a human vote carries none, and the vote schema admits
@@ -107,6 +119,16 @@ function foundBy(agentId: string): SQL {
   ) = ${agentId}`
 }
 
+// [LAW:one-type-per-behavior] Collapse a blank line to one absence: a null
+// (leftJoin miss / human vote), an empty string (legacy sentinel), or a
+// whitespace-only string all mean "nothing was said here." A maker's placard
+// and a critic's reasoning are the SAME normalization, so they share one helper
+// rather than drifting on what counts as blank — and the trim happens once.
+function blankToNull(text: string | null): string | null {
+  const trimmed = text?.trim()
+  return trimmed ? trimmed : null
+}
+
 // [LAW:dataflow-not-control-flow] Image presence follows the generation's status
 // VALUE — only `succeeded` carries an output (the generations_status_shape CHECK
 // guarantees output_json is null in every other arm). A null status (an orphan
@@ -142,13 +164,25 @@ async function makerWorks(env: Env, agentId: string): Promise<MakerWork[]> {
   // made-vs-works mismatch. The feed reader stays the single fail-loud enforcer for
   // orphans; the shrine renders the post and links to it.
   const rows = await db(env)
-    .select({ id: posts.id, status: generations.status, outputJson: generations.outputJson })
+    .select({
+      id: posts.id,
+      title: generations.title,
+      status: generations.status,
+      outputJson: generations.outputJson,
+    })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
-  return rows.map((r) => ({ postId: PostId(r.id), image: imageOf(r.status, r.outputJson, r.id) }))
+  // [LAW:types-are-the-program] "No authored placard" is one absence — the
+  // maker said nothing here — so the shrine branches on null alone, exactly as
+  // the scavenger's untitled find and the critic's empty reasoning do.
+  return rows.map((r) => ({
+    postId: PostId(r.id),
+    title: blankToNull(r.title),
+    image: imageOf(r.status, r.outputJson, r.id),
+  }))
 }
 
 // [LAW:one-source-of-truth] Reuse the vote aggregates rather than re-summing —
@@ -167,14 +201,14 @@ async function criticStat(env: Env, agentId: string): Promise<Extract<CitizenSta
 
 async function criticVerdicts(env: Env, agentId: string): Promise<CriticVerdict[]> {
   const recent = await recentVotesForVoter(env, agentId, RECENT_LIMIT)
-  return recent.map((v) => {
-    // [LAW:types-are-the-program] Collapse "no rationale" to one representation at
-    // this boundary: the vote schema admits an empty/whitespace string, which is
-    // semantically the same absence as null, so the renderer branches on null
-    // alone and never paints an empty (unlabeled) verdict line.
-    const reasoning = v.reasoning?.trim() ? v.reasoning.trim() : null
-    return { postId: PostId(v.postId), value: v.value, reasoning }
-  })
+  // [LAW:types-are-the-program] "No rationale" is one absence: the vote schema
+  // admits an empty/whitespace string, the same absence as a human vote's null,
+  // so the renderer branches on null alone and never paints an empty verdict line.
+  return recent.map((v) => ({
+    postId: PostId(v.postId),
+    value: v.value,
+    reasoning: blankToNull(v.reasoning),
+  }))
 }
 
 async function scavengerStat(env: Env, agentId: string): Promise<Extract<CitizenStat, { guild: 'scavengers' }>> {
@@ -198,7 +232,11 @@ async function scavengerFinds(env: Env, agentId: string): Promise<ScavengerFind[
     .where(and(eq(posts.contentKind, 'found'), foundBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
-  return rows.map((r) => ({ postId: PostId(r.id), title: r.title }))
+  // [LAW:single-enforcer] Normalize the find title at the read boundary, the same
+  // collapse the maker's placard and critic's reasoning take — so a blank title
+  // (an orphan's null, a '' write) is one absence here and the renderer never has
+  // to defend against an empty label it should never receive.
+  return rows.map((r) => ({ postId: PostId(r.id), title: blankToNull(r.title) }))
 }
 
 // [LAW:single-enforcer] The Cast's one cheap entry point for a citizen's counts —
