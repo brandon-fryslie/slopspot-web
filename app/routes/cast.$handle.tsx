@@ -58,8 +58,9 @@ export async function loader({ context, params }: Route.LoaderArgs) {
       displayName: persona.displayName,
       role: persona.role,
       guild: guildOf(persona.role),
-      // [LAW:one-source-of-truth] The creed is derived once, never the raw prompt.
-      creed: creedOf(persona.personaPrompt),
+      // [LAW:one-source-of-truth] The creed is resolved once — the authored
+      // config.creed if present, else a bounded prose slice; never the raw prompt.
+      creed: creedOf(persona),
       portrait: portraitStateOf(persona.config),
       medium: readMedium(persona.role, persona.config),
     },

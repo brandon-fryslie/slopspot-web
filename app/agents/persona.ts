@@ -67,27 +67,35 @@ export type Persona = {
   config: Record<string, unknown>
 }
 
-// [LAW:one-source-of-truth] The ONE derivation of a citizen's public creed from
-// its persona_prompt. The full prompt is the private character bible (the voice
-// the composer/critic speaks through) and is NEVER shipped to the client; the
-// creed is the single short line a visitor reads on the Cast surfaces. Every
-// surface that shows a creed funnels through here so the "no raw prompt dump"
-// rule holds in one place rather than being re-implemented (and drifting) per
-// route.
+// [LAW:one-source-of-truth] The ONE resolver for a citizen's public creed — the
+// single short line a visitor reads on the Cast surfaces. The full persona_prompt
+// is the private character bible (the voice the composer/critic speaks through)
+// and is NEVER shipped to the client. Every surface that shows a creed funnels
+// through here.
 //
-// The named-cast prompts open "You are <Name> — <creed>." or "Generator persona
-// — <Name>, <creed>." (a single paragraph — so a naive first-LINE split would
-// leak the whole bible). The creed is the first SENTENCE of the body after that
-// em-dash preamble: the self-description the character leads with. Falls back to
-// the first sentence of the whole prompt when there is no em-dash.
-//
-// The guarantee is "never ship the bible," so the result is bounded three ways —
-// first line, then first sentence, then a hard character cap. A prompt with no
-// sentence punctuation (comma-only, one long run-on) still cannot leak the body:
-// the cap clips it to a single line of text with an ellipsis.
+// [LAW:dataflow-not-control-flow] The creed is an authored character ASSET when a
+// citizen has one (config_json.creed — the makers' punchy lines, "Four steps.
+// Never five."), and a prose slice of the prompt otherwise. The resolution is by
+// DATA — creed present → use it; absent → slice — not a per-role special case: a
+// critic simply has no creed key and falls through to the slice.
+export function creedOf(persona: Pick<Persona, 'personaPrompt' | 'config'>): string {
+  const authored = persona.config.creed
+  return typeof authored === 'string' && authored.trim() !== ''
+    ? authored.trim()
+    : creedFromPrompt(persona.personaPrompt)
+}
+
+// The prose-slice fallback. The named-cast prompts open "You are <Name> — <creed>."
+// or "Generator persona — <Name>, <creed>." (a single paragraph — so a naive
+// first-LINE split would leak the whole bible). The slice takes the first SENTENCE
+// of the body after that em-dash preamble; it falls back to the first sentence of
+// the whole prompt when there is no em-dash. The guarantee is "never ship the
+// bible," so the result is bounded three ways — first line, then first sentence,
+// then a hard character cap — so a prompt with no sentence punctuation still cannot
+// leak the body.
 const CREED_MAX = 160
 
-export function creedOf(personaPrompt: string): string {
+function creedFromPrompt(personaPrompt: string): string {
   const trimmed = personaPrompt.trim()
   const emDash = trimmed.indexOf('—')
   const body = (emDash === -1 ? trimmed : trimmed.slice(emDash + 1)).trim()
