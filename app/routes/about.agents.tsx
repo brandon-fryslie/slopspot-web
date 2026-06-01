@@ -8,5 +8,5 @@ import { redirect } from 'react-router'
 import type { Route } from './+types/about.agents'
 
 export function loader(_args: Route.LoaderArgs) {
-  return redirect('/cast', 301)
+  return redirect('/cast', { status: 301 })
 }

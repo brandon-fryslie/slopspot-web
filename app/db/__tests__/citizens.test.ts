@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getCitizenLedger } from '~/db/citizens'
+import { getCitizenLedger, getCitizenStat } from '~/db/citizens'
 import { AgentId, type Media } from '~/lib/domain'
 import type { Persona, PersonaRole } from '~/agents/persona'
 
@@ -197,5 +197,31 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
   it('host: presides over nothing — a bare ledger by construction', async () => {
     const ledger = await getCitizenLedger(env, persona('agent:the-proprietor', 'host'))
     expect(ledger).toEqual({ guild: 'host' })
+  })
+})
+
+describe('app/db/citizens.ts - getCitizenStat (the roster floor)', () => {
+  it('makers: returns only the count, no recent works', async () => {
+    await seedPost({ id: 's_m1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
+    await seedSucceededGeneration('s_m1', image('/media/s1'))
+
+    const stat = await getCitizenStat(env, persona('agent:maker', 'generator'))
+
+    expect(stat).toEqual({ guild: 'makers', made: 1 })
+  })
+
+  it('critics: returns the tallies, no verdicts', async () => {
+    await seedPost({ id: 's_c1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
+    await seedSucceededGeneration('s_c1', image('/media/sc1'))
+    await seedVote({ postId: 's_c1', voterId: 'agent:critic', value: 1, reasoning: 'yes', createdAt: 1000 })
+
+    const stat = await getCitizenStat(env, persona('agent:critic', 'voter'))
+
+    expect(stat).toEqual({ guild: 'critics', judged: 1, blessed: 1, buried: 0 })
+  })
+
+  it('host: a bare stat by construction', async () => {
+    const stat = await getCitizenStat(env, persona('agent:the-proprietor', 'host'))
+    expect(stat).toEqual({ guild: 'host' })
   })
 })

@@ -7,7 +7,7 @@
 
 import { Link, useLoaderData } from 'react-router'
 import { creedOf, guildOf, listAllPersonas, type Guild } from '~/agents/persona'
-import { getCitizenLedger, signatureStat } from '~/db/citizens'
+import { getCitizenStat, signatureStat } from '~/db/citizens'
 import { PortraitFrame, portraitStateOf } from '~/components/portrait-frame'
 import { PROPRIETOR } from '~/lib/proprietor'
 import type { Route } from './+types/cast._index'
@@ -34,10 +34,12 @@ export async function loader({ context }: Route.LoaderArgs) {
   const env = context.cloudflare.env
   const personas = await listAllPersonas(env)
 
-  // The cast is small and bounded (the named roster + the host), so one ledger
-  // read per citizen is acceptable here; the roster reads only the signature stat
-  // off each. Batching this into a single aggregate is the enrichment ticket's
-  // job (roll-call-47p.1), not the shell's.
+  // The cast is small and bounded (the named roster + the host), so one stat
+  // read per citizen is acceptable here. getCitizenStat is the COUNT floor — no
+  // recent-item queries, no output_json parse — so the roster does the minimum
+  // work and a malformed image can never 500 a page that does not render images.
+  // The full ledger (and batching this into one aggregate) is the shrine's /
+  // enrichment ticket's concern (roll-call-47p.1), not the roster's.
   const citizens = await Promise.all(
     personas.map(async (p) => ({
       // agentId is the stable React key (the PK); handle is the URL key (null
@@ -49,10 +51,9 @@ export async function loader({ context }: Route.LoaderArgs) {
       // [LAW:one-source-of-truth] The creed is derived once, never the raw prompt.
       creed: creedOf(p.personaPrompt),
       portrait: portraitStateOf(p.config),
-      // The roster shows only the one signature stat — derive it server-side and
-      // ship the string, not the whole ledger (whose verdict text / image URLs /
-      // haul belong to the shrine, never the client roster payload).
-      stat: signatureStat(await getCitizenLedger(env, p)),
+      // Derive the one signature stat server-side and ship the string, not the
+      // ledger — the verdict text / image URLs / haul belong to the shrine alone.
+      stat: signatureStat(await getCitizenStat(env, p)),
     })),
   )
 
