@@ -137,7 +137,32 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('scavengers')
     if (ledger.guild !== 'scavengers') throw new Error('guard')
     expect(ledger.rescued).toBe(1)
-    expect(ledger.finds).toEqual([{ postId: 'f_legacy', title: 'an old rescue', url: 'https://example.com/legacy' }])
+    expect(ledger.finds).toEqual([{ postId: 'f_legacy', title: 'an old rescue' }])
+  })
+
+  it('makers: an orphan generation (no sibling row) is counted AND listed, never dropped', async () => {
+    // D1 batch inserts are non-transactional, so a generation post can briefly
+    // exist with no generations sibling. `made` counts it; `works` must list it
+    // too (as a no-image frame) rather than innerJoin it away into a mismatch.
+    await seedPost({ id: 'm_orphan', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
+
+    const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
+
+    expect(ledger.guild).toBe('makers')
+    if (ledger.guild !== 'makers') throw new Error('guard')
+    expect(ledger.made).toBe(1)
+    expect(ledger.works).toEqual([{ postId: 'm_orphan', image: null }])
+  })
+
+  it('scavengers: an orphan found post (no sibling row) is counted AND listed untitled', async () => {
+    await seedPost({ id: 'f_orphan', createdAt: 100, contentKind: 'found', originJson: foundBy('agent:digger') })
+
+    const ledger = await getCitizenLedger(env, persona('agent:digger', 'discoverer'))
+
+    expect(ledger.guild).toBe('scavengers')
+    if (ledger.guild !== 'scavengers') throw new Error('guard')
+    expect(ledger.rescued).toBe(1)
+    expect(ledger.finds).toEqual([{ postId: 'f_orphan', title: null }])
   })
 
   it('makers: a maker with nothing made is a real empty ledger, not an error', async () => {
@@ -189,8 +214,8 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     if (ledger.guild !== 'scavengers') throw new Error('guard')
     expect(ledger.rescued).toBe(2)
     expect(ledger.finds).toEqual([
-      { postId: 'f_2', title: 'a rescued gif', url: 'https://example.com/b' },
-      { postId: 'f_1', title: 'a salvaged jpeg', url: 'https://example.com/a' },
+      { postId: 'f_2', title: 'a rescued gif' },
+      { postId: 'f_1', title: 'a salvaged jpeg' },
     ])
   })
 
