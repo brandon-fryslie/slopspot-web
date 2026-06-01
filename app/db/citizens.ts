@@ -504,19 +504,14 @@ async function makerStyles(env: Env, agentId: string): Promise<StyleFamily[]> {
   return rows.map((r) => styleFamilySchema.parse(r.styleFamily))
 }
 
-// [LAW:one-source-of-truth] Reuse the vote aggregates rather than re-summing —
-// voterStats is the single writer of that read. voterStats omits a voter with no
-// votes (a real absence); the ?? 0 is that documented absence mapped to zero,
-// not a laundered null.
 // [LAW:single-enforcer] The Act-III reveal read — the wishes this maker seized and
 // transmuted, each as the human's verbatim words beside the slop they became. The
 // gap, repeated across petitioners, IS the reveal (the-reveal-contract.md Surface 2):
 // the panel SHOWS the pattern, it never announces the hijack — the breadth makes the
-// user conclude it. innerJoin + isNotNull(wish) selects exactly the Well-born slops
-// (a generation with no sibling row carries no wish by definition), so unlike
-// makerWorks there is no count to match and no orphan to surface — the wish filter is
-// the whole set. The output blob is parsed with the same fail-loud imageOf the WORK
-// panel uses; a pending/failed slop is an honest null image, not a violated invariant.
+// user conclude it. The non-blank wish predicate is the whole selection: only
+// Well-born slops carry a wish, so unlike makerWorks there is no count to match and
+// no orphan to surface. The output blob is parsed with the same fail-loud imageOf the
+// WORK panel uses; a pending/failed slop is an honest null image, not a violated invariant.
 async function answeredWishes(env: Env, agentId: string): Promise<AnsweredWish[]> {
   const rows = await db(env)
     .select({
@@ -551,6 +546,10 @@ async function answeredWishes(env: Env, agentId: string): Promise<AnsweredWish[]
   })
 }
 
+// [LAW:one-source-of-truth] Reuse the vote aggregates rather than re-summing —
+// voterStats is the single writer of that read. voterStats omits a voter with no
+// votes (a real absence); the ?? 0 is that documented absence mapped to zero,
+// not a laundered null.
 async function criticStat(env: Env, agentId: string): Promise<Extract<CitizenStat, { guild: 'critics' }>> {
   const s = (await voterStats(env, [agentId]))[0]
   return {
