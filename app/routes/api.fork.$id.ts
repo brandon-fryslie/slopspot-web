@@ -10,7 +10,7 @@ import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
 import { PostId, ProviderId, type AuthoredOrigin } from "~/lib/domain"
-import { aspectRatioSchema, styleFamilySchema } from "~/lib/variety"
+import { aspectRatioSchema, fallbackTitle, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 
 // [LAW:single-enforcer] The HTTP trust boundary for fork submission. Resource
@@ -167,6 +167,12 @@ export async function action({ request, params, context }: Route.ActionArgs) {
         kind: 'generation',
         providerId: chosenProviderId,
         params: derivedParams,
+        // [LAW:one-source-of-truth] A bred slop has no Haiku naming step on this
+        // path; it takes the deterministic placard from its inherited subject — the
+        // same derivation the composer fallback and read boundary use. (Giving a
+        // fork its own LLM-authored name is a future ticket; this path adds no
+        // second LLM call.)
+        title: fallbackTitle(parent.content.recipe.subject),
         styleFamily: parsed.styleFamily,
         subject: parent.content.recipe.subject,
         aspectRatio: parsed.aspectRatio,

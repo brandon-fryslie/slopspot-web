@@ -21,6 +21,7 @@ import {
   type Origin,
   type RenderablePost,
 } from '~/lib/domain'
+import { fallbackTitle } from '~/lib/variety'
 import { seedComment, seedPost, seedVote } from './helpers'
 
 // `1970-01-01T00:00:00.001Z` is the smallest distinct timestamp_ms; bumping by
@@ -651,6 +652,60 @@ describe('app/db/feed.ts - getPostById', () => {
     // [LAW:no-defensive-null-guards] absence is undefined (a legal optional),
     // not null smuggled through — the field is genuinely absent.
     expect(result.content.recipe.wish).toBeUndefined()
+  })
+
+  // The placard NAME round-trips through a real D1 read: createPost writes the
+  // title column, the reader reconstructs Content.generation.title. A projection
+  // that drops the field compiles clean, so only a behavioral round-trip catches it.
+  it('round-trips an authored generation title verbatim', async () => {
+    const title = "St. Brindle's Hallway"
+    const id = await seedPost(env, {
+      id: 'post-with-title',
+      content: { kind: 'generation', title, params: { prompt: 'a wholly different prompt string' } },
+    })
+
+    const result = await getPostById(env, id)
+    if (!result || result.content.kind !== 'generation') {
+      throw new Error('expected generation')
+    }
+    expect(result.content.title).toBe(title)
+    // The title is the piece's name, a field distinct from the raw prompt.
+    const prompt = (result.content.recipe.params as { prompt: string }).prompt
+    expect(result.content.title).not.toBe(prompt)
+  })
+
+  // [LAW:no-silent-fallbacks] A legacy row (empty-string sentinel, written before
+  // the title column existed) reconstructs to the deterministic placard derived from
+  // its subject — non-empty, distinct from the prompt — never a silent blank.
+  it('derives a non-empty placard for a legacy generation with no stored title', async () => {
+    const subject = { subjectTemplate: 'T01' as const, slots: { animal: 'heron', profession: 'notary' } }
+    const id = await seedPost(env, {
+      id: 'post-legacy-no-title',
+      content: { kind: 'generation', title: '', subject },
+    })
+
+    const result = await getPostById(env, id)
+    if (!result || result.content.kind !== 'generation') {
+      throw new Error('expected generation')
+    }
+    expect(result.content.title.length).toBeGreaterThan(0)
+    expect(result.content.title).toBe(fallbackTitle(subject))
+  })
+
+  // A whitespace-only title is as blank as '' on the card, so it must take the
+  // fallback too — the invariant is a *visible* name, not merely a non-empty string.
+  it('derives a placard for a whitespace-only stored title', async () => {
+    const subject = { subjectTemplate: 'T01' as const, slots: { animal: 'crane', profession: 'cartographer' } }
+    const id = await seedPost(env, {
+      id: 'post-whitespace-title',
+      content: { kind: 'generation', title: '   ', subject },
+    })
+
+    const result = await getPostById(env, id)
+    if (!result || result.content.kind !== 'generation') {
+      throw new Error('expected generation')
+    }
+    expect(result.content.title).toBe(fallbackTitle(subject))
   })
 
   it('returns a found post with its url, title, description, and thumbnail', async () => {

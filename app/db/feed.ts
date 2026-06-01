@@ -53,6 +53,7 @@ import {
 import { emit } from '~/observability/metrics'
 import {
   aspectRatioSchema,
+  fallbackTitle,
   recipeSubjectSchema,
   styleFamilySchema,
   type RecipeSubject,
@@ -188,6 +189,29 @@ function toRecipeSubject(
   return parsed.data
 }
 
+// [LAW:no-silent-fallbacks] Map the stored title to the domain's non-empty title.
+// An empty stored title is the ONLY value that triggers the deterministic placard,
+// and when it does the fallback is LOUD — a metric + a console.warn carrying the
+// post id — never a silent blank. The expected cause is a pre-migration row, but the
+// warn deliberately states only the observable fact (empty title) and the id, so an
+// unexpected new-write bug is just as visible and traceable. New rows store a real
+// name, so this derivation degrades to identity by data.
+function titleOrFallback(stored: string, subject: RecipeSubject, postId: string): string {
+  // Trim once: a whitespace-only title is as blank as '' on the card (→ fallback),
+  // and a real title with stray surrounding whitespace renders clean. The invariant
+  // is a *visible*, well-formed name, so the trimmed value is what the domain gets.
+  const trimmed = stored.trim()
+  if (trimmed.length > 0) return trimmed
+  emit('slopspot.feed.title_fallback', { reason: 'empty_title' }, 1)
+  const derived = fallbackTitle(subject)
+  console.warn('feed: generation row has an empty title; derived placard from subject', {
+    postId,
+    subjectTemplate: subject.subjectTemplate,
+    derived,
+  })
+  return derived
+}
+
 // [LAW:types-are-the-program] Closed union → exhaustive switch on the storage
 // discriminator. Adding a new variant to posts.contentKind upstream forces
 // this switch to grow before it compiles, matching the [LAW:single-enforcer]
@@ -233,6 +257,11 @@ function toContent(row: FeedRow): Content {
       const subject = toRecipeSubject(g.subjectTemplate, g.slotsJson, g.postId)
       return {
         kind: 'generation',
+        // [LAW:no-silent-fallbacks] An empty stored title triggers the deterministic
+        // placard (the expected cause is a pre-migration row; any other empty write
+        // surfaces here too). The domain never sees an empty title, and the unnamed
+        // count is a LOUD metric + a post-id'd warn, not a silent blank placard.
+        title: titleOrFallback(g.title, subject, g.postId),
         recipe: {
           providerId: ProviderId(g.providerId),
           providerVersion: g.providerVersion,

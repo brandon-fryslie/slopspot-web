@@ -112,12 +112,13 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
 
   const recipe = chooseNextGeneration({ scheduledTimeMs, recent, provider, bias })
 
-  // [LAW:single-enforcer] composePrompt is the one place prompt text is
-  // generated from a recipe; promptPrefix (the persona's voice) and maxLength
-  // flow from the provider's declared constraint so paramsSchema validation
-  // never rejects a too-long prompt. The firehose passes no wish — that seed is
-  // the Well's path through this same composer.
-  const prompt = await composePrompt(
+  // [LAW:single-enforcer] composePrompt is the one place a slop's authored text is
+  // generated from a recipe — both the machine prompt AND the citizen's placard
+  // NAME, in one Haiku call. promptPrefix (the persona's voice) steers both;
+  // maxLength flows from the provider's declared constraint so paramsSchema
+  // validation never rejects a too-long prompt. The firehose passes no wish — that
+  // seed is the Well's path through this same composer.
+  const { prompt, title } = await composePrompt(
     {
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
@@ -138,6 +139,7 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
       kind: 'generation',
       providerId: recipe.providerId,
       params,
+      title,
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
