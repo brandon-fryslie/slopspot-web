@@ -34,6 +34,11 @@ export type CreatePostInput =
       kind: 'generation'
       providerId: ProviderId
       params: unknown
+      // [LAW:one-source-of-truth] The placard NAME for this piece. Composed by the
+      // caller (the firehose's one Haiku call; the deterministic fallbackTitle for
+      // fork / direct-API paths) and persisted here, the single writer. Required and
+      // non-empty — createPost trusts its typed input rather than re-deriving a name.
+      title: string
       styleFamily: StyleFamily
       subject: RecipeSubject
       aspectRatio: AspectRatio
@@ -139,6 +144,17 @@ async function createGenerationPost(
   }
   const params = validated.data
 
+  // [LAW:single-enforcer][LAW:no-silent-fallbacks] The placard is required and
+  // non-empty — enforce it at the one write boundary so a blank can never be
+  // persisted. Every legitimate caller already supplies a real name (the composer
+  // trims and rejects empty; fallbackTitle is total). A blank here is a caller bug,
+  // and persisting it would masquerade downstream as a pre-migration legacy row
+  // (firing the empty_title fallback), so fail loud before any row is written rather
+  // than launder the violation into the backlog metric.
+  if (input.title.trim().length === 0) {
+    throw new Error('createPost: generation title must be a non-empty placard, got blank')
+  }
+
   const id = makePostId(crypto.randomUUID())
   const startedAt = new Date()
 
@@ -166,6 +182,7 @@ async function createGenerationPost(
         providerId: provider.id,
         providerVersion: provider.version,
         paramsJson: JSON.stringify(params),
+        title: input.title,
         parentPostId: input.parentId ?? null,
         styleFamily: input.styleFamily,
         subjectTemplate: input.subject.subjectTemplate,
@@ -303,6 +320,7 @@ async function createGenerationPost(
     origin: input.origin,
     content: {
       kind: 'generation',
+      title: input.title,
       recipe: {
         providerId: provider.id,
         providerVersion: provider.version,

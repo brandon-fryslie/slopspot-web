@@ -56,6 +56,14 @@ export type MetricLabels = {
   'slopspot.composer.result':
     | { outcome: 'haiku' }
     | { outcome: 'fallback'; reason: 'missing_key' | 'api_error' }
+  // [LAW:no-silent-fallbacks] The feed reader emits this when it derives a placard
+  // for a generation row whose stored title is empty. It makes the deterministic
+  // fallback LOUD — a count of unnamed pieces — rather than a silent blank placard.
+  // The reason is the OBSERVABLE fact (empty title), not an inferred provenance:
+  // the expected cause is a pre-migration row, but a future write-path bug would
+  // surface here too, which is exactly what the metric should let you catch.
+  // [LAW:single-enforcer] feed.ts toContent is the sole emitter.
+  'slopspot.feed.title_fallback': { reason: 'empty_title' }
 }
 
 export type MetricName = keyof MetricLabels

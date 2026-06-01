@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   ASPECT_RATIOS,
   CHOOSER_SUBJECT_TEMPLATE_IDS,
+  fallbackTitle,
+  PLACARD_TITLE_MAX,
   recipeSubjectSchema,
   renderTemplate,
+  UNNAMED_PLACARD,
   SLOT_VOCABS,
   STORED_SUBJECT_TEMPLATE_IDS,
   STYLE_FAMILIES,
@@ -175,6 +178,54 @@ describe('renderTemplate', () => {
     expect(renderTemplate(subject)).toBe(
       'a motel-corridor that you can only reach through a motel-corridor',
     )
+  })
+})
+
+describe('fallbackTitle', () => {
+  it('article-strips and title-cases the subject into a placard', () => {
+    const subject = recipeSubjectSchema.parse({
+      subjectTemplate: 'T01',
+      slots: { animal: 'cat', profession: 'surgeon' },
+    })
+    expect(fallbackTitle(subject)).toBe('Cat Working As A Surgeon')
+  })
+
+  it('strips the leading article after normalizing leading whitespace (T00)', () => {
+    const subject = recipeSubjectSchema.parse({
+      subjectTemplate: 'T00',
+      slots: { freeText: '  a derelict lighthouse at dusk' },
+    })
+    expect(fallbackTitle(subject)).toBe('Derelict Lighthouse At Dusk')
+  })
+
+  it("title-cases word starts only, not after an apostrophe", () => {
+    const subject = recipeSubjectSchema.parse({
+      subjectTemplate: 'T00',
+      slots: { freeText: "a surgeon's quiet hour" },
+    })
+    expect(fallbackTitle(subject)).toBe("Surgeon's Quiet Hour")
+  })
+
+  // [LAW:one-source-of-truth] The "placards are short" cap applies on EVERY naming
+  // path, including the deterministic fallback for a legacy T00 row whose freeText
+  // runs to the 500-char schema limit. Without the shared cap this path produced an
+  // oversized card title.
+  it('caps an over-long fallback placard to placard length, on a word boundary', () => {
+    const freeText = 'a ' + 'wretched cathedral '.repeat(10)
+    const subject = recipeSubjectSchema.parse({ subjectTemplate: 'T00', slots: { freeText } })
+    const title = fallbackTitle(subject)
+    expect(title.length).toBeLessThanOrEqual(PLACARD_TITLE_MAX)
+    expect(title.endsWith(' ')).toBe(false)
+  })
+
+  // [LAW:types-are-the-program] fallbackTitle is total: a degenerate all-whitespace
+  // subject (reachable via a direct-API T00, since the schema enforces min(1) not
+  // non-blank) still yields a visible, non-empty placard — never a blank that would
+  // defeat the invariant downstream.
+  it('returns the last-resort placard for an all-whitespace subject', () => {
+    const subject = recipeSubjectSchema.parse({ subjectTemplate: 'T00', slots: { freeText: '   ' } })
+    expect(fallbackTitle(subject)).toBe(UNNAMED_PLACARD)
+    expect(fallbackTitle(subject).trim().length).toBeGreaterThan(0)
   })
 })
 
