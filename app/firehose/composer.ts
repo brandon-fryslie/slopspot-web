@@ -12,6 +12,7 @@ import { emit } from '~/observability/metrics'
 import {
   ASPECT_RATIO_LABELS,
   STYLE_FAMILY_PROMPT_SEEDS,
+  capPlacard,
   fallbackTitle,
   renderTemplate,
   type AspectRatio,
@@ -23,11 +24,6 @@ const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const REQUEST_TIMEOUT_MS = 15_000
 // Room for the prompt plus the short title and the JSON envelope around both.
 const MAX_TOKENS = 400
-
-// A placard is a short evocative NAME, not a sentence. The model is told to keep it
-// to a few words; this is the anti-abuse hard cap — the title sibling of the
-// prompt's maxLength truncation, a safeguard the composer owns, not the expected path.
-const TITLE_MAX_LENGTH = 80
 
 // [LAW:types-are-the-program] The one Haiku call authors BOTH halves of a slop: the
 // machine prompt and the citizen's placard. The title is the name of the PIECE (top
@@ -180,22 +176,23 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     // catch's deterministic fallback — same as an HTTP error.
     const start = text.indexOf('{')
     const end = text.lastIndexOf('}')
-    if (start === -1 || end <= start) throw new Error(`no JSON object in Anthropic response: ${text}`)
+    // Log a bounded snippet + length, not the whole response: it is re-logged via
+    // console.error below and an unbounded model dump bloats logs and over-exposes output.
+    if (start === -1 || end <= start) {
+      throw new Error(`no JSON object in Anthropic response (len ${text.length}): ${text.slice(0, 120)}`)
+    }
     const composed = composedSlopSchema.parse(JSON.parse(text.slice(start, end + 1)))
 
     // Hard-truncate as a safeguard: the instructions target the model, but we own
     // the constraints and must not pass an over-length prompt to defaultParamsForRecipe
-    // / paramsSchema, nor an over-long placard to the card.
+    // / paramsSchema, nor an over-long placard to the card. [LAW:one-source-of-truth]
+    // capPlacard is the shared placard-length enforcer, identical to the fallback path.
     const prompt =
       maxLength && composed.prompt.length > maxLength
         ? composed.prompt.slice(0, maxLength)
         : composed.prompt
-    const title =
-      composed.title.length > TITLE_MAX_LENGTH
-        ? composed.title.slice(0, TITLE_MAX_LENGTH)
-        : composed.title
     emit('slopspot.composer.result', { outcome: 'haiku' }, 1)
-    return { prompt, title }
+    return { prompt, title: capPlacard(composed.title) }
   } catch (err) {
     console.error('composer: Haiku call failed; using renderTemplate fallback', {
       styleFamily,

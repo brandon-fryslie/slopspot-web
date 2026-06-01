@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   ASPECT_RATIOS,
   CHOOSER_SUBJECT_TEMPLATE_IDS,
+  fallbackTitle,
+  PLACARD_TITLE_MAX,
   recipeSubjectSchema,
   renderTemplate,
   SLOT_VOCABS,
@@ -175,6 +177,36 @@ describe('renderTemplate', () => {
     expect(renderTemplate(subject)).toBe(
       'a motel-corridor that you can only reach through a motel-corridor',
     )
+  })
+})
+
+describe('fallbackTitle', () => {
+  it('article-strips and title-cases the subject into a placard', () => {
+    const subject = recipeSubjectSchema.parse({
+      subjectTemplate: 'T01',
+      slots: { animal: 'cat', profession: 'surgeon' },
+    })
+    expect(fallbackTitle(subject)).toBe('Cat Working As A Surgeon')
+  })
+
+  it("title-cases word starts only, not after an apostrophe", () => {
+    const subject = recipeSubjectSchema.parse({
+      subjectTemplate: 'T00',
+      slots: { freeText: "a surgeon's quiet hour" },
+    })
+    expect(fallbackTitle(subject)).toBe("Surgeon's Quiet Hour")
+  })
+
+  // [LAW:one-source-of-truth] The "placards are short" cap applies on EVERY naming
+  // path, including the deterministic fallback for a legacy T00 row whose freeText
+  // runs to the 500-char schema limit. Without the shared cap this path produced an
+  // oversized card title.
+  it('caps an over-long fallback placard to placard length, on a word boundary', () => {
+    const freeText = 'a ' + 'wretched cathedral '.repeat(10)
+    const subject = recipeSubjectSchema.parse({ subjectTemplate: 'T00', slots: { freeText } })
+    const title = fallbackTitle(subject)
+    expect(title.length).toBeLessThanOrEqual(PLACARD_TITLE_MAX)
+    expect(title.endsWith(' ')).toBe(false)
   })
 })
 
