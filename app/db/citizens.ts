@@ -35,8 +35,10 @@ export type MakerWork = { postId: PostId; image: string | null }
 // reasoning, which an agent critic always supplies but the type still admits).
 export type CriticVerdict = { postId: PostId; value: VoteValue; reasoning: string | null }
 
-// A scavenger's rescue — the found post and where it points.
-export type ScavengerFind = { postId: PostId; title: string; url: string }
+// A scavenger's rescue — the found post. `title` is null for an orphan found
+// post (no `found` sibling row yet — D1 batch inserts are non-transactional), a
+// real absence the shrine renders as an untitled rescue, NOT a dropped row.
+export type ScavengerFind = { postId: PostId; title: string | null }
 
 // The counts a citizen is known by — the roster's floor.
 export type CitizenStat =
@@ -105,11 +107,13 @@ function foundBy(agentId: string): SQL {
 
 // [LAW:dataflow-not-control-flow] Image presence follows the generation's status
 // VALUE — only `succeeded` carries an output (the generations_status_shape CHECK
-// guarantees output_json is null in every other arm). A null here is the honest
-// "no image yet"; a malformed succeeded blob fails loud the way the feed reader's
-// parseJson does — a contextual error localizing the bad column to its post,
-// never a context-free SyntaxError and never laundered.
-function imageOf(status: string, outputJson: string | null, postId: string): string | null {
+// guarantees output_json is null in every other arm). A null status (an orphan
+// generation post with no sibling row, surfaced by the leftJoin below) and an
+// unfinished/failed status both mean the honest "no image yet"; a malformed
+// succeeded blob fails loud the way the feed reader's parseJson does — a
+// contextual error localizing the bad column to its post, never a context-free
+// SyntaxError and never laundered.
+function imageOf(status: string | null, outputJson: string | null, postId: string): string | null {
   if (status !== 'succeeded' || outputJson === null) return null
   let media: Media
   try {
@@ -129,10 +133,16 @@ async function makerStat(env: Env, agentId: string): Promise<Extract<CitizenStat
 }
 
 async function makerWorks(env: Env, agentId: string): Promise<MakerWork[]> {
+  // [LAW:one-source-of-truth] leftJoin (not inner) so this lists the SAME post set
+  // makerStat counts — `made` counts every generation post, so a post whose
+  // generations sibling has not landed (orphan; batch inserts are non-transactional)
+  // must still appear here (as a no-image frame), never be silently dropped into a
+  // made-vs-works mismatch. The feed reader stays the single fail-loud enforcer for
+  // orphans; the shrine renders the post and links to it.
   const rows = await db(env)
     .select({ id: posts.id, status: generations.status, outputJson: generations.outputJson })
     .from(posts)
-    .innerJoin(generations, eq(generations.postId, posts.id))
+    .leftJoin(generations, eq(generations.postId, posts.id))
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
@@ -167,14 +177,19 @@ async function scavengerStat(env: Env, agentId: string): Promise<Extract<Citizen
 }
 
 async function scavengerFinds(env: Env, agentId: string): Promise<ScavengerFind[]> {
+  // [LAW:one-source-of-truth] leftJoin (not inner) for the same reason as
+  // makerWorks: this lists the SAME post set scavengerStat counts, so an orphan
+  // found post (sibling not yet landed) appears as an untitled rescue rather than
+  // creating a rescued-vs-haul mismatch. The shrine links to the permalink; the
+  // feed remains the single fail-loud enforcer for orphans.
   const rows = await db(env)
-    .select({ id: posts.id, title: found.title, url: found.url })
+    .select({ id: posts.id, title: found.title })
     .from(posts)
-    .innerJoin(found, eq(found.postId, posts.id))
+    .leftJoin(found, eq(found.postId, posts.id))
     .where(and(eq(posts.contentKind, 'found'), foundBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
-  return rows.map((r) => ({ postId: PostId(r.id), title: r.title, url: r.url }))
+  return rows.map((r) => ({ postId: PostId(r.id), title: r.title }))
 }
 
 // [LAW:single-enforcer] The Cast's one cheap entry point for a citizen's counts —

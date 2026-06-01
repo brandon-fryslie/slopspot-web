@@ -127,7 +127,7 @@ function FindRow({ find }: { find: ScavengerFind }) {
         to={`/p/${find.postId}`}
         className="font-placard italic text-bone/80 transition-colors hover:text-votive"
       >
-        {find.title}
+        {find.title ?? <span className="text-ash">an untitled rescue</span>}
       </Link>
     </li>
   )
