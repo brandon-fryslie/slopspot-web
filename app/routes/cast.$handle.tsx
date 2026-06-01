@@ -138,7 +138,7 @@ function WorkThumb({ work }: { work: MakerWork }) {
   return (
     <Link
       to={`/p/${work.postId}`}
-      aria-label={work.title ?? 'an untitled piece'}
+      aria-label={`View ${work.title ?? 'an untitled piece'}`}
       className="block aspect-square overflow-hidden rounded-sm border border-votive/12 bg-base transition hover:border-votive/40"
     >
       {work.image !== null ? (
