@@ -45,16 +45,23 @@ export type CitizenStat =
   | { guild: 'scavengers'; rescued: number }
   | { guild: 'host' }
 
-// The shrine's full shape — the stat floor plus the recent items it renders.
+// [LAW:types-are-the-program] The shrine's shape IS the stat floor plus the recent
+// items it renders — each arm is its CitizenStat arm intersected with its recent
+// items. Encoding the extension (rather than re-listing the fields) makes "a
+// ledger is a stat-plus-more" a type guarantee: signatureStat's CitizenStat
+// parameter accepts a CitizenLedger by construction, not by coincidence, so a
+// future change to the floor flows into the ledger and the shrine call sites stay
+// sound.
 export type CitizenLedger =
-  | { guild: 'makers'; made: number; works: MakerWork[] }
-  | { guild: 'critics'; judged: number; blessed: number; buried: number; verdicts: CriticVerdict[] }
-  | { guild: 'scavengers'; rescued: number; finds: ScavengerFind[] }
-  | { guild: 'host' }
+  | (Extract<CitizenStat, { guild: 'makers' }> & { works: MakerWork[] })
+  | (Extract<CitizenStat, { guild: 'critics' }> & { verdicts: CriticVerdict[] })
+  | (Extract<CitizenStat, { guild: 'scavengers' }> & { finds: ScavengerFind[] })
+  | Extract<CitizenStat, { guild: 'host' }>
 
 // [LAW:one-source-of-truth] The one short line a citizen is known by. It reads
-// only the count floor, so it accepts either a CitizenStat (roster) or a fuller
-// CitizenLedger (shrine) — both surfaces label the citizen identically.
+// only the count floor (CitizenStat), and since a CitizenLedger extends that floor
+// by construction the shrine passes its ledger here directly — both surfaces label
+// the citizen identically.
 // [LAW:types-are-the-program] Exhaustive over the guild discriminator: each guild
 // is known by its own deed, and a new guild forces a label here.
 export function signatureStat(stat: CitizenStat): string {
