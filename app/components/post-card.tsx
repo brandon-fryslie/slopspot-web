@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRef, HumanRole, PersonaActor, Post, PostId, RenderablePost, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, VoteValue } from "~/lib/domain"
 import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
+import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
 // shape that the feed reader and the permalink reader both produce. The
@@ -16,6 +17,7 @@ export function PostCard({
   score,
   myVote,
   commentCount,
+  viewerIsModifier,
 }: RenderablePost) {
   // [LAW:dataflow-not-control-flow] The wished-slop reveal is EMERGENT, not a mode:
   // a non-null WishContext is a property of the snapshot (a generation carrying the
@@ -37,14 +39,16 @@ export function PostCard({
       )}
       {/* The inversion as typography: the citizen authors, billed big; the human is
           the occasion, a footnote. (See Byline.) */}
-      <Byline origin={post.origin} />
+      <Byline origin={post.origin} viewerIsModifier={viewerIsModifier} />
       {/* [LAW:dataflow-not-control-flow] The wish-gap and the signed remark are the
           art: the human's words preserved verbatim beside the result that ignored
           them, and the answerer's in-character note about what she did. Shown, never
-          hidden; explained by no modal. They render iff the snapshot is a wished one. */}
+          hidden; explained by no modal. They render iff the snapshot is a wished one.
+          The wish-gap caption is viewer-aware: second-person for the wisher, honest
+          third-person for a stranger — selected by the viewerIsModifier value. */}
       {wish !== null && (
         <>
-          <WishGap wish={wish.wish} />
+          <WishGap wish={wish.wish} viewerIsModifier={viewerIsModifier} />
           <SignedRemark ctx={wish} />
         </>
       )}
@@ -411,8 +415,12 @@ const HUMAN_ROLE_PHRASE: Record<HumanRole, string> = {
 // human, when present, is a small footnote ("from a wish by …"). The machine is the
 // artist; the human is the occasion. FOUND/UPLOADED have no author to elevate — a finder
 // is not an author — so they keep a quiet inline credit and never imply authorship.
-// Adding an Origin arm fails to compile here until rendered.
-function Byline({ origin }: { origin: Origin }) {
+// Adding an Origin arm fails to compile here until rendered. The human footnote is
+// viewer-aware: when the viewer IS that human (viewerIsModifier), the subject becomes
+// "you" — "from a wish by you" lands the personal hijack — otherwise the human's own
+// label. A stranger never reads "you". [LAW:dataflow-not-control-flow] the subject is
+// the VALUE the read boundary computed, not a branch this surface decides.
+function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier: boolean }) {
   switch (origin.kind) {
     case "authored": {
       const { name, href } = authorDisplay(origin.author)
@@ -430,7 +438,10 @@ function Byline({ origin }: { origin: Origin }) {
           )}
           {origin.human !== undefined && (
             <p className="mt-0.5 font-mono text-[11px] text-white/40">
-              {HUMAN_ROLE_PHRASE[origin.human.role]} <HumanFootnote human={origin.human.by} />
+              {HUMAN_ROLE_PHRASE[origin.human.role]}{" "}
+              <span className="text-white/55">
+                {modifierSubject(viewerIsModifier, actorLabel(origin.human.by).label)}
+              </span>
             </p>
           )}
         </div>
@@ -457,22 +468,16 @@ function Byline({ origin }: { origin: Origin }) {
   }
 }
 
-// [LAW:types-are-the-program] The human's role in the footnote — a HumanRef, never a
-// persona (the type forbids a human in the author slot). Rendered as a plain muted
-// label, not a chip: the human is the occasion, deliberately quiet beside the citizen.
-function HumanFootnote({ human }: { human: HumanRef }) {
-  const { label } = actorLabel(human)
-  return <span className="text-white/55">{label}</span>
-}
-
 // The wish-gap: the human's words, preserved verbatim, sitting visible next to the
 // result that ignored them. The gap is the art — shown, never papered over, never
-// explained. (the-slop.md §4.)
-function WishGap({ wish }: { wish: string }) {
+// explained. (the-slop.md §4.) The caption is viewer-aware (the-slop.md §2): the
+// wisher reads "what you wished"; a stranger reads "what was wished" — we never tell a
+// stranger "what YOU wished". [LAW:dataflow-not-control-flow] the copy is the value.
+function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: boolean }) {
   return (
     <figure className="mx-3 mb-1 mt-2 rounded border border-white/10 bg-black/30 px-3 py-2">
       <figcaption className="font-mono text-[10px] uppercase tracking-wider text-white/40">
-        what you wished
+        {wishGapCaption(viewerIsModifier)}
       </figcaption>
       <blockquote className="mt-1 text-sm italic leading-relaxed text-white/75">
         {`“${wish}”`}
