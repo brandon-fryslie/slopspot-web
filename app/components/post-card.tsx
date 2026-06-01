@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, Verdict, VoteValue } from "~/lib/domain"
 import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
@@ -18,6 +18,7 @@ export function PostCard({
   myVote,
   commentCount,
   viewerIsModifier,
+  verdict,
 }: RenderablePost) {
   // [LAW:dataflow-not-control-flow] The wished-slop reveal is EMERGENT, not a mode:
   // a non-null WishContext is a property of the snapshot (a generation carrying the
@@ -52,6 +53,11 @@ export function PostCard({
           <SignedRemark ctx={wish} />
         </>
       )}
+      {/* [LAW:dataflow-not-control-flow] The critic's verdict renders by the presence
+          of the value the read boundary computed — a slop no critic has weighed in on
+          carries no verdict and this block simply does not appear. No isReviewed flag,
+          no empty placeholder museum-speak. */}
+      {verdict !== undefined && <VerdictLine verdict={verdict} />}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
         {/* [LAW:types-are-the-program] Fork button gated on the content
@@ -531,6 +537,23 @@ function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor 
           name
         )}
       </figcaption>
+    </figure>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The named critic's hot take — the blurb the city
+// actually has an OPINION in, not neutral museum-speak (the-back-door.md §The Card).
+// It renders only where a verdict value exists; both halves are guaranteed non-empty
+// by the read boundary, so there is no "no verdict yet" branch here. The critic line
+// is the SACRED register (placard serif), the byline the profane mono — the high/low
+// typographic collision every card is built on (the-back-door.md §type-as-collision).
+function VerdictLine({ verdict }: { verdict: Verdict }) {
+  return (
+    <figure className="mx-3 mb-1 mt-2 border-l-2 border-amber-400/30 pl-3">
+      <blockquote className="font-placard text-[15px] italic leading-snug text-bone/90">
+        {`“${verdict.text}”`}
+      </blockquote>
+      <figcaption className="mt-1 font-mono text-[11px] text-white/45">— {verdict.critic}</figcaption>
     </figure>
   )
 }
