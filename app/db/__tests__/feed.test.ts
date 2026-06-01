@@ -865,6 +865,62 @@ describe('app/db/feed.ts - verdict', () => {
     expect(item.verdict?.text).toBe('Blessed be the cursed.')
   })
 
+  it('excludes a critic whose displayName is blank — no empty byline', async () => {
+    // [LAW:types-are-the-program] A verdict has no fallback byline, so a blank critic
+    // name is no verdict at all (the mirror of a blank reasoning), never a `— ` byline.
+    await seedCritic('agent:nameless', '   ')
+    const id = await seedPost(env, { id: 'post-nameless-critic', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:nameless',
+      value: 1,
+      reasoning: 'A line with no one to sign it.',
+    })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict).toBeUndefined()
+  })
+
+  it('surfaces an older well-named critic when the newest critic is blank-named', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    await seedCritic('agent:nameless', '  ')
+    const id = await seedPost(env, { id: 'post-name-shadow', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:vivian',
+      value: 1,
+      reasoning: 'A blessing that keeps its name.',
+      createdAt: ms(2000),
+    })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:nameless',
+      value: -1,
+      reasoning: 'Newer, but the critic is nameless.',
+      createdAt: ms(3000),
+    })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict).toEqual({
+      critic: 'St. Vivian',
+      text: 'A blessing that keeps its name.',
+    })
+  })
+
+  it('trims surrounding whitespace from the critic byline', async () => {
+    await seedCritic('agent:padded', '  The Gremlin  ')
+    const id = await seedPost(env, { id: 'post-padded-byline', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:padded',
+      value: -1,
+      reasoning: 'Buried.',
+    })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict?.critic).toBe('The Gremlin')
+  })
+
   it('attaches the verdict on the permalink reader (getFeedItemById) too', async () => {
     await seedCritic('agent:gremlin', 'The Gremlin')
     const id = await seedPost(env, { id: 'post-permalink-verdict', createdAt: ms(1000) })

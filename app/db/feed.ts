@@ -374,26 +374,35 @@ async function fetchCitizenRefs(
 // the persona row; this read JOINs them and stores neither — no third copy to drift.
 //
 // SELECTION RULE (deterministic, per the acceptance criterion): among a post's
-// critic votes carrying a NON-EMPTY reasoning, take the MOST RECENT (created_at DESC) —
-// the city's latest opinion is the one it's living with. Ties (identical created_at)
-// break by voter_id DESC, so the same feed render always yields the same byline.
-// The INNER JOIN to personas is what makes a vote a *critic's*: a vote whose voter_id
-// is not a persona (a human's anon-cookie UUID) has no displayName to attribute and is
-// excluded by construction — which is also why human votes (NULL reasoning) never
-// reach this rank.
+// critic votes that carry BOTH a non-empty reasoning AND a non-empty critic name,
+// take the MOST RECENT (created_at DESC) — the city's latest opinion is the one it's
+// living with. Ties (identical created_at) break by voter_id DESC, so the same feed
+// render always yields the same byline. The INNER JOIN to personas is what makes a
+// vote a *critic's*: a vote whose voter_id is not a persona (a human's anon-cookie
+// UUID) has no displayName to attribute and is excluded by construction — which is
+// also why human votes (NULL reasoning) never reach this rank.
+//
+// [LAW:types-are-the-program] The Verdict type claims BOTH halves are non-empty "by
+// construction"; this boundary is where that claim is MADE true. Unlike a CitizenRef
+// (which falls back to the agentId label when a persona is missing — NAME ALWAYS), a
+// verdict has no fallback byline: a blank critic name would render `— ` (an empty
+// byline), the exact mirror of the empty-string-verdict failure the reasoning gate
+// forbids. So the gate is symmetric — text AND critic must be meaningful — and a vote
+// failing either is excluded before the rank, so an older fully-formed critic line
+// still surfaces rather than being shadowed by a half-blank newer one.
 async function fetchVerdicts(
   database: ReturnType<typeof db>,
   postIds: readonly string[],
 ): Promise<Map<string, Verdict>> {
   if (postIds.length === 0) return new Map()
 
-  // [LAW:no-silent-fallbacks] One predicate excludes both the NULL and the
-  // whitespace-only reasoning: trim(NULL) is NULL and `NULL <> ''` is falsy in SQLite,
-  // so neither survives the WHERE. Filtering BEFORE the window rank guarantees two
-  // things at once — no empty-string verdict can reach the domain, and a post whose
-  // newest vote has a blank reasoning still surfaces an older, meaningful critic line
-  // rather than being shadowed into silence.
+  // [LAW:no-silent-fallbacks] Each predicate excludes both NULL and whitespace-only in
+  // one expression: trim(NULL) is NULL and `NULL <> ''` is falsy in SQLite, so neither
+  // a missing nor a blank value survives the WHERE. `meaningful` gates the verdict TEXT;
+  // `named` gates the verdict BYLINE — the two halves of the Verdict, gated identically
+  // so neither can reach the domain empty.
   const meaningful = sql`trim(${votes.reasoning}) <> ''`
+  const named = sql`trim(${personas.displayName}) <> ''`
   const ranked = database
     .select({
       postId: votes.postId,
@@ -406,7 +415,7 @@ async function fetchVerdicts(
     })
     .from(votes)
     .innerJoin(personas, eq(personas.agentId, votes.voterId))
-    .where(and(inArray(votes.postId, postIds), meaningful))
+    .where(and(inArray(votes.postId, postIds), meaningful, named))
     .as('ranked_verdicts')
 
   const rows = await database
@@ -418,11 +427,12 @@ async function fetchVerdicts(
   for (const r of rows) {
     // [LAW:no-silent-fallbacks] `required` is the boundary fail-loud if the stored
     // shape ever drifts (the WHERE already excludes NULL, so this never throws in
-    // practice) — never an `!`-laundered null. Trim once for a clean domain value, the
-    // same rule the title boundary applies.
+    // practice) — never an `!`-laundered null. Trim BOTH halves for a clean domain
+    // value (the WHERE only gates presence, not surrounding whitespace on a real
+    // value) — the same rule the title boundary applies.
     verdicts.set(r.postId, {
       text: required(r.reasoning, `verdict reasoning for post ${r.postId}`).trim(),
-      critic: r.critic,
+      critic: r.critic.trim(),
     })
   }
   return verdicts

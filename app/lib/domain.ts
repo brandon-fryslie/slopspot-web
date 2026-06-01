@@ -230,10 +230,10 @@ export type VoteIntent = VoteValue | 0
 // vote reasoning (`text`) attributed to that persona (`critic` = displayName).
 // Both halves are authoritative elsewhere — reasoning on the vote row, displayName
 // on the persona row — so a Verdict is purely their read-time projection, stored
-// nowhere. [LAW:types-are-the-program] Both fields are non-empty by construction:
-// the read boundary only mints a Verdict from a vote whose reasoning is meaningful
-// (a null/blank critic line is no verdict at all), so the type never carries an
-// empty hot-take.
+// nowhere. [LAW:types-are-the-program] Both fields are non-empty by construction: the
+// read boundary mints a Verdict only from a vote whose reasoning AND whose critic name
+// are both meaningful, gating the two halves identically — a blank in EITHER is no
+// verdict at all, never an empty hot-take or a bylineless `— `.
 export type Verdict = {
   text: string
   critic: string
