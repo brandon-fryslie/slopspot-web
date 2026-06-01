@@ -49,6 +49,7 @@ import {
   type Post,
   type RenderablePost,
   type Verdict,
+  type VerdictDisposition,
   type VoteValue,
 } from '~/lib/domain'
 import { authorLabel } from '~/lib/author-label'
@@ -408,6 +409,7 @@ async function fetchVerdicts(
       postId: votes.postId,
       reasoning: votes.reasoning,
       critic: personas.displayName,
+      value: votes.value,
       rank: sql<number>`row_number() over (
         partition by ${votes.postId}
         order by ${votes.createdAt} desc, ${votes.voterId} desc
@@ -419,7 +421,7 @@ async function fetchVerdicts(
     .as('ranked_verdicts')
 
   const rows = await database
-    .select({ postId: ranked.postId, reasoning: ranked.reasoning, critic: ranked.critic })
+    .select({ postId: ranked.postId, reasoning: ranked.reasoning, critic: ranked.critic, value: ranked.value })
     .from(ranked)
     .where(eq(ranked.rank, 1))
 
@@ -433,6 +435,7 @@ async function fetchVerdicts(
     verdicts.set(r.postId, {
       text: required(r.reasoning, `verdict reasoning for post ${r.postId}`).trim(),
       critic: r.critic.trim(),
+      disposition: toDisposition(r.value, r.postId),
     })
   }
   return verdicts
@@ -511,6 +514,18 @@ function toMyVote(raw: number | null, postId: string): VoteValue | null {
   if (raw === 1 || raw === -1) return raw
   throw new Error(
     `feed: vote value ${raw} for post ${postId} is outside the stored shape (-1 | 1)`,
+  )
+}
+
+// [LAW:types-are-the-program] The representative critic vote's sign IS the verdict's
+// disposition — +1 is a blessing, -1 a burial. Same CHECK-guaranteed stored shape as
+// toMyVote, same fail-loud on a drifted value; the representative vote is a real row
+// (INNER JOIN), so unlike myVote it is never null here.
+function toDisposition(raw: number, postId: string): VerdictDisposition {
+  if (raw === 1) return "blessed"
+  if (raw === -1) return "buried"
+  throw new Error(
+    `feed: verdict vote value ${raw} for post ${postId} is outside the stored shape (-1 | 1)`,
   )
 }
 
