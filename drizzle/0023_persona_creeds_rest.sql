@@ -16,10 +16,12 @@
 -- per 0017 (named cast) / 0019 (the Proprietor). Apostrophes SQL-escaped as ''.
 --
 -- The voter and discoverer config schemas (services/voter, services/discoverer)
--- are .strict(); the generator schema (app/agents/generator.ts) too. All three are
--- widened in the same change to admit `creed: z.string().optional()` so the load
--- path still parses these rows on the next pass. The host has no executor schema —
--- its config is read only through the loose in-Worker loader — so it needs none.
+-- are .strict(), so they are widened in this change to admit
+-- `creed: z.string().optional()` — otherwise their load path rejects these rows on
+-- the next pass. The generator schema (app/agents/generator.ts) is also .strict()
+-- but already admits the key (0021 widened it for the makers' creeds). The host has
+-- no executor schema — its config is read only through the loose in-Worker loader —
+-- so it needs none.
 --
 -- Idempotent: json_set re-applies the same value; config_json already exists on
 -- every row, so this is a purely additive key.
