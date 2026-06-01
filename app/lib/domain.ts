@@ -234,9 +234,17 @@ export type VoteIntent = VoteValue | 0
 // read boundary mints a Verdict only from a vote whose reasoning AND whose critic name
 // are both meaningful, gating the two halves identically — a blank in EITHER is no
 // verdict at all, never an empty hot-take or a bylineless `— `.
+//
+// [LAW:types-are-the-program] `disposition` is the representative vote's VoteValue
+// (+1 → blessed, -1 → buried) wearing a name the card can dress: it carries the same
+// two-valued duality the card already renders on VOTES (votive bless / profane bury),
+// so a BURIAL verdict can no longer render in a BLESSING's gilt saint-robes. It is the
+// vote's sign projected at read time, authoritative on the vote row, stored nowhere.
+export type VerdictDisposition = "blessed" | "buried"
 export type Verdict = {
   text: string
   critic: string
+  disposition: VerdictDisposition
 }
 
 export type RenderablePost = {
