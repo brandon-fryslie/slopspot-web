@@ -27,14 +27,14 @@ export function PostCard({
   // display out; this card reads the snapshot and triggers no act.
   const wish = wishContext(post)
   return (
-    <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
+    <article className="overflow-hidden rounded-lg border border-votive/12 bg-panel">
       <ContentView content={post.content} />
       {/* [LAW:types-are-the-program] The placard renders for generation content by
           the discriminator — the title is a guaranteed-present field on that arm,
           so there is no nameless branch. The citizen's name for the PIECE, never the
           raw prompt. */}
       {post.content.kind === "generation" && (
-        <h2 className="px-3 pt-3 font-placard text-xl leading-tight text-bone">
+        <h2 className="px-3 pt-3 font-placard text-2xl leading-tight text-bone">
           {post.content.title}
         </h2>
       )}
@@ -76,7 +76,7 @@ export function PostCard({
             )}
           </>
         )}
-        <span className="ml-auto font-mono text-white/40">{relativeTime(post.createdAt)}</span>
+        <span className="ml-auto font-terminal text-ash">{relativeTime(post.createdAt)}</span>
       </div>
       {/* [LAW:types-are-the-program] The medium (the provider) lives in the recipe
           drawer, never the headline — the serial number does not headline the art. */}
@@ -198,11 +198,11 @@ function VoteControls({
   }
 
   const upTone = myVote === 1
-    ? "bg-emerald-400/20 text-emerald-300"
-    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+    ? "bg-votive/20 text-votive"
+    : "bg-bone/5 text-ash hover:bg-bone/10 hover:text-bone"
   const downTone = myVote === -1
-    ? "bg-rose-400/20 text-rose-300"
-    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+    ? "bg-profane/20 text-profane"
+    : "bg-bone/5 text-ash hover:bg-bone/10 hover:text-bone"
 
   return (
     <span className="inline-flex items-center gap-1">
@@ -212,11 +212,11 @@ function VoteControls({
         aria-pressed={myVote === 1}
         disabled={pending}
         onClick={() => castVote(1)}
-        className={`rounded px-1.5 py-0.5 font-mono transition disabled:opacity-50 ${upTone}`}
+        className={`rounded px-1.5 py-0.5 font-terminal transition disabled:opacity-50 ${upTone}`}
       >
         ▲
       </button>
-      <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 font-mono text-emerald-300/90">
+      <span className="rounded bg-votive/10 px-1.5 py-0.5 font-terminal text-votive/90">
         {score}
       </span>
       <button
@@ -225,7 +225,7 @@ function VoteControls({
         aria-pressed={myVote === -1}
         disabled={pending}
         onClick={() => castVote(-1)}
-        className={`rounded px-1.5 py-0.5 font-mono transition disabled:opacity-50 ${downTone}`}
+        className={`rounded px-1.5 py-0.5 font-terminal transition disabled:opacity-50 ${downTone}`}
       >
         ▼
       </button>
@@ -294,19 +294,19 @@ function FoundLinkCard({
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block transition hover:bg-white/[0.03]"
+      className="group block transition hover:bg-bone/[0.03]"
     >
       {thumbnail !== undefined && <MediaView media={thumbnail} />}
       <div className="flex flex-col gap-1 px-3 py-3">
-        <h2 className="text-base font-medium leading-snug text-white/90 group-hover:text-emerald-300">
+        <h2 className="font-placard text-xl leading-snug text-bone group-hover:text-votive">
           {title}
         </h2>
         {description !== undefined && (
-          <p className="line-clamp-3 text-sm leading-relaxed text-white/65">
+          <p className="line-clamp-3 text-sm leading-relaxed text-bone/65">
             {description}
           </p>
         )}
-        <span className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider text-emerald-300/80">
+        <span className="inline-flex items-center gap-1 font-terminal text-[11px] uppercase tracking-wider text-votive/80">
           <span aria-hidden>↗</span>
           {domain}
         </span>
@@ -325,11 +325,11 @@ function MediaView({ media }: { media: Media }) {
           width={media.w}
           height={media.h}
           loading="lazy"
-          className="block h-auto w-full bg-white/5"
+          className="block h-auto w-full bg-bone/5"
         />
       )
     case "video":
-      return <video src={media.url} controls className="block w-full bg-black" />
+      return <video src={media.url} controls className="block w-full bg-base" />
     case "audio":
       return (
         <div className="px-3 py-4">
@@ -338,7 +338,7 @@ function MediaView({ media }: { media: Media }) {
       )
     case "text":
       return (
-        <div className="whitespace-pre-wrap px-4 py-6 text-base leading-relaxed text-white/90">
+        <div className="whitespace-pre-wrap px-4 py-6 text-base leading-relaxed text-bone">
           {media.body}
         </div>
       )
@@ -347,11 +347,11 @@ function MediaView({ media }: { media: Media }) {
 
 function StatusPlaceholder({ tone, label }: { tone: "queued" | "working" | "error"; label: string }) {
   const toneClass =
-    tone === "queued"  ? "bg-white/5 text-white/50" :
-    tone === "working" ? "bg-sky-400/10 text-sky-300/90 animate-pulse" :
-                         "bg-rose-400/10 text-rose-300/90"
+    tone === "queued"  ? "bg-bone/5 text-ash" :
+    tone === "working" ? "bg-votive/10 text-votive/90 animate-pulse" :
+                         "bg-profane/10 text-profane/90"
   return (
-    <div className={`flex aspect-video items-center justify-center font-mono text-xs uppercase tracking-[0.2em] ${toneClass}`}>
+    <div className={`flex aspect-video items-center justify-center font-terminal text-xs uppercase tracking-[0.2em] ${toneClass}`}>
       {label}
     </div>
   )
@@ -373,17 +373,17 @@ const castHref = (handle: string | null): string | undefined =>
 // span-vs-anchor by its presence.
 function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
   switch (a.kind) {
-    case "user":  return { label: `@${a.userId}`, tone: "text-sky-300/90 bg-sky-400/10" }
+    case "user":  return { label: `@${a.userId}`, tone: "text-gilt/90 bg-gilt/10" }
     case "agent": {
-      if (a.persona === undefined) return { label: a.agentId, tone: "text-amber-300/90 bg-amber-400/10" }
+      if (a.persona === undefined) return { label: a.agentId, tone: "text-votive/90 bg-votive/10" }
       const href = castHref(a.persona.handle)
       return {
         label: a.persona.displayName,
-        tone: "text-amber-300/90 bg-amber-400/10",
+        tone: "text-votive/90 bg-votive/10",
         ...(href !== undefined ? { href } : {}),
       }
     }
-    case "anon":  return { label: a.label,         tone: "text-fuchsia-300/90 bg-fuchsia-400/10" }
+    case "anon":  return { label: a.label,         tone: "text-profane/90 bg-profane/10" }
   }
 }
 
@@ -400,7 +400,7 @@ function authorDisplay(a: PersonaActor): { name: string; href?: string } {
 // [LAW:dataflow-not-control-flow] One renderer for the badge; the `href` value
 // decides anchor-vs-span, not a branch in every caller.
 function ActorBadge({ label, tone, href }: { label: string; tone: string; href?: string }) {
-  const className = `rounded px-1.5 py-0.5 font-mono ${tone}`
+  const className = `rounded px-1.5 py-0.5 font-terminal ${tone}`
   return href !== undefined
     ? <a href={href} className={`${className} transition hover:brightness-125`}>{label}</a>
     : <span className={className}>{label}</span>
@@ -416,10 +416,11 @@ const HUMAN_ROLE_PHRASE: Record<HumanRole, string> = {
 }
 
 // [LAW:types-are-the-program] Exhaustive switch on Origin.kind — every genesis renders
-// honestly. THE INVERSION lives in the AUTHORED arm: the citizen is billed BIG (placard
-// serif, clickable to their Cast page — the click is the reveal mechanism), and the
-// human, when present, is a small footnote ("from a wish by …"). The machine is the
-// artist; the human is the occasion. FOUND/UPLOADED have no author to elevate — a finder
+// honestly. THE INVERSION lives in the AUTHORED arm: the citizen is the maker (the civic
+// handle, clickable to their Cast page — the click is the reveal mechanism), billed ABOVE
+// the human, who when present is a tinier footnote ("from a wish by …"). The work's own
+// name (the placard above) is the top billing; the machine is the artist, the human the
+// occasion. FOUND/UPLOADED have no author to elevate — a finder
 // is not an author — so they keep a quiet inline credit and never imply authorship.
 // Adding an Origin arm fails to compile here until rendered. The human footnote is
 // viewer-aware: when the viewer IS that human (viewerIsModifier), the subject becomes
@@ -430,22 +431,23 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
   switch (origin.kind) {
     case "authored": {
       const { name, href } = authorDisplay(origin.author)
-      const headingClass = "font-placard text-lg leading-tight text-amber-200"
+      const makerClass = "font-civic text-sm font-medium text-votive"
       return (
-        <div className="px-3 pt-1.5 pb-1">
+        <div className="px-3 pt-1 pb-1">
+          <span className="font-civic text-sm text-ash">by </span>
           {/* [LAW:dataflow-not-control-flow] href decides anchor-vs-span; the citizen's
               name is always shown, linked only when their handle is minted. */}
           {href !== undefined ? (
-            <a href={href} className={`${headingClass} transition hover:text-amber-100`}>
+            <a href={href} className={`${makerClass} transition hover:brightness-125`}>
               {name} <span aria-hidden>↗</span>
             </a>
           ) : (
-            <span className={headingClass}>{name}</span>
+            <span className={makerClass}>{name}</span>
           )}
           {origin.human !== undefined && (
-            <p className="mt-0.5 font-mono text-[11px] text-white/40">
+            <p className="mt-0.5 font-terminal text-[11px] text-ash">
               {HUMAN_ROLE_PHRASE[origin.human.role]}{" "}
-              <span className="text-white/55">
+              <span className="text-bone/60">
                 {modifierSubject(viewerIsModifier, actorLabel(origin.human.by).label)}
               </span>
             </p>
@@ -456,8 +458,8 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
     case "found": {
       const finder = actorLabel(origin.finder)
       return (
-        <div className="inline-flex items-center gap-1 px-3 pt-1 pb-1 font-mono text-xs">
-          <span className="text-white/40">found by</span>
+        <div className="inline-flex items-center gap-1 px-3 pt-1 pb-1 font-terminal text-xs">
+          <span className="text-ash">found by</span>
           <ActorBadge {...finder} />
         </div>
       )
@@ -465,8 +467,8 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
     case "uploaded": {
       const uploader = actorLabel(origin.uploader)
       return (
-        <div className="inline-flex items-center gap-1 px-3 pt-1 pb-1 font-mono text-xs">
-          <span className="text-white/40">uploaded by</span>
+        <div className="inline-flex items-center gap-1 px-3 pt-1 pb-1 font-terminal text-xs">
+          <span className="text-ash">uploaded by</span>
           <ActorBadge {...uploader} />
         </div>
       )
@@ -481,11 +483,11 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
 // stranger "what YOU wished". [LAW:dataflow-not-control-flow] the copy is the value.
 function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: boolean }) {
   return (
-    <figure className="mx-3 mb-1 mt-2 rounded border border-white/10 bg-black/30 px-3 py-2">
-      <figcaption className="font-mono text-[10px] uppercase tracking-wider text-white/40">
+    <figure className="mx-3 mb-1 mt-2 rounded border border-votive/12 bg-base/40 px-3 py-2">
+      <figcaption className="font-terminal text-[10px] uppercase tracking-wider text-ash">
         {wishGapCaption(viewerIsModifier)}
       </figcaption>
-      <blockquote className="mt-1 text-sm italic leading-relaxed text-white/75">
+      <blockquote className="mt-1 text-sm italic leading-relaxed text-bone/75">
         {`“${wish}”`}
       </blockquote>
     </figure>
@@ -527,10 +529,10 @@ function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor 
       <blockquote className="text-[13px] italic leading-relaxed text-bone/85">
         {`❝ ${text} ❞`}
       </blockquote>
-      <figcaption className="mt-1 text-right font-mono text-[11px] text-white/45">
+      <figcaption className="mt-1 text-right font-terminal text-[11px] text-ash">
         —{" "}
         {href !== undefined ? (
-          <a href={href} className="text-amber-200/80 transition hover:text-amber-100">
+          <a href={href} className="text-votive/80 transition hover:brightness-125">
             {name} <span aria-hidden>↗</span>
           </a>
         ) : (
@@ -549,11 +551,13 @@ function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor 
 // typographic collision every card is built on (the-back-door.md §type-as-collision).
 function VerdictLine({ verdict }: { verdict: Verdict }) {
   return (
-    <figure className="mx-3 mb-1 mt-2 border-l-2 border-amber-400/30 pl-3">
+    <figure className="mx-3 mb-1 mt-2 border-l-2 border-gilt/40 pl-3">
       <blockquote className="font-placard text-[15px] italic leading-snug text-bone/90">
         {`“${verdict.text}”`}
       </blockquote>
-      <figcaption className="mt-1 font-mono text-[11px] text-white/45">— {verdict.critic}</figcaption>
+      <figcaption className="mt-1 font-terminal text-[11px] text-ash">
+        — {verdict.critic} <span className="text-gilt">✚</span>
+      </figcaption>
     </figure>
   )
 }
@@ -563,7 +567,7 @@ function VerdictLine({ verdict }: { verdict: Verdict }) {
 // always speaks; this exists so the Utterance union is handled by structure, total.
 function ChosenSilence() {
   return (
-    <p className="mx-3 mb-1 mt-1 px-1 text-center font-mono text-sm text-white/20" aria-hidden>
+    <p className="mx-3 mb-1 mt-1 px-1 text-center font-terminal text-sm text-ash/40" aria-hidden>
       · · ·
     </p>
   )
@@ -574,12 +578,12 @@ function ChosenSilence() {
 // the art. Closed by default; the curious open it.
 function RecipeDrawer({ recipe }: { recipe: Generation }) {
   return (
-    <details className="border-t border-white/10 px-3 py-2 text-[11px] text-white/55">
-      <summary className="cursor-pointer select-none font-mono uppercase tracking-wider text-white/40">recipe</summary>
-      <p className="mt-2 font-mono text-[11px] text-white/55">
-        <span className="text-white/35">medium</span> {recipe.providerId}
+    <details className="border-t border-votive/12 px-3 py-2 text-[11px] text-votive/70">
+      <summary className="cursor-pointer select-none font-terminal uppercase tracking-wider text-votive/50">recipe</summary>
+      <p className="mt-2 font-terminal text-[11px] text-votive/70">
+        <span className="text-ash">medium</span> {recipe.providerId}
       </p>
-      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-white/70">
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-terminal text-[11px] leading-relaxed text-votive/80">
 {JSON.stringify(recipe.params, null, 2)}
       </pre>
     </details>
@@ -595,9 +599,9 @@ function ForkLink({ postId }: { postId: string }) {
   return (
     <a
       href={`/fork/${postId}`}
-      className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-white/60 transition hover:bg-emerald-400/15 hover:text-emerald-300"
+      className="rounded border border-profane/50 bg-profane/15 px-3 py-1 font-civic text-[11px] font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/25"
     >
-      fork
+      <span aria-hidden>⑂ </span>Breed This
     </a>
   )
 }
@@ -608,7 +612,7 @@ function ForkLink({ postId }: { postId: string }) {
 function ForkedFromBadge({ parentId }: { parentId: string }) {
   return (
     <span
-      className="rounded bg-fuchsia-400/10 px-1.5 py-0.5 font-mono text-fuchsia-300/90"
+      className="rounded bg-bone/5 px-1.5 py-0.5 font-terminal text-ash"
       title={`forked from ${parentId}`}
     >
       forked from p:{parentId.slice(0, 8)}
@@ -619,11 +623,11 @@ function ForkedFromBadge({ parentId }: { parentId: string }) {
 function StatusBadge({ status }: { status: GenerationStatus }) {
   if (status.kind === "succeeded") return null
   const tone =
-    status.kind === "pending" ? "bg-white/5 text-white/50" :
-    status.kind === "running" ? "bg-sky-400/10 text-sky-300/90" :
-                                "bg-rose-400/10 text-rose-300/90"
+    status.kind === "pending" ? "bg-bone/5 text-ash" :
+    status.kind === "running" ? "bg-votive/10 text-votive/90" :
+                                "bg-profane/10 text-profane/90"
   return (
-    <span className={`rounded px-1.5 py-0.5 font-mono ${tone}`}>{status.kind}</span>
+    <span className={`rounded px-1.5 py-0.5 font-terminal ${tone}`}>{status.kind}</span>
   )
 }
 
@@ -757,12 +761,12 @@ function CommentSection({
   const isLoading = thread.kind === "loading"
 
   return (
-    <section className="border-t border-white/10">
+    <section className="border-t border-votive/12">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={isExpanded}
-        className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-xs text-white/55 transition hover:bg-white/[0.03] hover:text-white/80"
+        className="flex w-full items-center justify-between px-3 py-2 text-left font-terminal text-xs text-ash transition hover:bg-bone/[0.03] hover:text-bone"
       >
         <span>
           {localCount === 0
@@ -771,32 +775,32 @@ function CommentSection({
             ? "1 comment"
             : `${localCount} comments`}
         </span>
-        <span aria-hidden className="font-mono text-white/30">
+        <span aria-hidden className="font-terminal text-ash">
           {isLoading ? "…" : isExpanded ? "▾" : "▸"}
         </span>
       </button>
 
       {thread.kind === "error" && (
-        <div className="border-t border-white/10 px-3 py-3 font-mono text-[11px] text-rose-300/90">
+        <div className="border-t border-votive/12 px-3 py-3 font-terminal text-[11px] text-profane/90">
           failed to load: {thread.reason} — click to retry
         </div>
       )}
 
       {isExpanded && thread.kind === "ready" && (
-        <div className="border-t border-white/10">
-          <ul className="flex flex-col divide-y divide-white/5">
+        <div className="border-t border-votive/12">
+          <ul className="flex flex-col divide-y divide-votive/10">
             {thread.comments.length === 0 ? (
               // [LAW:one-source-of-truth] The empty thread speaks in the Proprietor's
               // voice from the single source — never an invented per-surface line, and
               // never an apology for the quiet (the silence is part of it).
-              <li className="px-3 py-4 font-mono text-[11px] text-white/40">
+              <li className="px-3 py-4 font-terminal text-[11px] text-ash">
                 {PROPRIETOR.emptyThread}
               </li>
             ) : (
               thread.comments.map((c) => <CommentRow key={c.id} comment={c} />)
             )}
           </ul>
-          <form onSubmit={onSubmit} className="border-t border-white/10 px-3 py-3">
+          <form onSubmit={onSubmit} className="border-t border-votive/12 px-3 py-3">
             <textarea
               value={composeBody}
               onChange={(e) => setComposeBody(e.target.value)}
@@ -804,22 +808,22 @@ function CommentSection({
               maxLength={2000}
               rows={2}
               disabled={submitting}
-              className="block w-full resize-y rounded border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs text-white/85 placeholder:text-white/30 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
+              className="block w-full resize-y rounded border border-votive/12 bg-base/60 px-2 py-1.5 font-terminal text-xs text-bone/85 placeholder:text-ash focus:border-votive/60 focus:outline-none disabled:opacity-50"
             />
             <div className="mt-2 flex items-center justify-between">
-              <span className="font-mono text-[10px] text-white/35">
+              <span className="font-terminal text-[10px] text-ash">
                 {composeBody.trim().length}/2000
               </span>
               <button
                 type="submit"
                 disabled={submitting || composeBody.trim().length === 0}
-                className="rounded bg-emerald-400/20 px-3 py-1 font-mono text-[11px] uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-400/30 disabled:opacity-40"
+                className="rounded bg-votive/20 px-3 py-1 font-terminal text-[11px] uppercase tracking-wider text-votive transition hover:bg-votive/30 disabled:opacity-40"
               >
                 {submitting ? "posting…" : "post"}
               </button>
             </div>
             {submitError !== null && (
-              <p className="mt-2 font-mono text-[11px] text-rose-300/90">{submitError}</p>
+              <p className="mt-2 font-terminal text-[11px] text-profane/90">{submitError}</p>
             )}
           </form>
         </div>
@@ -831,11 +835,11 @@ function CommentSection({
 function CommentRow({ comment }: { comment: ClientComment }) {
   return (
     <li className="px-3 py-2">
-      <div className="flex items-center gap-2 font-mono text-[10px] text-white/45">
-        <span className="rounded bg-white/5 px-1.5 py-0.5 text-white/65">{comment.authorLabel}</span>
+      <div className="flex items-center gap-2 font-terminal text-[10px] text-ash">
+        <span className="rounded bg-bone/5 px-1.5 py-0.5 text-bone/65">{comment.authorLabel}</span>
         <span>{relativeTime(new Date(comment.createdAt))}</span>
       </div>
-      <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-white/85">
+      <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-bone/85">
         {comment.body}
       </p>
     </li>
