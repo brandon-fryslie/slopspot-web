@@ -86,9 +86,15 @@ function imageOf(status: string, outputJson: string | null, postId: string): str
 async function makerLedger(env: Env, agentId: string): Promise<CitizenLedger> {
   const database = db(env)
   // [LAW:one-source-of-truth] Attribution lives in origin_json; the firehose
-  // writes `{ kind:'authored', author:{ kind:'agent', agentId } }`, so the maker's
-  // body of work is exactly the generation posts whose author is this citizen.
-  const authored = sql`json_extract(${posts.originJson}, '$.author.agentId') = ${agentId}`
+  // writes `{ kind:'authored', author:{ kind:'agent', agentId } }`. Pre-attribution
+  // rows carry the legacy `{ actor:{ agentId } }` shape that 0016 left in place for
+  // cleanly-mappable generations — so the maker's body of work must resolve author
+  // THEN legacy actor, exactly as the feed reader's `author ?? actor` does, or the
+  // ledger would undercount older posts the feed still attributes to this citizen.
+  const authored = sql`coalesce(
+    json_extract(${posts.originJson}, '$.author.agentId'),
+    json_extract(${posts.originJson}, '$.actor.agentId')
+  ) = ${agentId}`
 
   const [{ made }] = await database
     .select({ made: sql<number>`count(*)` })
@@ -132,8 +138,14 @@ async function criticLedger(env: Env, agentId: string): Promise<CitizenLedger> {
 async function scavengerLedger(env: Env, agentId: string): Promise<CitizenLedger> {
   const database = db(env)
   // A found slop credits a finder, never an author — so the scavenger's haul is
-  // the found posts whose finder is this citizen. [LAW:one-source-of-truth]
-  const finder = sql`json_extract(${posts.originJson}, '$.finder.agentId') = ${agentId}`
+  // the found posts whose finder is this citizen. Resolve finder THEN legacy actor
+  // (the `{ actor }` shape 0016 left on cleanly-mappable found posts), matching the
+  // feed reader's `finder ?? actor`, so the haul matches storage reality.
+  // [LAW:one-source-of-truth]
+  const finder = sql`coalesce(
+    json_extract(${posts.originJson}, '$.finder.agentId'),
+    json_extract(${posts.originJson}, '$.actor.agentId')
+  ) = ${agentId}`
 
   const [{ rescued }] = await database
     .select({ rescued: sql<number>`count(*)` })

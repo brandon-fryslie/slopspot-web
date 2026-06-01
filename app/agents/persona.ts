@@ -76,16 +76,25 @@ export type Persona = {
 // route.
 //
 // The named-cast prompts open "You are <Name> — <creed>." or "Generator persona
-// — <Name>, <creed>." (a single paragraph, no newlines — so a naive first-LINE
-// split would leak the whole bible). The creed is the first SENTENCE of the body
-// after that em-dash preamble: the self-description the character leads with.
-// Falls back to the first sentence of the whole prompt when there is no em-dash,
-// so a plainly-written prompt still yields a bounded line rather than the body.
+// — <Name>, <creed>." (a single paragraph — so a naive first-LINE split would
+// leak the whole bible). The creed is the first SENTENCE of the body after that
+// em-dash preamble: the self-description the character leads with. Falls back to
+// the first sentence of the whole prompt when there is no em-dash.
+//
+// The guarantee is "never ship the bible," so the result is bounded three ways —
+// first line, then first sentence, then a hard character cap. A prompt with no
+// sentence punctuation (comma-only, one long run-on) still cannot leak the body:
+// the cap clips it to a single line of text with an ellipsis.
+const CREED_MAX = 160
+
 export function creedOf(personaPrompt: string): string {
   const trimmed = personaPrompt.trim()
   const emDash = trimmed.indexOf('—')
-  const body = emDash === -1 ? trimmed : trimmed.slice(emDash + 1)
-  return body.trim().split(/(?<=[.!?])\s/)[0].trim()
+  const body = (emDash === -1 ? trimmed : trimmed.slice(emDash + 1)).trim()
+  const firstSentence = body.split('\n')[0].split(/(?<=[.!?])\s/)[0].trim()
+  return firstSentence.length > CREED_MAX
+    ? `${firstSentence.slice(0, CREED_MAX).trimEnd()}…`
+    : firstSentence
 }
 
 // Returns [] when no personas match the role — the call site decides whether
