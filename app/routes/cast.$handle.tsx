@@ -31,7 +31,10 @@ import {
   type RitePresidency,
   type WorkLabel,
 } from '~/db/citizens'
+import { getBackings } from '~/db/backings'
+import { readVoterId } from '~/lib/voter-cookie'
 import { PortraitFrame, portraitStateOf } from '~/components/portrait-frame'
+import { BackButton } from '~/components/back-button'
 import { listProviders } from '~/providers'
 import { PROPRIETOR } from '~/lib/proprietor'
 import { wishGapCaption } from '~/lib/wish-copy'
@@ -57,7 +60,7 @@ function readMedium(role: PersonaRole, config: Record<string, unknown>): string 
   return provider?.displayName ?? medium
 }
 
-export async function loader({ context, params }: Route.LoaderArgs) {
+export async function loader({ context, params, request }: Route.LoaderArgs) {
   const env = context.cloudflare.env
   const persona = await getPersonaByHandle(env, params.handle)
   // [LAW:no-silent-fallbacks] Unknown handle is a 404, not an empty page.
@@ -65,9 +68,14 @@ export async function loader({ context, params }: Route.LoaderArgs) {
     throw new Response('Citizen not found', { status: 404 })
   }
 
-  const [ledger, roster] = await Promise.all([
+  // [LAW:single-enforcer] readVoterId (not resolveVoter) — a GET must never mint
+  // identity; the cookie is minted on the first BACK. Absent cookie → viewerBacks
+  // false, the count still renders. The shrine reads exactly this one citizen's
+  // backing.
+  const [ledger, roster, backing] = await Promise.all([
     getCitizenLedger(env, persona),
     listAllPersonas(env),
+    getBackings(env, [persona.agentId], readVoterId(request)),
   ])
 
   // [LAW:one-source-of-truth] The feuds resolve against the SAME live roster the
@@ -92,6 +100,9 @@ export async function loader({ context, params }: Route.LoaderArgs) {
       portrait: portraitStateOf(persona.config),
       medium: readMedium(persona.role, persona.config),
     },
+    // getBackings was queried with exactly this citizen, so the map holds its entry
+    // by construction (un-backed citizens default to {0,false}). [LAW:one-source-of-truth]
+    backing: backing.get(persona.agentId) ?? { backerCount: 0, viewerBacks: false },
     ledger,
     // The two citizen-shaped panels: every feud touching this handle (declared or
     // received), and the rite they preside over (null for the citizens the
@@ -453,7 +464,7 @@ function PresidesPanel({ presides }: { presides: RitePresidency | null }) {
 }
 
 export default function CastCitizen() {
-  const { citizen, ledger, world, presides } = useLoaderData<typeof loader>()
+  const { citizen, backing, ledger, world, presides } = useLoaderData<typeof loader>()
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -481,6 +492,16 @@ export default function CastCitizen() {
           <p className="mt-3 font-terminal text-[11px] uppercase tracking-wider text-votive/70">
             {signatureStat(ledger)}
           </p>
+          {/* The allegiance verb — where a tourist crosses from "there are
+              characters here" to "this one is mine." [the-roll-call.md] */}
+          <div className="mt-4">
+            <BackButton
+              handle={citizen.handle}
+              displayName={citizen.displayName}
+              initialBackerCount={backing.backerCount}
+              initialViewerBacks={backing.viewerBacks}
+            />
+          </div>
         </div>
       </header>
 
