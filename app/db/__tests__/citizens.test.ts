@@ -105,6 +105,26 @@ async function seedRunningGeneration(postId: string, title = 'a piece') {
     .run()
 }
 
+// A Well-born slop: a succeeded generation that carries the human's verbatim wish
+// (generations.wish, foundation.3). The maker authored it; the wish is what the
+// human asked for, beside the slop the maker made instead.
+async function seedWishedGeneration(
+  postId: string,
+  image: Media,
+  wish: string,
+  title = 'a piece',
+) {
+  await env.DB.prepare(
+    `INSERT INTO generations
+       (post_id, provider_id, provider_version, params_json, title, style_family,
+        subject_template, slots_json, aspect_ratio, wish, status, completed_at, output_json)
+     VALUES (?, 'fal-flux', '1', '{}', ?, 'photoreal', 'T00', '{"freeText":""}', '1:1',
+        ?, 'succeeded', ?, ?)`,
+  )
+    .bind(postId, title, wish, 1000, JSON.stringify(image))
+    .run()
+}
+
 async function seedFound(postId: string, title: string, url: string) {
   await env.DB.prepare(
     'INSERT INTO found (post_id, url, title, description, thumbnail_json) VALUES (?, ?, ?, NULL, NULL)',
@@ -233,7 +253,47 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
 
   it('makers: a maker with nothing made is a real empty ledger, not an error', async () => {
     const ledger = await getCitizenLedger(env, persona('agent:idle-maker', 'generator'))
-    expect(ledger).toEqual({ guild: 'makers', made: 0, works: [], highlights: [], styles: [] })
+    expect(ledger).toEqual({
+      guild: 'makers',
+      made: 0,
+      works: [],
+      highlights: [],
+      styles: [],
+      answeredWishes: [],
+    })
+  })
+
+  it('makers: answered wishes surface the verbatim wish beside its slop, newest-first', async () => {
+    // The Act-III reveal — only the Well-born slops (those carrying a wish) appear,
+    // each as the human's words and the slop the maker made of them.
+    await seedPost({ id: 'w_1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:spirit') })
+    await seedWishedGeneration('w_1', image('/media/w1'), 'a quiet house by the sea', 'A Storm-Drowned Tower')
+    await seedPost({ id: 'w_2', createdAt: 200, contentKind: 'generation', originJson: authored('agent:spirit') })
+    await seedWishedGeneration('w_2', image('/media/w2'), 'my dog, smiling', 'The Hound at the Gate')
+    // a plain (un-wished) generation by the same maker must NOT appear here
+    await seedPost({ id: 'w_plain', createdAt: 300, contentKind: 'generation', originJson: authored('agent:spirit') })
+    await seedSucceededGeneration('w_plain', image('/media/plain'), 'an unbidden piece')
+
+    const ledger = await getCitizenLedger(env, persona('agent:spirit', 'generator'))
+
+    if (ledger.guild !== 'makers') throw new Error('guard')
+    expect(ledger.answeredWishes).toEqual([
+      { postId: 'w_2', wish: 'my dog, smiling', title: 'The Hound at the Gate', image: '/media/w2' },
+      { postId: 'w_1', wish: 'a quiet house by the sea', title: 'A Storm-Drowned Tower', image: '/media/w1' },
+    ])
+  })
+
+  it('makers: a blank wish is dropped — the panel never renders a hollow quotation', async () => {
+    // Real-data-only (the-reveal-contract Surface 2, lock 2): a '' or whitespace wish
+    // that slipped past the Well's non-empty guard carries no gap to show, so it drops
+    // at the boundary rather than rendering an empty quotation.
+    await seedPost({ id: 'w_blank', createdAt: 100, contentKind: 'generation', originJson: authored('agent:spirit') })
+    await seedWishedGeneration('w_blank', image('/media/wb'), '   ', 'a piece')
+
+    const ledger = await getCitizenLedger(env, persona('agent:spirit', 'generator'))
+
+    if (ledger.guild !== 'makers') throw new Error('guard')
+    expect(ledger.answeredWishes).toEqual([])
   })
 
   it('makers: curates work by its four axes — best/most-bred/latest/a failure', async () => {

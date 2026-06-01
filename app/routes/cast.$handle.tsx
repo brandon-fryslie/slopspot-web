@@ -22,6 +22,7 @@ import {
   getCitizenLedger,
   ritePresidedBy,
   signatureStat,
+  type AnsweredWish,
   type CitizenLedger,
   type CriticVerdict,
   type Feud,
@@ -33,6 +34,7 @@ import {
 import { PortraitFrame, portraitStateOf } from '~/components/portrait-frame'
 import { listProviders } from '~/providers'
 import { PROPRIETOR } from '~/lib/proprietor'
+import { wishGapCaption } from '~/lib/wish-copy'
 import type { PostId } from '~/lib/domain'
 import type { Route } from './+types/cast.$handle'
 
@@ -193,6 +195,47 @@ function HighlightCard({ highlight }: { highlight: MakerHighlight }) {
   )
 }
 
+// One answered wish: the human's verbatim words beside the slop the maker made of
+// them. [LAW:dataflow-not-control-flow] The caption is the SAME phrase the card's
+// wish-gap shows, read from its one home — and ALWAYS third-person here: these are
+// other petitioners' wishes, never the viewer's, so we never tell a visitor "what
+// YOU wished." The gap (human words → an image that went elsewhere) is shown, never
+// captioned with the conclusion — no "hijack", no "reinterpret". The user reads the
+// pattern and concludes it. [the reveal DAWNS]
+function AnsweredWishRow({ item }: { item: AnsweredWish }) {
+  return (
+    <li className="flex gap-4">
+      <Link
+        to={`/p/${item.postId}`}
+        aria-label={`View ${item.title ?? 'an untitled piece'}`}
+        className="block aspect-square w-20 shrink-0 overflow-hidden rounded-sm border border-votive/12 bg-base transition hover:border-votive/40"
+      >
+        {item.image !== null ? (
+          <img src={item.image} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="flex h-full items-center justify-center font-terminal text-[9px] uppercase tracking-wider text-ash">
+            no image
+          </span>
+        )}
+      </Link>
+      <div className="min-w-0">
+        <p className="font-terminal text-[10px] uppercase tracking-wider text-ash">
+          {wishGapCaption(false)}
+        </p>
+        <blockquote className="mt-0.5 font-placard text-sm italic leading-snug text-bone/75">
+          {`“${item.wish}”`}
+        </blockquote>
+        <Link
+          to={`/p/${item.postId}`}
+          className="mt-1.5 inline-block font-placard text-sm text-bone/80 transition-colors hover:text-votive"
+        >
+          {item.title ?? <span className="text-ash">an untitled piece</span>}
+        </Link>
+      </div>
+    </li>
+  )
+}
+
 // The maker's body in one line: how much they made, and the territory they work in
 // most. An empty style list (a maker with only orphan rows, no countable family)
 // drops the "works mostly in" clause by data — the count alone remains.
@@ -258,6 +301,22 @@ function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
                 </div>
                 <WorkStats made={ledger.made} styles={ledger.styles} />
               </>
+            )}
+          </Panel>
+          {/* [LAW:dataflow-not-control-flow] Act III — the wishes this maker answered.
+              The empty array IS the data state that selects the Proprietor's line; a
+              non-empty one is the pattern, shown across petitioners, never announced.
+              Real data only — every row is a wish really answered (the-reveal-contract
+              Surface 2). [the reveal DAWNS] */}
+          <Panel heading="The wishes answered">
+            {ledger.answeredWishes.length === 0 ? (
+              <ProprietorLine>{PROPRIETOR.noWishes}</ProprietorLine>
+            ) : (
+              <ul className="space-y-5">
+                {ledger.answeredWishes.map((w) => (
+                  <AnsweredWishRow key={w.postId} item={w} />
+                ))}
+              </ul>
             )}
           </Panel>
         </>
