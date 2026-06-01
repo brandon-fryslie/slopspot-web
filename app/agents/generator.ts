@@ -1,6 +1,11 @@
-// [LAW:single-enforcer] The only entry point for generator-persona-driven post
-// creation. runOneFire (firehose/scheduled.ts) delegates here for every channel
-// fire.
+// [LAW:single-enforcer] `authorSlop` is the one place a persona authors a slop:
+// recipe choice → composition → provider params → createPost → the signed remark.
+// Both entrypoints route through it — the firehose (`runGeneratorPass`, picking a
+// persona by scheduled time) and the Well (`/api/well`, seating a persona to answer
+// a wish). [LAW:one-type-per-behavior] authoring a slop is ONE behavior; the only
+// difference between the two paths is DATA — a human wish + wisher modifier the Well
+// carries and the firehose does not — so it is an optional `occasion` value, never a
+// second pipeline. (foundation.5/.8: wire the existing seam, do not parallel it.)
 //
 // [LAW:dataflow-not-control-flow] Persona biases are multipliers forwarded to
 // chooseNextGeneration as PersonaBias. Absent keys default to all-ones in every
@@ -13,15 +18,17 @@
 //
 // [LAW:types-are-the-program] GeneratorPersonaConfig is the typed projection of
 // the persona's config_json blob for role='generator'. Parsed at the trust
-// boundary (this function); callers pass the raw Persona from pickPersona.
+// boundary (authorSlop); callers pass the raw Persona from pickPersona/seatCitizen.
 
 import { z } from 'zod'
-import { ProviderId } from '~/lib/domain'
+import { ProviderId, type AuthoredOrigin, type HumanModifier, type HumanRef, type Post } from '~/lib/domain'
 import { createPost } from '~/db/posts'
 import { getRecentRecipes } from '~/db/recent'
-import { pickPersona } from '~/agents/persona'
+import { recordRemark } from '~/db/remark'
+import { pickPersona, type Persona } from '~/agents/persona'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
 import { composePrompt } from '~/firehose/composer'
+import { utter } from '~/lib/voice'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import { getProvider } from '~/providers'
 
@@ -74,20 +81,36 @@ export function parseGeneratorConfig(raw: Record<string, unknown>, agentId: stri
   return result.data
 }
 
-// [LAW:single-enforcer] One implementation for all generator fires.
-// [RECONCILE A] A slop is authored by a persona, always — so a persona is the
-// function's precondition. An empty generator pool is a loud misconfiguration
-// (the seed migrations guarantee a non-empty pool), never a silent default
-// author. Throws on any I/O or creation failure; the caller (runOneFire) owns
-// error handling and metric emission.
-export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promise<void> {
-  const persona = await pickPersona(env, 'generator', scheduledTimeMs)
-  if (persona === null) {
-    throw new Error(
-      'runGeneratorPass: no generator personas configured — a slop must be authored by a citizen',
-    )
-  }
+// [LAW:types-are-the-program] What occasioned a slop, when a human did. Its
+// PRESENCE is the discriminator between the two paths: absent → the firehose (a
+// citizen fires on its own); present → the Well (a human's wish, re-authored by the
+// seated citizen). The wish is the visitor's verbatim words (steers composition,
+// NEVER sent raw to the provider — composer.ts owns that isolation); the wisher is
+// the human MODIFIER on the persona's authorship, never the author. There is no
+// `kind` flag — the optional value IS the variability. [LAW:dataflow-not-control-flow]
+export type WishOccasion = {
+  readonly wish: string
+  readonly wisher: HumanRef
+}
 
+// [LAW:single-enforcer] The one implementation that authors a slop as a given
+// persona. The persona is the function's precondition (the caller seats/picks it);
+// authorSlop owns everything downstream — config parse, medium resolution, recipe
+// choice, composition, params, the write, and the signed remark.
+//
+// [RECONCILE A] A slop is authored by a persona, always. [RECONCILE C] The provider
+// IS the persona's medium. The `occasion` (a human wish) only adds DATA: it seeds the
+// composer, attaches the wisher as the human modifier, and produces the remark — it
+// never forks the pipeline. `recipeSeedMs` is the chooser's RNG seed: the firehose
+// passes its scheduled time (reproducible fires); the Well passes the request clock.
+//
+// Throws on any I/O or creation failure; the caller owns error handling + metrics.
+export async function authorSlop(
+  env: Env,
+  persona: Persona,
+  recipeSeedMs: number,
+  occasion?: WishOccasion,
+): Promise<Post> {
   const recent = await getRecentRecipes(env, RECENT_WINDOW)
   const config = parseGeneratorConfig(persona.config, persona.agentId)
 
@@ -102,7 +125,7 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
   // free local fires.)
   if (env.SLOPSPOT_ENV === 'prod' && provider.kind === 'mock') {
     throw new Error(
-      `runGeneratorPass: persona ${persona.agentId} has mock medium ${provider.id} in prod`,
+      `authorSlop: persona ${persona.agentId} has mock medium ${provider.id} in prod`,
     )
   }
 
@@ -114,20 +137,21 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
     aspectRatioBias: config.aspectRatioBias as Partial<Record<AspectRatio, number>> | undefined,
   }
 
-  const recipe = chooseNextGeneration({ scheduledTimeMs, recent, provider, bias })
+  const recipe = chooseNextGeneration({ scheduledTimeMs: recipeSeedMs, recent, provider, bias })
 
   // [LAW:single-enforcer] composePrompt is the one place a slop's authored text is
   // generated from a recipe — both the machine prompt AND the citizen's placard
   // NAME, in one Haiku call. promptPrefix (the persona's voice) steers both;
   // maxLength flows from the provider's declared constraint so paramsSchema
-  // validation never rejects a too-long prompt. The firehose passes no wish — that
-  // seed is the Well's path through this same composer.
+  // validation never rejects a too-long prompt. The wish (Well only) seeds the SAME
+  // composer — it never becomes the raw prompt; composer.ts owns that isolation.
   const { prompt, title } = await composePrompt(
     {
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
       promptPrefix: config.promptPrefix,
+      wish: occasion?.wish,
       maxLength: provider.promptMaxLength,
     },
     env,
@@ -138,6 +162,19 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
     seed: recipe.paramsSeed,
   })
 
+  // [LAW:types-are-the-program] The author is the persona, always. The human, when
+  // an occasion exists, is the optional `wisher` MODIFIER — never promoted to author
+  // ("a human in the author slot" stays unrepresentable). The conditional spread is
+  // data-shaped construction (one origin shape, an optional field), not a branch
+  // into a different origin. [LAW:dataflow-not-control-flow]
+  const origin: AuthoredOrigin = {
+    kind: 'authored',
+    author: { kind: 'agent', agentId: persona.agentId },
+    ...(occasion
+      ? { human: { role: 'wisher', by: occasion.wisher } satisfies HumanModifier }
+      : {}),
+  }
+
   const post = await createPost(
     {
       kind: 'generation',
@@ -147,14 +184,43 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
-      // [LAW:types-are-the-program] The firehose AUTHORS as a persona — no human
-      // modifier. author is the citizen; that is the whole attribution.
-      origin: { kind: 'authored', author: { kind: 'agent', agentId: persona.agentId } },
+      origin,
+      // The wish persists as provenance (foundation.3/.4) beside the machine prompt
+      // — the gap between them is the Well's art. Absent for the firehose.
+      ...(occasion ? { wish: occasion.wish } : {}),
     },
     { env },
   )
 
-  console.log('generator: posted', {
+  // [LAW:one-type-per-behavior] foundation.7 — the signed remark is the first
+  // instance of the voice layer (utter), narrating the COMPLETED slop. The voice
+  // reads a done snapshot and never triggers the act, so the remark is authored
+  // AFTER createPost with the minted id. No occasion → no AnsweredWish → nothing to
+  // narrate: the firehose has no remark by the shape of the data, not a guard.
+  if (occasion !== undefined) {
+    const remark = utter(
+      { handle: persona.agentId, displayName: persona.displayName },
+      'remark',
+      { wish: occasion.wish, slop: { postId: post.id, prompt } },
+    )
+    // [LAW:no-silent-fallbacks] exception: a failed remark persist must not lose the
+    // slop — the slop is the deliverable and is already committed. recordRemark fails
+    // LOUD (throws) at its boundary; here we log + continue so the request still
+    // returns the slop. The remark column then stays NULL, which IS the voice layer's
+    // "no utterance" (plain absence) — the same degraded value voice.ts's `speak()`
+    // produces when a voice itself fails. A loud log, not a silent swallow.
+    try {
+      await recordRemark(env, post.id, remark)
+    } catch (err) {
+      console.error('authorSlop: remark persist failed; slop stands, remark absent', {
+        postId: post.id,
+        agentId: persona.agentId,
+        err,
+      })
+    }
+  }
+
+  console.log('authorSlop: posted', {
     postId: post.id,
     agentId: persona.agentId,
     handle: persona.handle,
@@ -163,5 +229,23 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
     styleFamily: recipe.styleFamily,
     subjectTemplate: recipe.subject.subjectTemplate,
     aspectRatio: recipe.aspectRatio,
+    wished: occasion !== undefined,
   })
+  return post
+}
+
+// [LAW:single-enforcer] The firehose entry. runOneFire (firehose/scheduled.ts)
+// delegates here for every channel fire. It owns only persona SELECTION (a
+// deterministic pick by scheduled time); authoring is authorSlop's. [RECONCILE A]
+// An empty generator pool is a loud misconfiguration (seed migrations guarantee a
+// non-empty pool), never a silent default author.
+export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promise<void> {
+  const persona = await pickPersona(env, 'generator', scheduledTimeMs)
+  if (persona === null) {
+    throw new Error(
+      'runGeneratorPass: no generator personas configured — a slop must be authored by a citizen',
+    )
+  }
+  // The firehose passes no occasion — a citizen firing on its own, no human, no wish.
+  await authorSlop(env, persona, scheduledTimeMs)
 }

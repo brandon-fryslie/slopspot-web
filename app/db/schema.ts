@@ -155,6 +155,12 @@ export const generations = sqliteTable(
     // to the status discriminator, like the variety fields above — written once
     // at insert, never transitioned.
     wish: text('wish'),
+    // The answerer's SIGNED REMARK (foundation.7) — the first instance of the
+    // voice layer (app/lib/voice.ts). A serialized `Utterance` (spoke | withheld),
+    // authored once narrating the completed slop. Nullable + orthogonal to the
+    // status CHECK, like `wish`: only Well-born slops carry it; NULL is the voice
+    // layer's "no utterance" for the firehose/legacy rows. [LAW:one-type-per-behavior]
+    remarkJson: text('remark_json'),
     status: text('status', {
       enum: ['pending', 'running', 'succeeded', 'failed'],
     }).notNull(),
