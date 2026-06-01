@@ -774,3 +774,23 @@ export function renderTemplate(subject: RecipeSubject): string {
     })
     .replace(/\{(\w+)\}/g, (_match, slot) => slots[slot])
 }
+
+// [LAW:one-source-of-truth] The single derivation of a placard NAME from a recipe
+// subject. Three sites need "a name when no citizen authored one" — the composer
+// when Haiku is unavailable, the fork/direct-API write paths that have no LLM
+// naming step, and the read boundary for legacy rows predating the title column —
+// and they MUST agree, so the derivation lives once, here, beside renderTemplate
+// (its only dependency).
+//
+// [LAW:no-silent-fallbacks] A fallback name is never the empty string and never
+// 'Untitled': it is the rendered subject, article-stripped and title-cased into a
+// placard ("a derelict lighthouse at dusk" → "Derelict Lighthouse At Dusk").
+// Deterministic in the subject, so the same row always derives the same name.
+export function fallbackTitle(subject: RecipeSubject): string {
+  const rendered = renderTemplate(subject)
+  const stripped = rendered.replace(/^(a|an|the)\s+/i, '')
+  // Capitalize each WORD's first letter only — anchored at start or whitespace, so
+  // "surgeon's" stays "Surgeon's" rather than "Surgeon'S" (\b\w would fire after the
+  // apostrophe too).
+  return stripped.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
+}

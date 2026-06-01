@@ -53,6 +53,7 @@ import {
 import { emit } from '~/observability/metrics'
 import {
   aspectRatioSchema,
+  fallbackTitle,
   recipeSubjectSchema,
   styleFamilySchema,
   type RecipeSubject,
@@ -188,6 +189,22 @@ function toRecipeSubject(
   return parsed.data
 }
 
+// [LAW:no-silent-fallbacks] Map the stored title to the domain's non-empty title.
+// An empty string is the legacy sentinel (a row written before the title column
+// existed); it is the ONLY value that triggers the deterministic placard, and when
+// it does the fallback is LOUD — a metric + console.warn — never a silent blank.
+// New rows store a real name, so this derivation degrades to identity by data.
+function titleOrFallback(stored: string, subject: RecipeSubject): string {
+  if (stored.length > 0) return stored
+  emit('slopspot.feed.title_fallback', { reason: 'legacy_row' }, 1)
+  const derived = fallbackTitle(subject)
+  console.warn('feed: generation row has no authored title; derived placard from subject', {
+    subjectTemplate: subject.subjectTemplate,
+    derived,
+  })
+  return derived
+}
+
 // [LAW:types-are-the-program] Closed union → exhaustive switch on the storage
 // discriminator. Adding a new variant to posts.contentKind upstream forces
 // this switch to grow before it compiles, matching the [LAW:single-enforcer]
@@ -233,6 +250,13 @@ function toContent(row: FeedRow): Content {
       const subject = toRecipeSubject(g.subjectTemplate, g.slotsJson, g.postId)
       return {
         kind: 'generation',
+        // [LAW:no-silent-fallbacks] An empty stored title is the legacy sentinel —
+        // a row that predates the title column. New rows always carry an authored
+        // (or deterministic) name, so '' can only mean pre-migration. Derive the
+        // deterministic placard from the subject and emit the LOUD signal; the
+        // domain never sees an empty title, and the still-unnamed backlog is a
+        // metric, not a silent blank placard.
+        title: titleOrFallback(g.title, subject),
         recipe: {
           providerId: ProviderId(g.providerId),
           providerVersion: g.providerVersion,
