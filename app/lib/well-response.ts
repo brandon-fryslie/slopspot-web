@@ -40,3 +40,21 @@ export const slopResponse = (postId: PostId): WellResponse => ({ kind: 'slop', p
 // persisted wish is the visitor's words. [LAW:single-enforcer] one symbol, imported
 // by both the box page's textarea cap and the /api/well body schema.
 export const WISH_MAX = 2000
+
+// [LAW:single-enforcer] The one place a Well failure becomes a USER-FACING line. On
+// the one surface whose whole job is the spell, a leaked HTTP status / JSON envelope /
+// JS error string shatters it — so every failure branch funnels through here and the
+// box shows ONLY what this returns. [LAW:no-silent-fallbacks] does not mean leak the
+// envelope to the human: failures still fail loud, but the status + body stay in the
+// console; the human hears the well's voice. [LAW:dataflow-not-control-flow] the
+// status (read, never shown) selects the line from a DATA table — a new status→line
+// pairing is one entry, never a new branch. Absent status (a network/thrown failure)
+// falls to the default quiet.
+const WELL_QUIET = 'the well went quiet'
+const WELL_VOICE_BY_STATUS: Record<number, string> = {
+  // The daily cap (the one user-reachable budget failure) — a promise of return, voiced.
+  429: 'the well has given all it has tonight — it fills again by morning',
+}
+export function wellVoiceLine(status: number | null): string {
+  return (status === null ? undefined : WELL_VOICE_BY_STATUS[status]) ?? WELL_QUIET
+}

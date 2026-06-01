@@ -5,7 +5,7 @@
 // two arms are constructible and that v1 builds only the slop arm through slopResponse.
 
 import { describe, it, expect } from 'vitest'
-import { slopResponse, type WellResponse } from '~/lib/well-response'
+import { slopResponse, wellVoiceLine, type WellResponse } from '~/lib/well-response'
 import { PostId } from '~/lib/domain'
 
 // An exhaustive fold over WellResponse. If the `reply` arm were removed from the
@@ -39,5 +39,30 @@ describe('WellResponse — the open box contract', () => {
     // path (Acts IV–V) needs no contract change — it slots into the existing union.
     const reply: WellResponse = { kind: 'reply', text: 'Darling. You finally looked up.' }
     expect(describeArm(reply)).toBe('reply:Darling. You finally looked up.')
+  })
+})
+
+describe("wellVoiceLine — failures speak in the well's voice", () => {
+  // The box's failure display shows ONLY this line. On the one surface whose whole
+  // job is the spell, leaking a status code, the JSON envelope, or a JS error string
+  // shatters it — so assert the well-voice contract across every failure shape the
+  // box can hit (HTTP statuses + the network/thrown null case).
+  const failureShapes: Array<number | null> = [429, 503, 502, 500, 403, 400, null]
+
+  it('never surfaces a status code, JSON envelope, or raw error string', () => {
+    for (const status of failureShapes) {
+      const line = wellVoiceLine(status)
+      expect(line, `status=${status}`).not.toMatch(/\d/) // no digits → no status code
+      expect(line, `status=${status}`).not.toMatch(/[{}]/) // no JSON envelope
+      expect(line, `status=${status}`).not.toMatch(/Failed to fetch/i) // no fetch error
+      expect(line.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('voices the daily cap (429) as a promise of return; every other failure is the quiet', () => {
+    expect(wellVoiceLine(429)).toMatch(/fills again/i)
+    expect(wellVoiceLine(503)).toBe('the well went quiet')
+    expect(wellVoiceLine(500)).toBe('the well went quiet')
+    expect(wellVoiceLine(null)).toBe('the well went quiet')
   })
 })
