@@ -1,7 +1,9 @@
 import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
 import { getFeed } from "~/db/feed"
+import { getPulse } from "~/db/pulse"
 import { PostCard } from "~/components/post-card"
+import { PulseStrip } from "~/components/pulse-strip"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
 import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
@@ -31,7 +33,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const cookieSort = parseSortMode(cookieRaw)
   const sort = urlSort ?? cookieSort ?? defaultSortMode
 
-  const items = await getFeed(context.cloudflare.env, readVoterId(request), sort)
+  const [items, pulse] = await Promise.all([
+    getFeed(context.cloudflare.env, readVoterId(request), sort),
+    getPulse(context.cloudflare.env),
+  ])
 
   const serialized = serializeSortMode(sort)
   const headers: HeadersInit | undefined =
@@ -39,11 +44,11 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       ? { 'Set-Cookie': serializeSortCookie(sort, url.protocol === 'https:') }
       : undefined
 
-  return data({ items, sort }, { headers })
+  return data({ items, pulse, sort }, { headers })
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items, sort } = loaderData
+  const { items, pulse, sort } = loaderData
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-10 border-b border-votive/15 pb-7">
@@ -68,6 +73,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </Link>
         </div>
       </header>
+      <PulseStrip events={pulse} />
       <div className="mb-6">
         <SortSelector current={sort} />
       </div>
