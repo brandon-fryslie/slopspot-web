@@ -32,6 +32,10 @@ const voterConfigSchema = z
         message: 'startHour must be less than endHour',
       })
       .optional(),
+    // The citizen's authored CREED (a Cast display asset, read by creedOf in the
+    // Worker). The voter does not consume it, but .strict() would reject the key
+    // migration 0023 writes onto the critic configs — so it is admitted here.
+    creed: z.string().optional(),
   })
   .strict()
   .refine((d) => d.downvoteThreshold < d.upvoteThreshold, {
