@@ -197,9 +197,11 @@ function toRecipeSubject(
 // unexpected new-write bug is just as visible and traceable. New rows store a real
 // name, so this derivation degrades to identity by data.
 function titleOrFallback(stored: string, subject: RecipeSubject, postId: string): string {
-  // Trim before the emptiness test: a whitespace-only title is as blank as '' on the
-  // card, so it must take the fallback too — the invariant is a *visible* name.
-  if (stored.trim().length > 0) return stored
+  // Trim once: a whitespace-only title is as blank as '' on the card (→ fallback),
+  // and a real title with stray surrounding whitespace renders clean. The invariant
+  // is a *visible*, well-formed name, so the trimmed value is what the domain gets.
+  const trimmed = stored.trim()
+  if (trimmed.length > 0) return trimmed
   emit('slopspot.feed.title_fallback', { reason: 'empty_title' }, 1)
   const derived = fallbackTitle(subject)
   console.warn('feed: generation row has an empty title; derived placard from subject', {

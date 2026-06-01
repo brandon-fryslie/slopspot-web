@@ -167,7 +167,7 @@ describe('composePrompt', () => {
     )
   })
 
-  it('falls back when the JSON is missing a field (empty title)', async () => {
+  it('falls back when the JSON has a present-but-empty title', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse('', 'a fine prompt'))
 
     const input = makeInput()
