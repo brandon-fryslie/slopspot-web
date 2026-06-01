@@ -8,7 +8,7 @@
 -- the fallback for a future un-authored persona.
 --
 -- [LAW:one-source-of-truth] The creed lives in D1 with the rest of persona config,
--- tuned by SQL without a redeploy — the same store creedOf already reads from.
+-- tuned by SQL without a redeploy — the same store that creedOf already reads from.
 --
 -- [LAW:dataflow-not-control-flow] Each row is the same json_set keyed by exact
 -- agent_id; the only variability is the data (the line). No per-role branch — the
