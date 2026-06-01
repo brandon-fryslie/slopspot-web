@@ -41,27 +41,27 @@ async function seedPost(opts: {
     .run()
 }
 
-async function seedSucceededGeneration(postId: string, image: Media) {
+async function seedSucceededGeneration(postId: string, image: Media, title = 'a piece') {
   await env.DB.prepare(
     `INSERT INTO generations
-       (post_id, provider_id, provider_version, params_json, style_family,
+       (post_id, provider_id, provider_version, params_json, title, style_family,
         subject_template, slots_json, aspect_ratio, status, completed_at, output_json)
-     VALUES (?, 'fal-flux', '1', '{}', 'photoreal', 'T00', '{"freeText":""}', '1:1',
+     VALUES (?, 'fal-flux', '1', '{}', ?, 'photoreal', 'T00', '{"freeText":""}', '1:1',
         'succeeded', ?, ?)`,
   )
-    .bind(postId, 1000, JSON.stringify(image))
+    .bind(postId, title, 1000, JSON.stringify(image))
     .run()
 }
 
-async function seedRunningGeneration(postId: string) {
+async function seedRunningGeneration(postId: string, title = 'a piece') {
   await env.DB.prepare(
     `INSERT INTO generations
-       (post_id, provider_id, provider_version, params_json, style_family,
+       (post_id, provider_id, provider_version, params_json, title, style_family,
         subject_template, slots_json, aspect_ratio, status, started_at)
-     VALUES (?, 'fal-flux', '1', '{}', 'photoreal', 'T00', '{"freeText":""}', '1:1',
+     VALUES (?, 'fal-flux', '1', '{}', ?, 'photoreal', 'T00', '{"freeText":""}', '1:1',
         'running', ?)`,
   )
-    .bind(postId, 900)
+    .bind(postId, title, 900)
     .run()
 }
 
@@ -90,24 +90,24 @@ async function seedVote(opts: {
 const image = (url: string): Media => ({ kind: 'image', url, w: 8, h: 8 })
 
 describe('app/db/citizens.ts - getCitizenLedger', () => {
-  it('makers: counts authored generations and surfaces recent works newest-first', async () => {
+  it('makers: counts authored generations and surfaces recent works (placard + image) newest-first', async () => {
     await seedPost({ id: 'm_1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
-    await seedSucceededGeneration('m_1', image('/media/aaa'))
+    await seedSucceededGeneration('m_1', image('/media/aaa'), 'I gave it a hallway')
     await seedPost({ id: 'm_2', createdAt: 200, contentKind: 'generation', originJson: authored('agent:maker') })
-    await seedRunningGeneration('m_2')
+    await seedRunningGeneration('m_2', 'four steps, never five')
     // a different maker's post must not be counted
     await seedPost({ id: 'm_other', createdAt: 300, contentKind: 'generation', originJson: authored('agent:someone-else') })
-    await seedSucceededGeneration('m_other', image('/media/zzz'))
+    await seedSucceededGeneration('m_other', image('/media/zzz'), 'not mine')
 
     const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
 
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(2)
-    // newest first: the running gen (no image) then the succeeded one
+    // newest first: the running gen (placard, no image yet) then the succeeded one
     expect(ledger.works).toEqual([
-      { postId: 'm_2', image: null },
-      { postId: 'm_1', image: '/media/aaa' },
+      { postId: 'm_2', title: 'four steps, never five', image: null },
+      { postId: 'm_1', title: 'I gave it a hallway', image: '/media/aaa' },
     ])
   })
 
@@ -117,14 +117,14 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     // or it undercounts older posts the feed attributes to this maker.
     const legacyActor = JSON.stringify({ actor: { kind: 'agent', agentId: 'agent:maker' } })
     await seedPost({ id: 'm_legacy', createdAt: 50, contentKind: 'generation', originJson: legacyActor })
-    await seedSucceededGeneration('m_legacy', image('/media/legacy'))
+    await seedSucceededGeneration('m_legacy', image('/media/legacy'), 'an old placard')
 
     const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
 
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(1)
-    expect(ledger.works).toEqual([{ postId: 'm_legacy', image: '/media/legacy' }])
+    expect(ledger.works).toEqual([{ postId: 'm_legacy', title: 'an old placard', image: '/media/legacy' }])
   })
 
   it('scavengers: counts legacy {actor}-shaped attribution the feed still reads', async () => {
@@ -151,7 +151,20 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(1)
-    expect(ledger.works).toEqual([{ postId: 'm_orphan', image: null }])
+    expect(ledger.works).toEqual([{ postId: 'm_orphan', title: null, image: null }])
+  })
+
+  it('makers: an empty/whitespace placard collapses to a null voice line (one absence)', async () => {
+    // A legacy pre-placard row stores '' (and a stray-whitespace title is as blank);
+    // the maker said nothing there, so the voice line is the SAME null absence an
+    // orphan carries — never a mechanically-derived stand-in he never spoke.
+    await seedPost({ id: 'm_blank', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
+    await seedSucceededGeneration('m_blank', image('/media/blank'), '   ')
+
+    const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
+
+    if (ledger.guild !== 'makers') throw new Error('guard')
+    expect(ledger.works).toEqual([{ postId: 'm_blank', title: null, image: '/media/blank' }])
   })
 
   it('scavengers: an orphan found post (no sibling row) is counted AND listed untitled', async () => {
@@ -163,6 +176,19 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     if (ledger.guild !== 'scavengers') throw new Error('guard')
     expect(ledger.rescued).toBe(1)
     expect(ledger.finds).toEqual([{ postId: 'f_orphan', title: null }])
+  })
+
+  it('scavengers: a whitespace-only find title collapses to a null haul line (one absence)', async () => {
+    // The find title takes the same boundary collapse as the maker's placard and
+    // the critic's reasoning, so a blank title is the SAME null absence — never an
+    // empty link label in the haul.
+    await seedPost({ id: 'f_blank', createdAt: 100, contentKind: 'found', originJson: foundBy('agent:digger') })
+    await seedFound('f_blank', '   ', 'https://example.com/blank')
+
+    const ledger = await getCitizenLedger(env, persona('agent:digger', 'discoverer'))
+
+    if (ledger.guild !== 'scavengers') throw new Error('guard')
+    expect(ledger.finds).toEqual([{ postId: 'f_blank', title: null }])
   })
 
   it('makers: a maker with nothing made is a real empty ledger, not an error', async () => {
