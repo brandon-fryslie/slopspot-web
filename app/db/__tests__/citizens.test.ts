@@ -144,10 +144,10 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(2)
-    // newest first: the running gen (placard, no image yet) then the succeeded one
+    // VOICE is the placard line only (no image) — newest first
     expect(ledger.works).toEqual([
-      { postId: 'm_2', title: 'four steps, never five', image: null },
-      { postId: 'm_1', title: 'I gave it a hallway', image: '/media/aaa' },
+      { postId: 'm_2', title: 'four steps, never five' },
+      { postId: 'm_1', title: 'I gave it a hallway' },
     ])
   })
 
@@ -164,7 +164,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(1)
-    expect(ledger.works).toEqual([{ postId: 'm_legacy', title: 'an old placard', image: '/media/legacy' }])
+    expect(ledger.works).toEqual([{ postId: 'm_legacy', title: 'an old placard' }])
   })
 
   it('scavengers: counts legacy {actor}-shaped attribution the feed still reads', async () => {
@@ -183,7 +183,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
   it('makers: an orphan generation (no sibling row) is counted AND listed, never dropped', async () => {
     // D1 batch inserts are non-transactional, so a generation post can briefly
     // exist with no generations sibling. `made` counts it; `works` must list it
-    // too (as a no-image frame) rather than innerJoin it away into a mismatch.
+    // too (as an untitled line) rather than innerJoin it away into a mismatch.
     await seedPost({ id: 'm_orphan', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
 
     const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
@@ -191,7 +191,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(1)
-    expect(ledger.works).toEqual([{ postId: 'm_orphan', title: null, image: null }])
+    expect(ledger.works).toEqual([{ postId: 'm_orphan', title: null }])
   })
 
   it('makers: an empty/whitespace placard collapses to a null voice line (one absence)', async () => {
@@ -204,7 +204,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
 
     if (ledger.guild !== 'makers') throw new Error('guard')
-    expect(ledger.works).toEqual([{ postId: 'm_blank', title: null, image: '/media/blank' }])
+    expect(ledger.works).toEqual([{ postId: 'm_blank', title: null }])
   })
 
   it('scavengers: an orphan found post (no sibling row) is counted AND listed untitled', async () => {

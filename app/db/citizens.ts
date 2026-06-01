@@ -15,7 +15,7 @@
 // host has neither by construction (he presides; he does not make, judge, or
 // scavenge), an explicit arm, never a missing one.
 
-import { and, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { found, generations, posts } from '~/db/schema'
 import { recentVotesForVoter, voterStats } from '~/db/votes'
@@ -27,18 +27,21 @@ import { styleFamilySchema, type StyleFamily } from '~/lib/variety'
 // the limit is the detail page's window — small, newest-first.
 const RECENT_LIMIT = 6
 
-// A maker's work item — two projections of one generation the shrine renders
-// separately: `title` is his VOICE, `image` is his WORK.
-//
-// `title` is the AI-composed placard — the maker's own words (prompts/titles are
-// AI-authored), so it is genuinely his voice, not a label about him. It is null
-// for a legacy pre-placard row (empty stored title) or an orphan generation post
-// (no sibling row), collapsed to one honest absence the shrine renders as an
-// untitled piece — the SAME absence the scavenger's untitled rescue carries.
+// A maker's VOICE line — the placard he wrote, linked to its post. `title` is the
+// AI-composed name (prompts/titles are AI-authored, so it is genuinely his voice,
+// not a label about him), null for a legacy pre-placard row or an orphan generation
+// post — one honest absence the shrine renders as an untitled piece, the SAME shape
+// a scavenger's find carries.
 // [LAW:one-source-of-truth] Deliberately NOT the feed's subject-derived fallback:
 // that mechanical placard is a card-rendering convenience, never words the maker
 // said, so it has no place in his voice.
-//
+// [LAW:single-enforcer] The VOICE read carries no image — the placards panel renders
+// only the line, so it parses no output blob, and a malformed blob in a recent post
+// can never 500 a panel that does not show it. Every image (and every output_json
+// parse) belongs to the WORK panel, which hydrates only the highlights it shows.
+export type MakerLine = { postId: PostId; title: string | null }
+
+// A maker's WORK item — a curated highlight's image, plus the placard for context.
 // `image` is the succeeded output's URL, or null while the generation is still
 // pending/running or it failed — a real absence (no image yet), rendered as a
 // placeholder frame, NOT a violated invariant.
@@ -86,7 +89,7 @@ export type CitizenStat =
 // sound.
 export type CitizenLedger =
   | (Extract<CitizenStat, { guild: 'makers' }> & {
-      works: MakerWork[]
+      works: MakerLine[]
       highlights: MakerHighlight[]
       styles: StyleFamily[]
     })
@@ -333,33 +336,24 @@ async function makerStat(env: Env, agentId: string): Promise<Extract<CitizenStat
   return { guild: 'makers', made }
 }
 
-async function makerWorks(env: Env, agentId: string): Promise<MakerWork[]> {
+async function makerWorks(env: Env, agentId: string): Promise<MakerLine[]> {
   // [LAW:one-source-of-truth] leftJoin (not inner) so this lists the SAME post set
   // makerStat counts — `made` counts every generation post, so a post whose
   // generations sibling has not landed (orphan; batch inserts are non-transactional)
-  // must still appear here (as a no-image frame), never be silently dropped into a
-  // made-vs-works mismatch. The feed reader stays the single fail-loud enforcer for
-  // orphans; the shrine renders the post and links to it.
+  // must still appear here (as an untitled line), never be silently dropped into a
+  // made-vs-voice mismatch. The feed reader stays the single fail-loud enforcer for
+  // orphans; the shrine renders the line and links to it.
   const rows = await db(env)
-    .select({
-      id: posts.id,
-      title: generations.title,
-      status: generations.status,
-      outputJson: generations.outputJson,
-    })
+    .select({ id: posts.id, title: generations.title })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
-  // [LAW:types-are-the-program] "No authored placard" is one absence — the
-  // maker said nothing here — so the shrine branches on null alone, exactly as
-  // the scavenger's untitled find and the critic's empty reasoning do.
-  return rows.map((r) => ({
-    postId: PostId(r.id),
-    title: blankToNull(r.title),
-    image: imageOf(r.status, r.outputJson, r.id),
-  }))
+  // [LAW:types-are-the-program] "No authored placard" is one absence — the maker
+  // said nothing here — so the shrine branches on null alone, exactly as the
+  // scavenger's untitled find and the critic's empty reasoning do.
+  return rows.map((r) => ({ postId: PostId(r.id), title: blankToNull(r.title) }))
 }
 
 // What the highlight scan reads per post — the signals each WORK axis is picked by.
@@ -467,7 +461,10 @@ async function makerStyles(env: Env, agentId: string): Promise<StyleFamily[]> {
     .innerJoin(generations, eq(generations.postId, posts.id))
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
     .groupBy(generations.styleFamily)
-    .orderBy(desc(sql`count(*)`))
+    // [LAW:one-source-of-truth] style_family is the stable tiebreak so tied
+    // frequencies resolve deterministically — without it SQLite may reorder tied
+    // rows between reads and the "works mostly in" line would flicker.
+    .orderBy(desc(sql`count(*)`), asc(generations.styleFamily))
     .limit(3)
   return rows.map((r) => styleFamilySchema.parse(r.styleFamily))
 }
