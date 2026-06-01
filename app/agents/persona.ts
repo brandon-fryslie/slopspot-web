@@ -67,6 +67,27 @@ export type Persona = {
   config: Record<string, unknown>
 }
 
+// [LAW:one-source-of-truth] The ONE derivation of a citizen's public creed from
+// its persona_prompt. The full prompt is the private character bible (the voice
+// the composer/critic speaks through) and is NEVER shipped to the client; the
+// creed is the single short line a visitor reads on the Cast surfaces. Every
+// surface that shows a creed funnels through here so the "no raw prompt dump"
+// rule holds in one place rather than being re-implemented (and drifting) per
+// route.
+//
+// The named-cast prompts open "You are <Name> — <creed>." or "Generator persona
+// — <Name>, <creed>." (a single paragraph, no newlines — so a naive first-LINE
+// split would leak the whole bible). The creed is the first SENTENCE of the body
+// after that em-dash preamble: the self-description the character leads with.
+// Falls back to the first sentence of the whole prompt when there is no em-dash,
+// so a plainly-written prompt still yields a bounded line rather than the body.
+export function creedOf(personaPrompt: string): string {
+  const trimmed = personaPrompt.trim()
+  const emDash = trimmed.indexOf('—')
+  const body = emDash === -1 ? trimmed : trimmed.slice(emDash + 1)
+  return body.trim().split(/(?<=[.!?])\s/)[0].trim()
+}
+
 // Returns [] when no personas match the role — the call site decides whether
 // an empty pool is an error (action modules) or a no-op (orchestrator bootstrap).
 // ORDER BY agent_id is the stability guarantee that makes pickPersona's
