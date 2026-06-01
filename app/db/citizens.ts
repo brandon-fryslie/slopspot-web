@@ -26,10 +26,22 @@ import { PostId, type Media, type VoteValue } from '~/lib/domain'
 // the limit is the detail page's window — small, newest-first.
 const RECENT_LIMIT = 6
 
-// A maker's work item. `image` is the succeeded output's URL, or null while the
-// generation is still pending/running or it failed — a real absence (no image
-// yet), rendered as a placeholder frame, NOT a violated invariant.
-export type MakerWork = { postId: PostId; image: string | null }
+// A maker's work item — two projections of one generation the shrine renders
+// separately: `title` is his VOICE, `image` is his WORK.
+//
+// `title` is the AI-composed placard — the maker's own words (prompts/titles are
+// AI-authored), so it is genuinely his voice, not a label about him. It is null
+// for a legacy pre-placard row (empty stored title) or an orphan generation post
+// (no sibling row), collapsed to one honest absence the shrine renders as an
+// untitled piece — the SAME absence the scavenger's untitled rescue carries.
+// [LAW:one-source-of-truth] Deliberately NOT the feed's subject-derived fallback:
+// that mechanical placard is a card-rendering convenience, never words the maker
+// said, so it has no place in his voice.
+//
+// `image` is the succeeded output's URL, or null while the generation is still
+// pending/running or it failed — a real absence (no image yet), rendered as a
+// placeholder frame, NOT a violated invariant.
+export type MakerWork = { postId: PostId; title: string | null; image: string | null }
 
 // A critic's verdict — the value cast and the rationale. `reasoning` is
 // meaningful text or null: a human vote carries none, and the vote schema admits
@@ -142,13 +154,27 @@ async function makerWorks(env: Env, agentId: string): Promise<MakerWork[]> {
   // made-vs-works mismatch. The feed reader stays the single fail-loud enforcer for
   // orphans; the shrine renders the post and links to it.
   const rows = await db(env)
-    .select({ id: posts.id, status: generations.status, outputJson: generations.outputJson })
+    .select({
+      id: posts.id,
+      title: generations.title,
+      status: generations.status,
+      outputJson: generations.outputJson,
+    })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
-  return rows.map((r) => ({ postId: PostId(r.id), image: imageOf(r.status, r.outputJson, r.id) }))
+  // [LAW:types-are-the-program] Collapse "no authored placard" to one
+  // representation: the leftJoin null (orphan post, no sibling) and the ''
+  // legacy sentinel and a whitespace-only title are the same absence — the
+  // maker said nothing here — so the shrine branches on null alone, exactly as
+  // the scavenger's untitled find and the critic's empty reasoning do.
+  return rows.map((r) => ({
+    postId: PostId(r.id),
+    title: r.title?.trim() ? r.title.trim() : null,
+    image: imageOf(r.status, r.outputJson, r.id),
+  }))
 }
 
 // [LAW:one-source-of-truth] Reuse the vote aggregates rather than re-summing —
