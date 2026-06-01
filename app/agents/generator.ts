@@ -55,9 +55,12 @@ const generatorPersonaConfigSchema = z.object({
   promptPrefix: z.string().optional(),
 }).strict()
 
-type GeneratorPersonaConfig = z.infer<typeof generatorPersonaConfigSchema>
+export type GeneratorPersonaConfig = z.infer<typeof generatorPersonaConfigSchema>
 
-function parseGeneratorConfig(raw: Record<string, unknown>, agentId: string): GeneratorPersonaConfig {
+// Exported as the named trust boundary for generator config_json so its parse
+// contract can be locked by a unit test over the actual seeded rows — asserting
+// the real schema, not a reconstructed copy. [LAW:one-source-of-truth]
+export function parseGeneratorConfig(raw: Record<string, unknown>, agentId: string): GeneratorPersonaConfig {
   const result = generatorPersonaConfigSchema.safeParse(raw)
   if (!result.success) {
     throw new Error(
