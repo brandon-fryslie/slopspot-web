@@ -190,6 +190,14 @@ describe('fallbackTitle', () => {
     expect(fallbackTitle(subject)).toBe('Cat Working As A Surgeon')
   })
 
+  it('strips the leading article after normalizing leading whitespace (T00)', () => {
+    const subject = recipeSubjectSchema.parse({
+      subjectTemplate: 'T00',
+      slots: { freeText: '  a derelict lighthouse at dusk' },
+    })
+    expect(fallbackTitle(subject)).toBe('Derelict Lighthouse At Dusk')
+  })
+
   it("title-cases word starts only, not after an apostrophe", () => {
     const subject = recipeSubjectSchema.parse({
       subjectTemplate: 'T00',
