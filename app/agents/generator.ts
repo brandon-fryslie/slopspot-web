@@ -199,10 +199,18 @@ export async function authorSlop(
   // AFTER createPost with the minted id. No occasion → no AnsweredWish → nothing to
   // narrate: the firehose has no remark by the shape of the data, not a guard.
   if (occasion !== undefined) {
+    // [LAW:one-source-of-truth] The remark's gist (SlopGist.prompt) is the placard
+    // TITLE, not the machine prompt — matching post-card.tsx's SignedRemark, which
+    // reconstructs the same utterance from `resultTitle`. Persisting the title here
+    // means the stored remark is byte-identical to what the card renders today, and
+    // stays correct when the card switches to reading remark_json (once the voice
+    // goes LLM-backed and can no longer be recomputed). The named piece — "A
+    // Storm-Drowned Tower" — is also the human-meaningful "what the well answered
+    // with"; the raw prompt is long machine text the remark was never meant to quote.
     const remark = utter(
       { handle: persona.agentId, displayName: persona.displayName },
       'remark',
-      { wish: occasion.wish, slop: { postId: post.id, prompt } },
+      { wish: occasion.wish, slop: { postId: post.id, prompt: title } },
     )
     // [LAW:no-silent-fallbacks] exception: a failed remark persist must not lose the
     // slop — the slop is the deliverable and is already committed. recordRemark fails
