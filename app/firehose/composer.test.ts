@@ -136,6 +136,21 @@ describe('composePrompt', () => {
     expect(emit).toHaveBeenCalledWith('slopspot.composer.result', { outcome: 'haiku' }, 1)
   })
 
+  it('extracts the object even when a string contains braces and prose trails it', async () => {
+    // The prompt value contains { and }, and the model appends commentary after the
+    // object. A first-brace-to-last-brace slice would grab the trailing brace; the
+    // balanced scanner extracts the complete object.
+    const body =
+      '{"title":"The {Cursed} One","prompt":"a sign reading {OPEN} at 3am"}\n\nHope that works! }'
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ content: [{ type: 'text', text: body }] }),
+    } as Response)
+
+    const result = await composePrompt(makeInput(), mockEnv('test-key'))
+    expect(result).toEqual({ title: 'The {Cursed} One', prompt: 'a sign reading {OPEN} at 3am' })
+  })
+
   it('falls back when the Haiku response has no JSON object at all', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
