@@ -128,19 +128,23 @@ export function signatureStat(stat: CitizenStat): string {
 }
 
 // A feud flag the roster renders on a citizen's card — the standing rivalry made
-// clickable. `rivalHandle` is the /cast URL key the flag links to (the fight is
-// the rival's shrine); `rivalName` is the placard label; `reason` is the one-line
-// soap-opera prose the shrine shows beneath the flag. All three are resolved from
-// canon + the live roster, so a flag can only ever point at a citizen who is
+// clickable, and nothing more. `rivalHandle` is the /cast URL key the flag links to
+// (the fight is the rival's shrine); `rivalName` is the placard label. Both resolve
+// from canon + the live roster, so a flag can only ever point at a citizen who is
 // actually present and addressable.
-export type FeudFlag = { rivalHandle: string; rivalName: string; reason: string }
+// [LAW:types-are-the-program] The roster renders only the flag, so the type carries
+// only the flag — the soap-opera `reason` prose lives on `Feud` (the shrine shape),
+// not here, so the roster loader never serializes prose it does not show.
+export type FeudFlag = { rivalHandle: string; rivalName: string }
 
-// [LAW:types-are-the-program] On the shrine a feud reads in two directions: this
-// citizen DECLARES a grudge, or is TARGETED-BY one. The stance is the discriminator
-// the WORLD panel renders different prose for — so it travels as data on the flag,
-// not as two near-identical functions. The Gremlin DECLARES nothing and is
-// TARGETED-BY everyone; his WORLD is the city's whole feud map seen from the bottom.
-export type Feud = FeudFlag & { stance: 'declares' | 'targeted-by' }
+// [LAW:types-are-the-program] The shrine's richer view of the same edge: which way
+// the feud reads (this citizen DECLARES a grudge, or is TARGETED-BY one) plus the
+// one-line `reason` prose the WORLD panel shows beneath it. Stance is the
+// discriminator the panel renders different headlines for; both extend the bare flag
+// because the shrine needs strictly more than the roster does. The Gremlin DECLARES
+// nothing and is TARGETED-BY everyone; his WORLD is the city's whole feud map seen
+// from the bottom.
+export type Feud = FeudFlag & { reason: string; stance: 'declares' | 'targeted-by' }
 
 // [LAW:one-source-of-truth] The city's feuds — editorial canon (the-cast.md "The
 // feuds"; the rivalries written into the persona prompts), given their ONE
@@ -192,7 +196,7 @@ export function feudsFor(handle: string | null, roster: ReadonlyMap<string, stri
   return FEUDS.flatMap((f) => {
     if (f.from !== handle) return []
     const rivalName = roster.get(f.against)
-    return rivalName === undefined ? [] : [{ rivalHandle: f.against, rivalName, reason: f.reason }]
+    return rivalName === undefined ? [] : [{ rivalHandle: f.against, rivalName }]
   })
 }
 
