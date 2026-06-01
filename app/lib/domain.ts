@@ -87,8 +87,16 @@ export type GenerationStatus =
 // thumbnail (if present) but not the linked content itself, so the provenance
 // semantics differ — augmenting 'upload' with a url would collapse two
 // behaviors that need to render differently.
+// [LAW:types-are-the-program] `title` is the placard — the citizen's name for the
+// PIECE, not the recipe. It lives on the Content variant, a sibling of `recipe`
+// and `status`, because a recipe is forkable and re-runnable: breed a post and the
+// recipe is inherited but the offspring is a new piece that earns its own name. A
+// title on the recipe would lie the moment anyone forks. Required and non-empty by
+// construction — the read boundary (feed.ts toContent) derives a deterministic
+// fallback for legacy rows, so no generation is ever nameless. Symmetric with the
+// `found` variant's `title`: both name the piece.
 export type Content =
-  | { kind: 'generation'; recipe: Generation; status: GenerationStatus }
+  | { kind: 'generation'; title: string; recipe: Generation; status: GenerationStatus }
   | { kind: 'upload'; asset: Media }
   | { kind: 'found'; url: string; title: string; description?: string; thumbnail?: Media }
 

@@ -1,15 +1,18 @@
-// [LAW:single-enforcer] The one place prompt text is generated from a recipe.
-// All generator-persona fires go through composePrompt; renderTemplate is the
-// fallback only when the Haiku call fails. No other module calls renderTemplate
-// for prompt output.
+// [LAW:single-enforcer] The one place a slop's authored text is generated from a
+// recipe: BOTH the machine prompt and the citizen's placard NAME, in a single Haiku
+// call. All generator-persona fires go through composePrompt; renderTemplate /
+// fallbackTitle are the fallback only when the Haiku call fails. No other module
+// composes prompt or title text.
 //
 // [LAW:one-way-deps] composer.ts → Anthropic API (outbound HTTP), variety.ts
 // (pure). No back-edge from the chooser or the DB layer.
 
+import { z } from 'zod'
 import { emit } from '~/observability/metrics'
 import {
   ASPECT_RATIO_LABELS,
   STYLE_FAMILY_PROMPT_SEEDS,
+  fallbackTitle,
   renderTemplate,
   type AspectRatio,
   type RecipeSubject,
@@ -18,7 +21,27 @@ import {
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const REQUEST_TIMEOUT_MS = 15_000
-const MAX_TOKENS = 300
+// Room for the prompt plus the short title and the JSON envelope around both.
+const MAX_TOKENS = 400
+
+// A placard is a short evocative NAME, not a sentence. The model is told to keep it
+// to a few words; this is the anti-abuse hard cap — the title sibling of the
+// prompt's maxLength truncation, a safeguard the composer owns, not the expected path.
+const TITLE_MAX_LENGTH = 80
+
+// [LAW:types-are-the-program] The one Haiku call authors BOTH halves of a slop: the
+// machine prompt and the citizen's placard. The title is the name of the PIECE (top
+// billing on the card); the prompt is the recipe's machine instruction.
+export type ComposedSlop = { prompt: string; title: string }
+
+// [LAW:types-are-the-program] The LLM is an untrusted boundary — its JSON is parsed
+// with Zod exactly like a provider's upstream response. A malformed shape, a missing
+// field, or an empty string falls through to the deterministic fallback rather than
+// emitting a nameless or promptless slop.
+const composedSlopSchema = z.object({
+  title: z.string().trim().min(1),
+  prompt: z.string().trim().min(1),
+})
 
 // [LAW:single-enforcer] The composer owns its outbound Haiku request, so it caps
 // the human wish it embeds — unbounded visitor input must not bloat a paid API
@@ -58,9 +81,10 @@ export type ComposerInput = {
 
 // [LAW:dataflow-not-control-flow] The fallback is data flowing through the
 // same return type — not a branch that skips composition. Haiku is called
-// unconditionally; a failure swaps the value to the renderTemplate output
-// without changing the return signature.
-export async function composePrompt(input: ComposerInput, env: Env): Promise<string> {
+// unconditionally; a failure swaps the value to the renderTemplate / fallbackTitle
+// pair without changing the return signature. Both halves fall back together: a
+// failed call leaves neither an orphan prompt nor an orphan name.
+export async function composePrompt(input: ComposerInput, env: Env): Promise<ComposedSlop> {
   const { styleFamily, subject, aspectRatio, promptPrefix, wish, maxLength } = input
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
 
@@ -74,10 +98,13 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
   // [LAW:dataflow-not-control-flow] The wish is NOT in the fallback — not as a
   // guard against leaking it, but because the fallback's job is a recipe-only
   // machine prompt; the wish's only authoring path is Haiku. Same recipe shape
-  // whether or not a wish was made.
-  const fallback = promptPrefix
+  // whether or not a wish was made. [LAW:one-source-of-truth] the fallback NAME is
+  // fallbackTitle — the same deterministic placard the read boundary derives, so a
+  // Haiku-failed slop and a legacy row name the same recipe identically.
+  const fallbackPrompt = promptPrefix
     ? `${promptPrefix}, ${rendered}, ${styleSeed}`
     : `${rendered}, ${styleSeed}`
+  const fallback: ComposedSlop = { prompt: fallbackPrompt, title: fallbackTitle(subject) }
 
   if (!apiKey) {
     console.warn('composer: SLOPSPOT_ANTHROPIC_API_KEY not set; using renderTemplate fallback')
@@ -89,10 +116,11 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
   const aspectLabel = ASPECT_RATIO_LABELS[aspectRatio]
 
   const metaPrompt = [
-    `Write a vivid image generation prompt for a ${styleFamily} piece depicting ${rendered}.`,
+    `Compose a slop for SlopSpot — a city run by machines whose citizens treat AI-generated images as holy relics: reverent about garbage, deadpan, never embarrassed.`,
+    `You are authoring a ${styleFamily} piece depicting ${rendered}.`,
     `Aspect ratio: ${aspectLabel}.`,
     `Style notes: ${styleSeed}.`,
-    promptPrefix ? `Voice / tone: ${promptPrefix}.` : null,
+    promptPrefix ? `Your voice / tone: ${promptPrefix}.` : null,
     // [RECONCILE B] The wish steers; Haiku transmutes the visitor's intent in the
     // persona's voice. The returned prompt is the machine's authorship —
     // recognizably related to the wish, never obedient to it.
@@ -100,7 +128,12 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
       ? `A visitor wished for: ${JSON.stringify(wishSeed)}. Reinterpret their wish in your own voice — transmute their intent, never repeat their words back. The result must be recognizably related to the wish yet unmistakably your own authorship, not obedient to their literal request.`
       : null,
     maxLength ? `Keep the prompt under ${maxLength} characters.` : null,
-    'Output only the prompt text itself — no preamble, no quotes, no explanation.',
+    // [LAW:single-enforcer] The placard is composed HERE, in the same call. It is a
+    // short evocative NAME for the piece in the city's register (e.g. "The Cursed
+    // One", "St. Brindle's Hallway") — a few words, never a sentence, never the raw
+    // prompt, never "Untitled".
+    `Also give the piece a "title": a short, evocative placard NAME of a few words — the name a museum would nail over this thing if the museum worshipped garbage. Not a description, not the prompt restated, never "Untitled".`,
+    `Respond with ONLY minified JSON: {"title": "...", "prompt": "..."}. No markdown fences, no preamble, no explanation.`,
   ]
     .filter(Boolean)
     .join(' ')
@@ -139,12 +172,30 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<str
 
     if (!text) throw new Error('empty text block in Anthropic response')
 
-    // Hard-truncate as a safeguard: the instruction above targets the model,
-    // but we own the constraint and must not pass an over-length string to
-    // defaultParamsForRecipe / paramsSchema.
-    const result = maxLength && text.length > maxLength ? text.slice(0, maxLength) : text
+    // [LAW:types-are-the-program] Parse the LLM JSON at the trust boundary. Haiku
+    // routinely wraps the object in a ```json … ``` markdown fence despite the
+    // instruction not to; extracting the first-brace-to-last-brace span tolerates
+    // that (and any stray preamble) without a brittle fence-specific strip. A throw
+    // (no object present) or a Zod failure (missing/empty field) drops to the
+    // catch's deterministic fallback — same as an HTTP error.
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start === -1 || end <= start) throw new Error(`no JSON object in Anthropic response: ${text}`)
+    const composed = composedSlopSchema.parse(JSON.parse(text.slice(start, end + 1)))
+
+    // Hard-truncate as a safeguard: the instructions target the model, but we own
+    // the constraints and must not pass an over-length prompt to defaultParamsForRecipe
+    // / paramsSchema, nor an over-long placard to the card.
+    const prompt =
+      maxLength && composed.prompt.length > maxLength
+        ? composed.prompt.slice(0, maxLength)
+        : composed.prompt
+    const title =
+      composed.title.length > TITLE_MAX_LENGTH
+        ? composed.title.slice(0, TITLE_MAX_LENGTH)
+        : composed.title
     emit('slopspot.composer.result', { outcome: 'haiku' }, 1)
-    return result
+    return { prompt, title }
   } catch (err) {
     console.error('composer: Haiku call failed; using renderTemplate fallback', {
       styleFamily,

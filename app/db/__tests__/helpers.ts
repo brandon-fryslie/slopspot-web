@@ -61,6 +61,10 @@ export type SeedGenerationOpts = {
   providerVersion?: string
   params?: unknown
   parentId?: PostId
+  // The placard NAME. Defaults to a non-empty seeded placard so feed reads see a
+  // real title; pass '' explicitly to seed a legacy row and exercise the read
+  // boundary's deterministic fallback.
+  title?: string
   // The human WISH (provenance). Optional: only Well-born generations carry it;
   // omitting it seeds a NULL column, the default for every other genesis.
   wish?: string
@@ -210,6 +214,7 @@ export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostI
           providerId: content.providerId ?? 'fal-flux',
           providerVersion: content.providerVersion ?? '1.0',
           paramsJson: JSON.stringify(content.params ?? { prompt: 'a test prompt' }),
+          title: content.title ?? 'A Seeded Placard',
           parentPostId: content.parentId ?? null,
           styleFamily: content.styleFamily ?? 'photoreal',
           subjectTemplate: subject.subjectTemplate,

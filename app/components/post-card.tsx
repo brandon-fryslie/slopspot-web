@@ -18,6 +18,15 @@ export function PostCard({
   return (
     <article className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
       <ContentView content={post.content} />
+      {/* [LAW:types-are-the-program] The placard renders for generation content by
+          the discriminator — the title is a guaranteed-present field on that arm,
+          so there is no nameless branch. Top billing, placard serif: the sacred
+          register naming the gutter's contents. */}
+      {post.content.kind === "generation" && (
+        <h2 className="px-3 pt-3 font-placard text-xl leading-tight text-bone">
+          {post.content.title}
+        </h2>
+      )}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
         <OriginBadge origin={post.origin} />

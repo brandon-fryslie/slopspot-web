@@ -132,6 +132,12 @@ export const generations = sqliteTable(
     providerId: text('provider_id').notNull(),
     providerVersion: text('provider_version').notNull(),
     paramsJson: text('params_json').notNull(),
+    // The placard NAME — the piece's identity, top billing on the card. NOT NULL so
+    // the DB enforces presence; the '' DEFAULT exists only so 0020's `ALTER TABLE
+    // ADD COLUMN NOT NULL` can populate pre-existing rows. '' is the legacy sentinel
+    // the read boundary (feed.ts) maps to a deterministic placard — createPost always
+    // writes a real non-empty name, so '' never lands in a normal write.
+    title: text('title').notNull().default(''),
     parentPostId: text('parent_post_id').references(() => posts.id),
     // [LAW:one-source-of-truth] The DB-level DEFAULTs duplicate values that
     // 0001_variety_taxonomy.sql sets so `ALTER TABLE ADD COLUMN NOT NULL` can

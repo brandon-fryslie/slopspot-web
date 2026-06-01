@@ -34,6 +34,11 @@ export type CreatePostInput =
       kind: 'generation'
       providerId: ProviderId
       params: unknown
+      // [LAW:one-source-of-truth] The placard NAME for this piece. Composed by the
+      // caller (the firehose's one Haiku call; the deterministic fallbackTitle for
+      // fork / direct-API paths) and persisted here, the single writer. Required and
+      // non-empty — createPost trusts its typed input rather than re-deriving a name.
+      title: string
       styleFamily: StyleFamily
       subject: RecipeSubject
       aspectRatio: AspectRatio
@@ -166,6 +171,7 @@ async function createGenerationPost(
         providerId: provider.id,
         providerVersion: provider.version,
         paramsJson: JSON.stringify(params),
+        title: input.title,
         parentPostId: input.parentId ?? null,
         styleFamily: input.styleFamily,
         subjectTemplate: input.subject.subjectTemplate,
@@ -303,6 +309,7 @@ async function createGenerationPost(
     origin: input.origin,
     content: {
       kind: 'generation',
+      title: input.title,
       recipe: {
         providerId: provider.id,
         providerVersion: provider.version,
