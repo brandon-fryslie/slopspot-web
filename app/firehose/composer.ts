@@ -89,6 +89,13 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // wish is absent it is undefined throughout, no branch around the embed.
   const wishSeed = wish?.slice(0, WISH_SEED_MAX)
 
+  // [LAW:single-enforcer] One prompt-length enforcer for BOTH the Haiku output and
+  // the fallback. The provider's promptMaxLength must hold on every path — an
+  // over-length fallback prompt would fail downstream params validation just as a
+  // Haiku one would — so the cap is applied through this single closure, not just on
+  // the happy path.
+  const capPrompt = (p: string) => (maxLength && p.length > maxLength ? p.slice(0, maxLength) : p)
+
   const rendered = renderTemplate(subject)
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[styleFamily]
   // [LAW:dataflow-not-control-flow] The wish is NOT in the fallback — not as a
@@ -100,10 +107,10 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   const fallbackPrompt = promptPrefix
     ? `${promptPrefix}, ${rendered}, ${styleSeed}`
     : `${rendered}, ${styleSeed}`
-  const fallback: ComposedSlop = { prompt: fallbackPrompt, title: fallbackTitle(subject) }
+  const fallback: ComposedSlop = { prompt: capPrompt(fallbackPrompt), title: fallbackTitle(subject) }
 
   if (!apiKey) {
-    console.warn('composer: SLOPSPOT_ANTHROPIC_API_KEY not set; using renderTemplate fallback')
+    console.warn('composer: SLOPSPOT_ANTHROPIC_API_KEY not set; using recipe fallback (prompt + title)')
     emit('slopspot.composer.result', { outcome: 'fallback', reason: 'missing_key' }, 1)
     return fallback
   }
@@ -186,15 +193,12 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     // Hard-truncate as a safeguard: the instructions target the model, but we own
     // the constraints and must not pass an over-length prompt to defaultParamsForRecipe
     // / paramsSchema, nor an over-long placard to the card. [LAW:one-source-of-truth]
-    // capPlacard is the shared placard-length enforcer, identical to the fallback path.
-    const prompt =
-      maxLength && composed.prompt.length > maxLength
-        ? composed.prompt.slice(0, maxLength)
-        : composed.prompt
+    // capPrompt / capPlacard are the shared length enforcers, identical to the
+    // fallback path.
     emit('slopspot.composer.result', { outcome: 'haiku' }, 1)
-    return { prompt, title: capPlacard(composed.title) }
+    return { prompt: capPrompt(composed.prompt), title: capPlacard(composed.title) }
   } catch (err) {
-    console.error('composer: Haiku call failed; using renderTemplate fallback', {
+    console.error('composer: Haiku call failed; using recipe fallback (prompt + title)', {
       styleFamily,
       subjectTemplate: subject.subjectTemplate,
       err,
