@@ -233,7 +233,15 @@ export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostI
 
 export async function seedVote(
   env: Env,
-  opts: { postId: PostId; voterId: string; value: VoteValue; createdAt?: Date },
+  opts: {
+    postId: PostId
+    voterId: string
+    value: VoteValue
+    createdAt?: Date
+    // The critic's rationale. Optional: a human anon vote leaves it NULL (the
+    // default here); an agent critic carries the z.ai verdict text.
+    reasoning?: string
+  },
 ): Promise<void> {
   await db(env)
     .insert(votes)
@@ -242,6 +250,7 @@ export async function seedVote(
       voterId: opts.voterId,
       value: opts.value,
       createdAt: opts.createdAt ?? new Date('2026-01-01T00:00:00Z'),
+      reasoning: opts.reasoning ?? null,
     })
 }
 

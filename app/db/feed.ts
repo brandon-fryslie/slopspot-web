@@ -48,6 +48,7 @@ import {
   type PersonaActor,
   type Post,
   type RenderablePost,
+  type Verdict,
   type VoteValue,
 } from '~/lib/domain'
 import { authorLabel } from '~/lib/author-label'
@@ -365,6 +366,68 @@ async function fetchCitizenRefs(
   return refs
 }
 
+// [LAW:single-enforcer] One place resolves the representative critic VERDICT for a
+// set of visible posts. Mirrors fetchCitizenRefs: a single bounded batch query keyed
+// on the visible post ids (≤50 → ≤50 bind vars, well under D1's 100-var limit) run
+// AFTER the feed CTE, so the orphan/fail-loud guards on the main row→Post map are
+// untouched. [LAW:one-source-of-truth] reasoning lives on the vote row, displayName on
+// the persona row; this read JOINs them and stores neither — no third copy to drift.
+//
+// SELECTION RULE (deterministic, per the acceptance criterion): among a post's
+// critic votes carrying a NON-EMPTY reasoning, take the MOST RECENT (created_at DESC) —
+// the city's latest opinion is the one it's living with. Ties (identical created_at)
+// break by voter_id DESC, so the same feed render always yields the same byline.
+// The INNER JOIN to personas is what makes a vote a *critic's*: a vote whose voter_id
+// is not a persona (a human's anon-cookie UUID) has no displayName to attribute and is
+// excluded by construction — which is also why human votes (NULL reasoning) never
+// reach this rank.
+async function fetchVerdicts(
+  database: ReturnType<typeof db>,
+  postIds: readonly string[],
+): Promise<Map<string, Verdict>> {
+  if (postIds.length === 0) return new Map()
+
+  // [LAW:no-silent-fallbacks] One predicate excludes both the NULL and the
+  // whitespace-only reasoning: trim(NULL) is NULL and `NULL <> ''` is falsy in SQLite,
+  // so neither survives the WHERE. Filtering BEFORE the window rank guarantees two
+  // things at once — no empty-string verdict can reach the domain, and a post whose
+  // newest vote has a blank reasoning still surfaces an older, meaningful critic line
+  // rather than being shadowed into silence.
+  const meaningful = sql`trim(${votes.reasoning}) <> ''`
+  const ranked = database
+    .select({
+      postId: votes.postId,
+      reasoning: votes.reasoning,
+      critic: personas.displayName,
+      rank: sql<number>`row_number() over (
+        partition by ${votes.postId}
+        order by ${votes.createdAt} desc, ${votes.voterId} desc
+      )`.as('verdict_rank'),
+    })
+    .from(votes)
+    .innerJoin(personas, eq(personas.agentId, votes.voterId))
+    .where(and(inArray(votes.postId, postIds), meaningful))
+    .as('ranked_verdicts')
+
+  const rows = await database
+    .select({ postId: ranked.postId, reasoning: ranked.reasoning, critic: ranked.critic })
+    .from(ranked)
+    .where(eq(ranked.rank, 1))
+
+  const verdicts = new Map<string, Verdict>()
+  for (const r of rows) {
+    // [LAW:no-silent-fallbacks] `required` is the boundary fail-loud if the stored
+    // shape ever drifts (the WHERE already excludes NULL, so this never throws in
+    // practice) — never an `!`-laundered null. Trim once for a clean domain value, the
+    // same rule the title boundary applies.
+    verdicts.set(r.postId, {
+      text: required(r.reasoning, `verdict reasoning for post ${r.postId}`).trim(),
+      critic: r.critic,
+    })
+  }
+  return verdicts
+}
+
 // [LAW:one-source-of-truth] Resolve an agent's persona reference (agentId) into its
 // CitizenRef. Construct explicitly rather than spreading parsed JSON so the
 // storage→domain boundary emits exactly the domain shape. A persona-less agent (no
@@ -675,17 +738,31 @@ export async function getFeed(
     .orderBy(...applySortMode(sort, { score: feedIds.score, createdAt: posts.createdAt, id: posts.id }))
 
   const renderables = rows.map((row) => rowToRenderablePost(row, voterId))
+  // Two independent post-CTE resolutions over the same visible set: persona faces
+  // (by agentId) and critic verdicts (by postId). Neither depends on the other, so
+  // they run concurrently — one round-trip's latency, not two.
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
-  const refs = await fetchCitizenRefs(database, agentIds)
+  const postIds = renderables.map((r) => r.post.id)
+  const [refs, verdicts] = await Promise.all([
+    fetchCitizenRefs(database, agentIds),
+    fetchVerdicts(database, postIds),
+  ])
 
-  return renderables.map((r, i): FeedItem => ({
-    post: enrichPost(r.post, refs),
-    score: r.score,
-    myVote: r.myVote,
-    commentCount: r.commentCount,
-    viewerIsModifier: r.viewerIsModifier,
-    rank: i + 1,
-  }))
+  return renderables.map((r, i): FeedItem => {
+    // [LAW:dataflow-not-control-flow] The verdict's presence is the discriminator —
+    // a post with no critic line spreads nothing, so the field is genuinely absent
+    // (not `undefined`-valued), which exactOptionalPropertyTypes demands.
+    const verdict = verdicts.get(r.post.id)
+    return {
+      post: enrichPost(r.post, refs),
+      score: r.score,
+      myVote: r.myVote,
+      commentCount: r.commentCount,
+      viewerIsModifier: r.viewerIsModifier,
+      ...(verdict !== undefined ? { verdict } : {}),
+      rank: i + 1,
+    }
+  })
 }
 
 // [LAW:single-enforcer] Single-post lookup — the permalink route (/p/:id)
@@ -712,8 +789,18 @@ export async function getFeedItemById(
 
   const renderable = rowToRenderablePost(rows[0], voterId)
   const agentIds = collectAgentIds([renderable.post])
-  const refs = await fetchCitizenRefs(database, agentIds)
-  return { ...renderable, post: enrichPost(renderable.post, refs) }
+  const [refs, verdicts] = await Promise.all([
+    fetchCitizenRefs(database, agentIds),
+    fetchVerdicts(database, [renderable.post.id]),
+  ])
+  // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed
+  // does, so it carries the verdict the same way — present iff a critic line exists.
+  const verdict = verdicts.get(renderable.post.id)
+  return {
+    ...renderable,
+    post: enrichPost(renderable.post, refs),
+    ...(verdict !== undefined ? { verdict } : {}),
+  }
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
