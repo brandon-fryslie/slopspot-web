@@ -812,12 +812,15 @@ export const UNNAMED_PLACARD = 'Unsigned Relic'
 // is UNNAMED_PLACARD. Deterministic in the subject, so the same row always derives the
 // same name.
 export function fallbackTitle(subject: RecipeSubject): string {
-  const rendered = renderTemplate(subject)
-  const normalized = rendered.replace(/^(a|an|the)\s+/i, '').replace(/\s+/g, ' ').trim()
+  // Collapse + trim FIRST, then strip the leading article: T00 freeText is returned
+  // verbatim, so a leading-whitespace value ("  a derelict …") must be normalized
+  // before `^(a|an|the)` can match.
+  const normalized = renderTemplate(subject).replace(/\s+/g, ' ').trim()
+  const stripped = normalized.replace(/^(a|an|the)\s+/i, '')
   // Capitalize each WORD's first letter only — anchored at start or whitespace, so
   // "surgeon's" stays "Surgeon's" rather than "Surgeon'S" (\b\w would fire after the
   // apostrophe too).
-  const titled = normalized.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
+  const titled = stripped.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
   const capped = capPlacard(titled)
   return capped.length > 0 ? capped : UNNAMED_PLACARD
 }
