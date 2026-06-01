@@ -85,7 +85,14 @@ export function signatureStat(stat: CitizenStat): string {
     case 'makers':
       return `${stat.made} made`
     case 'critics':
-      return `${stat.judged} judged`
+      // [LAW:dataflow-not-control-flow] A critic's signature is the verdict they
+      // are KNOWN for, and the count that dominates their record IS that
+      // disposition — St. Vivian blesses, The Gremlin buries. The data picks the
+      // label; no per-critic special case. Ties resolve to blessed: the house is
+      // reverent about garbage before it is savage about the mid (the-cast.md).
+      return stat.blessed >= stat.buried
+        ? `${stat.blessed} blessed`
+        : `${stat.buried} buried`
     case 'scavengers':
       return `${stat.rescued} rescued`
     case 'host':
@@ -95,6 +102,56 @@ export function signatureStat(stat: CitizenStat): string {
       return _exhaustive
     }
   }
+}
+
+// A feud flag the roster renders on a citizen's card — the standing rivalry made
+// clickable. `rivalHandle` is the /cast URL key the flag links to (the fight is
+// the rival's shrine); `rivalName` is the placard label. Both are resolved from
+// the live roster, so a flag can only ever point at a citizen who is actually
+// present and addressable.
+export type FeudFlag = { rivalHandle: string; rivalName: string }
+
+// [LAW:one-source-of-truth] The city's feuds — editorial canon (the-cast.md "The
+// feuds"; the rivalries written into the persona prompts), given their ONE
+// machine-readable home. A feud is a DIRECTED edge keyed by the stable immutable
+// handle (the /cast URL key minted in 0017, never the agentId): this citizen
+// carries a standing beef AGAINST that one, for the reason cited on each edge.
+// Directed, not mutual, by design — the Gremlin is the fixed antagonist the city's
+// feuds orbit (everyone flags him; he deigns to feud no one, he just buries), and
+// the lone non-Gremlin front (the Formalist's contempt for the maximalist mess —
+// a shot at Vesper) proves the relation is data, not a hardcoded target. A card
+// folds over its OUTGOING edges, so this needs no mutual/one-sided discriminator:
+// to make a feud appear on both cards, declare both directions.
+//
+// [LAW:no-mode-explosion] Adding a feud = one row here, no code path. The set is
+// the named cast's canon; it grows by the writers' room, not by a flag.
+const FEUDS: ReadonlyArray<{ from: string; against: string }> = [
+  // GutterMonk's silence vs. The Gremlin — the Gremlin buries his stark work and
+  // reads meaning into the monk's refusal to reply. There is none. That is the joke.
+  { from: 'guttermonk', against: 'the-gremlin' },
+  // Vesper Sloan vs. The Gremlin — excess vs. restraint. He buries her overcooked
+  // disasters on sight; she captions straight through the burials, italics blazing.
+  { from: 'vesper-sloan', against: 'the-gremlin' },
+  // St. Vivian vs. The Gremlin — mercy vs. judgment. She blesses what he buries;
+  // when they land on the same image from opposite poles it is the day's sharpest object.
+  { from: 'st-vivian', against: 'the-gremlin' },
+  // The Formalist vs. Vesper Sloan — his contempt for noise mistaken for ambition,
+  // the maximalist mess that turns every dial up and calls the chaos a choice.
+  { from: 'the-formalist', against: 'vesper-sloan' },
+]
+
+// [LAW:single-enforcer] The one resolver for a citizen's feud flags. The roster
+// passes the handle→displayName map it already built from the loaded personas (no
+// extra query), and each outgoing edge resolves to the rival's name. An edge whose
+// rival is absent from the live roster — un-minted, retired — collapses out by
+// data, so a flag can never link to a dead /cast page. An un-minted citizen (null
+// handle) matches no `from` and yields [] with no guard.
+export function feudsFor(handle: string | null, roster: ReadonlyMap<string, string>): FeudFlag[] {
+  return FEUDS.flatMap((f) => {
+    if (f.from !== handle) return []
+    const rivalName = roster.get(f.against)
+    return rivalName === undefined ? [] : [{ rivalHandle: f.against, rivalName }]
+  })
 }
 
 // [LAW:one-source-of-truth] The attribution predicates — the ONE definition of
