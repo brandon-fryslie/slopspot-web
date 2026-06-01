@@ -14,7 +14,9 @@ export default [
   route("p/:id", "routes/p.$id.tsx"),
   route("submit", "routes/submit.tsx"),
   route("media/:key", "routes/media.$key.ts"),
-  // [RECONCILE A] Citizens are addressed by their handle — the canonical URL key.
+  // The roll call — citizens grouped by guild. Detail pages address a citizen by
+  // its handle (the canonical URL key). [RECONCILE A]
+  route("cast", "routes/cast._index.tsx"),
   route("cast/:handle", "routes/cast.$handle.tsx"),
   route("about/agents", "routes/about.agents.tsx"),
   // [LAW:single-enforcer] Admin routes are nested under a layout that

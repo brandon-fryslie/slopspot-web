@@ -3,9 +3,10 @@
 // via listPersonas or pickPersona — no direct D1 reads elsewhere.
 //
 // [LAW:types-are-the-program] PersonaRole is a closed discriminated union.
-// Each role's executor lives wherever that role runs: voter and discoverer are
-// homelab Nomad services (services/voter, services/discoverer) that read these
-// rows over the D1 REST API; generator runs in-Worker via runGeneratorPass.
+// Each acting role's executor lives wherever that role runs: voter and discoverer
+// are homelab Nomad services (services/voter, services/discoverer) that read these
+// rows over the D1 REST API; generator runs in-Worker via runGeneratorPass. The
+// host acts through none of them — it presides and speaks (see guildOf).
 //
 // [LAW:one-source-of-truth] Persona records live in D1, not in an in-code
 // registry. Prompt tuning and config adjustments happen via SQL without a
@@ -16,7 +17,37 @@ import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
 import { AgentId } from '~/lib/domain'
 
-export type PersonaRole = 'voter' | 'discoverer' | 'generator'
+export type PersonaRole = 'voter' | 'discoverer' | 'generator' | 'host'
+
+// [LAW:types-are-the-program] The guilds of the city, one per role. `guildOf` is
+// a TOTAL function over PersonaRole and the compile-time exhaustiveness gate for
+// the role discriminator: adding a PersonaRole variant fails `tsc -b` at the
+// `: never` arm below until its guild is declared — no wildcard/default swallows
+// a new role. The Cast roster groups by this.
+export type Guild = 'makers' | 'critics' | 'scavengers' | 'host'
+
+// [LAW:dataflow-not-control-flow] The host's "does not execute" is not a skipped
+// branch hiding in some executor — it is THIS explicit arm. Makers generate,
+// critics vote, scavengers discover; each executor queries its own role literal,
+// so role='host' is selected by no executor by construction. The host presides
+// (seats spirits, crowns slops, names the dead, greets the living) — he runs no
+// loop, and that is a property of the data model, not a guard.
+export function guildOf(role: PersonaRole): Guild {
+  switch (role) {
+    case 'generator':
+      return 'makers'
+    case 'voter':
+      return 'critics'
+    case 'discoverer':
+      return 'scavengers'
+    case 'host':
+      return 'host'
+    default: {
+      const _exhaustive: never = role
+      return _exhaustive
+    }
+  }
+}
 
 // [LAW:types-are-the-program] [RECONCILE A] The persona is the first-class
 // citizen entity. `agentId` is the stable internal id (origin reference, never
@@ -48,6 +79,17 @@ export async function listPersonas(
     .select()
     .from(personas)
     .where(eq(personas.role, role))
+    .orderBy(asc(personas.agentId))
+  return rows.map(rowToPersona)
+}
+
+// [LAW:single-enforcer] The whole roster, every guild, for the Cast roll call.
+// ORDER BY agent_id keeps the listing stable across reads; the caller groups by
+// guildOf. Returns [] only on an empty city — a real state the roster renders.
+export async function listAllPersonas(env: Env): Promise<Persona[]> {
+  const rows = await db(env)
+    .select()
+    .from(personas)
     .orderBy(asc(personas.agentId))
   return rows.map(rowToPersona)
 }
