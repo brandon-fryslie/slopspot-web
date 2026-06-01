@@ -52,11 +52,18 @@ const reasoningOf = (e: PulseEvent): string | undefined =>
 
 const keyOf = (e: PulseEvent) => `${e.kind}:${e.postId}:${e.ts}`
 
-function EventGroup({ events, hidden }: { events: PulseEvent[]; hidden?: boolean }) {
+// `duplicate` marks the second copy that exists ONLY to make the crawl seamless
+// (the -50% loop needs two identical groups). Under reduced motion the crawl is
+// off, so the copy has no purpose — the same flag hides it (motion-reduce:hidden)
+// and marks it aria-hidden, so reduced-motion / screen-reader users get exactly
+// one vertical list, never a doubled one.
+function EventGroup({ events, duplicate }: { events: PulseEvent[]; duplicate?: boolean }) {
   return (
     <ul
-      aria-hidden={hidden}
-      className="flex shrink-0 items-center gap-6 pr-6 motion-reduce:flex-col motion-reduce:items-start motion-reduce:gap-1 motion-reduce:pr-0"
+      aria-hidden={duplicate}
+      className={`flex shrink-0 items-center gap-6 pr-6 motion-reduce:flex-col motion-reduce:items-start motion-reduce:gap-1 motion-reduce:pr-0${
+        duplicate ? " motion-reduce:hidden" : ""
+      }`}
     >
       {events.map((e) => (
         <li key={keyOf(e)} className="flex items-center gap-2 whitespace-nowrap">
@@ -83,7 +90,7 @@ export function PulseStrip({ events }: { events: PulseEvent[] }) {
       ) : (
         <div className="pulse-crawl flex w-max motion-reduce:w-full motion-reduce:flex-col">
           <EventGroup events={events} />
-          <EventGroup events={events} hidden />
+          <EventGroup events={events} duplicate />
         </div>
       )}
     </section>
