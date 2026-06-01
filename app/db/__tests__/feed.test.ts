@@ -692,6 +692,22 @@ describe('app/db/feed.ts - getPostById', () => {
     expect(result.content.title).toBe(fallbackTitle(subject))
   })
 
+  // A whitespace-only title is as blank as '' on the card, so it must take the
+  // fallback too — the invariant is a *visible* name, not merely a non-empty string.
+  it('derives a placard for a whitespace-only stored title', async () => {
+    const subject = { subjectTemplate: 'T01' as const, slots: { animal: 'crane', profession: 'cartographer' } }
+    const id = await seedPost(env, {
+      id: 'post-whitespace-title',
+      content: { kind: 'generation', title: '   ', subject },
+    })
+
+    const result = await getPostById(env, id)
+    if (!result || result.content.kind !== 'generation') {
+      throw new Error('expected generation')
+    }
+    expect(result.content.title).toBe(fallbackTitle(subject))
+  })
+
   it('returns a found post with its url, title, description, and thumbnail', async () => {
     const thumbnail = {
       kind: 'image' as const,
