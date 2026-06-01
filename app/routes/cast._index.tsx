@@ -62,23 +62,22 @@ export async function loader({ context }: Route.LoaderArgs) {
 
 type Citizen = Awaited<ReturnType<typeof loader>>['citizens'][number]
 
+const NAME_TYPE = 'font-placard text-xl font-bold leading-tight'
+
 function CitizenName({ citizen }: { citizen: Citizen }) {
-  const name = (
-    <span className="font-placard text-xl font-bold leading-tight text-bone">
-      {citizen.displayName}
-    </span>
-  )
   // [LAW:dataflow-not-control-flow] handle presence decides anchor-vs-text — an
-  // un-minted citizen renders as plain text, never /cast/null.
+  // un-minted citizen renders as plain text, never /cast/null. The color lives on
+  // the rendered element itself (not a nested span), so the link's hover color
+  // isn't overridden by a child's explicit text color.
   return citizen.handle !== null ? (
     <Link
       to={`/cast/${encodeURIComponent(citizen.handle)}`}
-      className="transition-colors hover:text-votive"
+      className={`${NAME_TYPE} text-bone transition-colors hover:text-votive`}
     >
-      {name}
+      {citizen.displayName}
     </Link>
   ) : (
-    name
+    <span className={`${NAME_TYPE} text-bone`}>{citizen.displayName}</span>
   )
 }
 
