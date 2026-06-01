@@ -1,13 +1,13 @@
 // The Roll Call — the index. "Meet the machines that run this place." Citizens
 // grouped by GUILD so the visitor learns the city's structure at a glance: Makers
 // make, Critics judge, Scavengers rescue, the Host presides. Each card carries a
-// placeholder portrait frame, the citizen's name, a creed line, and the one
-// signature stat their guild is known by — the favorites engine's front door.
-// Self-portraits, feud flags, and the BACK-HIM verb are follow-ups (roll-call-47p).
+// placeholder portrait frame, the citizen's name, a creed line, the one signature
+// stat their guild is known by, and a feud flag per standing rivalry — the bait you
+// click to watch the fight. Self-portraits and the BACK-HIM verb are follow-ups.
 
 import { Link, useLoaderData } from 'react-router'
 import { creedOf, guildOf, listAllPersonas, type Guild } from '~/agents/persona'
-import { getCitizenStat, signatureStat } from '~/db/citizens'
+import { feudsFor, getCitizenStat, signatureStat } from '~/db/citizens'
 import { PortraitFrame, portraitStateOf } from '~/components/portrait-frame'
 import { PROPRIETOR } from '~/lib/proprietor'
 import type { Route } from './+types/cast._index'
@@ -34,12 +34,19 @@ export async function loader({ context }: Route.LoaderArgs) {
   const env = context.cloudflare.env
   const personas = await listAllPersonas(env)
 
+  // [LAW:one-source-of-truth] The feud flags resolve against the SAME loaded
+  // roster — one handle→displayName map, no second query — so a flag's rival name
+  // and the rival's own card can never disagree. Un-minted citizens carry no
+  // handle (and so are no one's rival) and drop out of the lookup by data.
+  const byHandle = new Map(
+    personas.flatMap((p) => (p.handle === null ? [] : [[p.handle, p.displayName] as const])),
+  )
+
   // The cast is small and bounded (the named roster + the host), so one stat
   // read per citizen is acceptable here. getCitizenStat is the COUNT floor — no
   // recent-item queries, no output_json parse — so the roster does the minimum
   // work and a malformed image can never 500 a page that does not render images.
-  // The full ledger (and batching this into one aggregate) is the shrine's /
-  // enrichment ticket's concern (roll-call-47p.1), not the roster's.
+  // The full ledger is the shrine's concern (cast.$handle), not the roster's.
   const citizens = await Promise.all(
     personas.map(async (p) => ({
       // agentId is the stable React key (the PK); handle is the URL key (null
@@ -55,6 +62,8 @@ export async function loader({ context }: Route.LoaderArgs) {
       // Derive the one signature stat server-side and ship the string, not the
       // ledger — the verdict text / image URLs / haul belong to the shrine alone.
       stat: signatureStat(await getCitizenStat(env, p)),
+      // The standing rivalries this citizen carries, resolved to clickable flags.
+      feuds: feudsFor(p.handle, byHandle),
     })),
   )
 
@@ -95,7 +104,31 @@ function CitizenCard({ citizen }: { citizen: Citizen }) {
       <p className="mt-3 font-terminal text-[11px] uppercase tracking-wider text-votive/70">
         {citizen.stat}
       </p>
+      <FeudFlags feuds={citizen.feuds} />
     </article>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] One flag per outgoing feud edge — the empty list
+// (most citizens, and the Gremlin who feuds no one) selects no block at all, the
+// same data-driven render the guild sections use for an empty bucket, never a
+// placeholder or a phantom margin. The flag IS the link to the fight: the rival's
+// shrine.
+function FeudFlags({ feuds }: { feuds: Citizen['feuds'] }) {
+  if (feuds.length === 0) return null
+  return (
+    <ul className="mt-2 space-y-0.5">
+      {feuds.map((feud) => (
+        <li key={feud.rivalHandle}>
+          <Link
+            to={`/cast/${encodeURIComponent(feud.rivalHandle)}`}
+            className="font-terminal text-[11px] text-profane/80 transition-colors hover:text-profane"
+          >
+            ⚔ vs {feud.rivalName}
+          </Link>
+        </li>
+      ))}
+    </ul>
   )
 }
 
