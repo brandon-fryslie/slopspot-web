@@ -39,6 +39,37 @@ const composedSlopSchema = z.object({
   prompt: z.string().trim().min(1),
 })
 
+// [LAW:types-are-the-program] Extract the first COMPLETE, balanced JSON object from a
+// model response — strictly stronger than first-brace-to-last-brace, which a brace
+// inside trailing prose (or a second object) could mislead. Scans from the first '{'
+// counting depth while tracking string state and escapes, so braces inside the
+// title/prompt strings never affect the boundary. Returns null when no balanced
+// object is present (→ the caller's deterministic fallback). Tolerates a leading
+// ```json fence and trailing commentary by construction.
+export function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') inString = true
+    else if (ch === '{') depth++
+    else if (ch === '}' && --depth === 0) return text.slice(start, i + 1)
+  }
+  return null
+}
+
 // [LAW:single-enforcer] The composer owns its outbound Haiku request, so it caps
 // the human wish it embeds — unbounded visitor input must not bloat a paid API
 // call. This is the request-protection sibling of the maxLength output truncation
@@ -181,14 +212,13 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     // that (and any stray preamble) without a brittle fence-specific strip. A throw
     // (no object present) or a Zod failure (missing/empty field) drops to the
     // catch's deterministic fallback — same as an HTTP error.
-    const start = text.indexOf('{')
-    const end = text.lastIndexOf('}')
+    const jsonSlice = extractFirstJsonObject(text)
     // Log a bounded snippet + length, not the whole response: it is re-logged via
     // console.error below and an unbounded model dump bloats logs and over-exposes output.
-    if (start === -1 || end <= start) {
+    if (jsonSlice === null) {
       throw new Error(`no JSON object in Anthropic response (len ${text.length}): ${text.slice(0, 120)}`)
     }
-    const composed = composedSlopSchema.parse(JSON.parse(text.slice(start, end + 1)))
+    const composed = composedSlopSchema.parse(JSON.parse(jsonSlice))
 
     // Hard-truncate as a safeguard: the instructions target the model, but we own
     // the constraints and must not pass an over-length prompt to defaultParamsForRecipe
