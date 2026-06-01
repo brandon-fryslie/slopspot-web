@@ -7,7 +7,7 @@
 // allegiance verb are follow-ups (roll-call-47p.2/.3).
 
 import { Link, useLoaderData } from 'react-router'
-import { creedOf, getPersonaByHandle, guildOf } from '~/agents/persona'
+import { creedOf, getPersonaByHandle, guildOf, type PersonaRole } from '~/agents/persona'
 import {
   getCitizenLedger,
   signatureStat,
@@ -32,7 +32,7 @@ export function meta({ data }: Route.MetaArgs) {
 // [RECONCILE C] A generator's MEDIUM is the provider it works in — resolved to a
 // human label from the registry. Non-generator citizens do not author through a
 // generative medium, so it is absent for them by data.
-function readMedium(role: string, config: Record<string, unknown>): string | null {
+function readMedium(role: PersonaRole, config: Record<string, unknown>): string | null {
   if (role !== 'generator') return null
   const medium = config.medium
   if (typeof medium !== 'string') return null
