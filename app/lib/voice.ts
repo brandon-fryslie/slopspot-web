@@ -16,7 +16,6 @@
 // The Well does not get a bespoke remark field; it gets an instance of this.
 
 import type { AgentId, PostId } from "~/lib/domain";
-import { assertNever } from "~/lib/domain";
 
 // --- who speaks -------------------------------------------------------------
 
@@ -106,6 +105,11 @@ const composeRemark: Voice<"remark"> = (speaker, answered) =>
   spoke(
     `You asked for ${answered.wish}. The well answered with ${answered.slop.prompt}.`,
   );
+
+// A value the type proves cannot exist — the standard exhaustiveness marker.
+const assertNever = (x: never): never => {
+  throw new Error(`unhandled variant: ${JSON.stringify(x)}`);
+};
 
 // Reserved occasions bind a `never` target, so this is unreachable by type. It
 // exists only to keep the producer map total over the closed `Occasion` union;

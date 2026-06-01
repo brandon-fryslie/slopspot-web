@@ -93,14 +93,17 @@ describe("Utterance value space is exhaustive", () => {
 });
 
 // Type-level acceptance: illegal occasion/target pairings are UNREPRESENTABLE.
-// These never run; they assert the compiler rejects the bad shapes.
-function _illegalPairingsAreCompileErrors(): void {
-  // @ts-expect-error — 'remark' fixes the target to AnsweredWish, not a string
-  utter(answerer, "remark", "not a wish");
-  // @ts-expect-error — 'caption' is reserved: its target is `never`, uncallable
-  utter(answerer, "caption", answeredWish);
-  // @ts-expect-error — 'verdict' is reserved: its target is `never`, uncallable
-  utter(answerer, "verdict", answeredWish);
-  // @ts-expect-error — 'decree' is not a v1 occasion
-  utter(answerer, "decree", answeredWish);
-}
+// The `@ts-expect-error` directives FAIL the build if the call ever type-checks;
+// the runtime calls are harmless (every bad shape degrades to Withheld).
+describe("illegal occasion/target pairings are unrepresentable", () => {
+  it("rejects mismatched and reserved occasions at compile time", () => {
+    // @ts-expect-error — 'remark' fixes the target to AnsweredWish, not a string
+    expect(utter(answerer, "remark", "not a wish")).toBeDefined();
+    // @ts-expect-error — 'caption' is reserved: its target is `never`
+    expect(utter(answerer, "caption", answeredWish)).toBeDefined();
+    // @ts-expect-error — 'verdict' is reserved: its target is `never`
+    expect(utter(answerer, "verdict", answeredWish)).toBeDefined();
+    // @ts-expect-error — 'decree' is not a v1 occasion
+    expect(utter(answerer, "decree", answeredWish)).toBeDefined();
+  });
+});
