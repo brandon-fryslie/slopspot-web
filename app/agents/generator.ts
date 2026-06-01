@@ -99,8 +99,9 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
     )
   }
 
-  // [RECONCILE C] bias carries only the dimensions the chooser samples. promptPrefix
-  // steers composition, so it flows straight to composePrompt below — not through here.
+  // [RECONCILE C] bias carries only the dimensions the chooser samples. The
+  // persona's voice steers composition, so it flows straight to composePrompt
+  // below — not through the chooser.
   const bias = {
     styleFamilyBias: config.styleFamilyBias as Partial<Record<StyleFamily, number>> | undefined,
     aspectRatioBias: config.aspectRatioBias as Partial<Record<AspectRatio, number>> | undefined,
@@ -109,14 +110,16 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
   const recipe = chooseNextGeneration({ scheduledTimeMs, recent, provider, bias })
 
   // [LAW:single-enforcer] composePrompt is the one place prompt text is
-  // generated from a recipe; promptPrefix and maxLength flow from the provider's
-  // declared constraint so paramsSchema validation never rejects a too-long prompt.
+  // generated from a recipe; the persona's voice and maxLength flow from the
+  // provider's declared constraint so paramsSchema validation never rejects a
+  // too-long prompt. The firehose passes no wish — that seed is the Well's path
+  // through this same composer.
   const prompt = await composePrompt(
     {
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
-      promptPrefix: config.promptPrefix,
+      voice: config.promptPrefix,
       maxLength: provider.promptMaxLength,
     },
     env,
