@@ -212,6 +212,16 @@ export type VoteIntent = VoteValue | 0
 // boolean. commentCount is COUNT(comments) per post, projected at query
 // time so the post-card collapsed view never needs a separate round-trip.
 //
+// [LAW:dataflow-not-control-flow] viewerIsModifier is the SECOND viewer-relative
+// projection (myVote is the first): server-computed truth of "is this viewer the
+// human who occasioned the slop?" (origin.human.by). A wished slop is public — two
+// audiences — and the reveal is PERSONAL: the copy is selected by this VALUE, not
+// by a mode flag the card carries. The full voter id never crosses to the client
+// (author-label discipline), so the comparison happens at the read boundary and
+// only the bit ships; a stranger never receives the wisher's identity, and we
+// never tell a stranger "what YOU wished." False for every post with no human
+// modifier (no one to be) — the card reads it only where a modifier/wish exists.
+//
 // [LAW:one-type-per-behavior] This shape is the boundary between the data
 // layer and rendering, and is the same whether a post arrives via the feed
 // list (getFeed) or via its permalink (getFeedItemById). One renderable
@@ -221,6 +231,7 @@ export type RenderablePost = {
   score: number
   myVote: VoteValue | null
   commentCount: number
+  viewerIsModifier: boolean
 }
 
 // [LAW:one-type-per-behavior] A FeedItem IS a RenderablePost plus a list
