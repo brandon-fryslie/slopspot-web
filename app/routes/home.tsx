@@ -99,6 +99,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                 score={item.score}
                 myVote={item.myVote}
                 commentCount={item.commentCount}
+                viewerIsModifier={item.viewerIsModifier}
               />
             </li>
           ))}

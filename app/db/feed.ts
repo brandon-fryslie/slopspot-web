@@ -50,6 +50,7 @@ import {
   type RenderablePost,
   type VoteValue,
 } from '~/lib/domain'
+import { authorLabel } from '~/lib/author-label'
 import { emit } from '~/observability/metrics'
 import {
   aspectRatioSchema,
@@ -440,6 +441,31 @@ function toMyVote(raw: number | null, postId: string): VoteValue | null {
   )
 }
 
+// [LAW:single-enforcer] The one place a viewer is compared to a slop's human
+// modifier (origin.human.by — the wisher/breeder/patron). The full voter UUID is
+// never written to origin_json (the write side redacts via authorLabel before
+// storing — submit/found/fork all do), so the only honest comparison is
+// label-to-label, and it MUST be server-side: the viewer's raw id never crosses to
+// the client and a stranger never receives the modifier's identity.
+// [LAW:dataflow-not-control-flow] The result is a VALUE that selects the card's
+// second-person copy downstream, not a flag the card carries. False whenever there
+// is no human modifier to be (no authored origin, or no human, or no viewer cookie).
+function computeViewerIsModifier(origin: Origin, viewerId: string | undefined): boolean {
+  if (origin.kind !== 'authored' || origin.human === undefined || viewerId === undefined) {
+    return false
+  }
+  const by = origin.human.by
+  switch (by.kind) {
+    case 'anon':
+      return by.label === authorLabel(viewerId)
+    // No logged-in viewer identity exists yet (the viewer id is the anon cookie
+    // UUID), so a user-wisher cannot be matched from this surface. Honest
+    // third-person until a real auth viewer path exists. [LAW:no-silent-fallbacks]
+    case 'user':
+      return false
+  }
+}
+
 // [LAW:single-enforcer] [LAW:one-source-of-truth] One definition of the
 // vote-score aggregate. The SUM/GROUP BY/alias is identical between phase 1
 // (rank candidates by score) and phase 2 (project per-row scores into the
@@ -563,12 +589,19 @@ type FeedRowWithAggregates = {
   commentCount: number
 }
 
-function rowToRenderablePost(row: FeedRowWithAggregates): RenderablePost {
+function rowToRenderablePost(
+  row: FeedRowWithAggregates,
+  viewerId: string | undefined,
+): RenderablePost {
+  const post = toPost(row)
   return {
-    post: toPost(row),
+    post,
     score: row.score,
     myVote: toMyVote(row.myVote, row.post.id),
     commentCount: row.commentCount,
+    // origin.human.by is not touched by enrichPost (persona resolution only reaches
+    // author/finder/uploader), so this bit computed pre-enrich rides through unchanged.
+    viewerIsModifier: computeViewerIsModifier(post.origin, viewerId),
   }
 }
 
@@ -641,7 +674,7 @@ export async function getFeed(
     .leftJoin(myVote, and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)))
     .orderBy(...applySortMode(sort, { score: feedIds.score, createdAt: posts.createdAt, id: posts.id }))
 
-  const renderables = rows.map((row) => rowToRenderablePost(row))
+  const renderables = rows.map((row) => rowToRenderablePost(row, voterId))
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
   const refs = await fetchCitizenRefs(database, agentIds)
 
@@ -650,6 +683,7 @@ export async function getFeed(
     score: r.score,
     myVote: r.myVote,
     commentCount: r.commentCount,
+    viewerIsModifier: r.viewerIsModifier,
     rank: i + 1,
   }))
 }
@@ -676,7 +710,7 @@ export async function getFeedItemById(
   const rows = await query.limit(1)
   if (rows.length === 0) return null
 
-  const renderable = rowToRenderablePost(rows[0])
+  const renderable = rowToRenderablePost(rows[0], voterId)
   const agentIds = collectAgentIds([renderable.post])
   const refs = await fetchCitizenRefs(database, agentIds)
   return { ...renderable, post: enrichPost(renderable.post, refs) }
