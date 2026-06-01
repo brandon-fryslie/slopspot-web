@@ -798,17 +798,26 @@ export function capPlacard(title: string): string {
   return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()
 }
 
-// [LAW:no-silent-fallbacks] A fallback name is never the empty string and never
-// 'Untitled': it is the rendered subject, article-stripped and title-cased into a
-// placard ("a derelict lighthouse at dusk" → "Derelict Lighthouse At Dusk"), then
-// capped to placard length. Deterministic in the subject, so the same row always
-// derives the same name.
+// [LAW:no-silent-fallbacks] The last-resort placard for a degenerate subject whose
+// rendered form is all-whitespace (only reachable via a direct-API T00 with a
+// whitespace-only freeText — recipeSubjectSchema enforces min(1), not non-blank; the
+// chooser never emits T00). In-voice for the city register (a pawnshop names even
+// its nameless junk), never the empty string and never 'Untitled'.
+export const UNNAMED_PLACARD = 'Unsigned Relic'
+
+// [LAW:types-are-the-program] fallbackTitle is TOTAL: every subject yields a
+// non-empty, visible placard. It is the rendered subject, article-stripped, whitespace-
+// collapsed, title-cased ("a derelict lighthouse at dusk" → "Derelict Lighthouse At
+// Dusk"), capped to placard length; if nothing survives (an all-whitespace subject) it
+// is UNNAMED_PLACARD. Deterministic in the subject, so the same row always derives the
+// same name.
 export function fallbackTitle(subject: RecipeSubject): string {
   const rendered = renderTemplate(subject)
-  const stripped = rendered.replace(/^(a|an|the)\s+/i, '')
+  const normalized = rendered.replace(/^(a|an|the)\s+/i, '').replace(/\s+/g, ' ').trim()
   // Capitalize each WORD's first letter only — anchored at start or whitespace, so
   // "surgeon's" stays "Surgeon's" rather than "Surgeon'S" (\b\w would fire after the
   // apostrophe too).
-  const titled = stripped.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
-  return capPlacard(titled)
+  const titled = normalized.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
+  const capped = capPlacard(titled)
+  return capped.length > 0 ? capped : UNNAMED_PLACARD
 }
