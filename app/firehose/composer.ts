@@ -208,8 +208,8 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
 
     // [LAW:types-are-the-program] Parse the LLM JSON at the trust boundary. Haiku
     // routinely wraps the object in a ```json … ``` markdown fence despite the
-    // instruction not to; extracting the first-brace-to-last-brace span tolerates
-    // that (and any stray preamble) without a brittle fence-specific strip. A throw
+    // instruction not to; extracting the first balanced object tolerates that (and any
+    // stray preamble or trailing prose) without a brittle fence-specific strip. A throw
     // (no object present) or a Zod failure (missing/empty field) drops to the
     // catch's deterministic fallback — same as an HTTP error.
     const jsonSlice = extractFirstJsonObject(text)
