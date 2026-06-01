@@ -70,10 +70,16 @@ export function signatureStat(ledger: CitizenLedger): string {
 // VALUE — only `succeeded` carries an output (the generations_status_shape CHECK
 // guarantees output_json is null in every other arm). A null here is the honest
 // "no image yet"; a malformed succeeded blob fails loud the way the feed reader's
-// parseJson does, never laundered.
-function imageOf(status: string, outputJson: string | null): string | null {
+// parseJson does — a contextual error localizing the bad column to its post,
+// never a context-free SyntaxError and never laundered.
+function imageOf(status: string, outputJson: string | null, postId: string): string | null {
   if (status !== 'succeeded' || outputJson === null) return null
-  const media = JSON.parse(outputJson) as Media
+  let media: Media
+  try {
+    media = JSON.parse(outputJson) as Media
+  } catch (err) {
+    throw new Error(`citizens: malformed output_json for post ${postId}`, { cause: err })
+  }
   return media.kind === 'image' ? media.url : null
 }
 
@@ -100,7 +106,7 @@ async function makerLedger(env: Env, agentId: string): Promise<CitizenLedger> {
   return {
     guild: 'makers',
     made,
-    works: rows.map((r) => ({ postId: PostId(r.id), image: imageOf(r.status, r.outputJson) })),
+    works: rows.map((r) => ({ postId: PostId(r.id), image: imageOf(r.status, r.outputJson, r.id) })),
   }
 }
 
