@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   fallbackTitle,
+  PLACARD_TITLE_MAX,
   recipeSubjectSchema,
   renderTemplate,
   STYLE_FAMILY_PROMPT_SEEDS,
@@ -280,7 +281,7 @@ describe('composePrompt', () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse('N'.repeat(200), 'a prompt'))
 
     const result = await composePrompt(makeInput(), mockEnv('test-key'))
-    expect(result.title.length).toBeLessThanOrEqual(80)
+    expect(result.title.length).toBeLessThanOrEqual(PLACARD_TITLE_MAX)
   })
 
   it('maxLength is included as a constraint in the meta-prompt sent to Haiku', async () => {
