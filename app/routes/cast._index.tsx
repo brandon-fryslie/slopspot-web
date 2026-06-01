@@ -49,7 +49,10 @@ export async function loader({ context }: Route.LoaderArgs) {
       // [LAW:one-source-of-truth] The creed is derived once, never the raw prompt.
       creed: creedOf(p.personaPrompt),
       portrait: portraitStateOf(p.config),
-      ledger: await getCitizenLedger(env, p),
+      // The roster shows only the one signature stat — derive it server-side and
+      // ship the string, not the whole ledger (whose verdict text / image URLs /
+      // haul belong to the shrine, never the client roster payload).
+      stat: signatureStat(await getCitizenLedger(env, p)),
     })),
   )
 
@@ -89,7 +92,7 @@ function CitizenCard({ citizen }: { citizen: Citizen }) {
         {citizen.creed}
       </p>
       <p className="mt-3 font-terminal text-[11px] uppercase tracking-wider text-votive/70">
-        {signatureStat(citizen.ledger)}
+        {citizen.stat}
       </p>
     </article>
   )

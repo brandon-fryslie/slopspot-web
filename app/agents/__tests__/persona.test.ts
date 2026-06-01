@@ -199,4 +199,12 @@ describe('creedOf — the public creed, never the raw prompt', () => {
   it('falls back to the first sentence when there is no em-dash preamble', () => {
     expect(creedOf('A plain line. A second one.')).toBe('A plain line.')
   })
+
+  it('hard-caps a punctuation-less run-on so the bible cannot leak', () => {
+    const body = 'and on and on '.repeat(40) // 560 chars, no . ! ?
+    const creed = creedOf(`You are The Endless — ${body}`)
+    expect(creed.length).toBeLessThanOrEqual(161) // 160 chars + the ellipsis
+    expect(creed.endsWith('…')).toBe(true)
+    expect(creed.length).toBeLessThan(body.length) // bounded, not the whole body
+  })
 })
