@@ -96,3 +96,29 @@
     animation: none;
   }
 }
+
+/*
+  THE PULSE — the city hums, it does not bounce. A slow, continuous crawl. The
+  track holds two identical event groups; shifting it left by one group's width
+  (-50%) loops seamlessly. Under prefers-reduced-motion the crawl stops and the
+  strip falls back to a static vertical list (layout handled by motion-reduce:
+  Tailwind variants at the call site).
+*/
+@keyframes pulse-crawl {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.pulse-crawl {
+  animation: pulse-crawl 60s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-crawl {
+    animation: none;
+  }
+}
