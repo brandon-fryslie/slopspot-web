@@ -11,7 +11,7 @@
 // Well route call — the test exercises both paths through it to prove the only
 // difference is DATA (the occasion), not a forked pipeline.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const createPostMock = vi.fn()
 const recordRemarkMock = vi.fn()
@@ -58,6 +58,13 @@ beforeEach(() => {
   getRecentRecipesMock.mockResolvedValue([])
   createPostMock.mockResolvedValue({ id: PostId('post-abc') })
   vi.spyOn(console, 'log').mockImplementation(() => {})
+})
+
+// Restore spies (the console.log spy above) so the mock can't leak into other test
+// files and cause ordering-dependent failures or swallowed logs. The module-scope
+// vi.fn() mocks are unaffected (they are reset, not spied) and persist by design.
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('authorSlop — the wish path (the Well)', () => {
