@@ -22,7 +22,28 @@ import {
   type RenderablePost,
 } from '~/lib/domain'
 import { fallbackTitle } from '~/lib/variety'
+import { db } from '~/db/client'
+import { personas } from '~/db/schema'
 import { seedComment, seedPost, seedVote } from './helpers'
+
+// [LAW:single-enforcer] One persona seeder for these tests — a critic must exist in
+// the personas table for its vote's reasoning to resolve to a bylined verdict (the
+// INNER JOIN feed.ts uses). Mirrors the seeder in persona.test.ts; the handle is a
+// stable slug so repeated seeds don't collide on the unique constraint.
+async function seedCritic(agentId: string, displayName: string): Promise<void> {
+  await db(env)
+    .insert(personas)
+    .values({
+      agentId,
+      handle: agentId.replace('agent:', ''),
+      displayName,
+      role: 'voter',
+      personaPrompt: `Prompt for ${agentId}`,
+      modelId: 'glm-4v-flash',
+      configJson: JSON.stringify({ upvoteThreshold: 70, downvoteThreshold: 30 }),
+      createdAt: new Date(),
+    })
+}
 
 // `1970-01-01T00:00:00.001Z` is the smallest distinct timestamp_ms; bumping by
 // 1ms per post in test setup is enough to disambiguate createdAt ordering
@@ -734,5 +755,130 @@ describe('app/db/feed.ts - getPostById', () => {
     expect(result.content.title).toBe('a HF space')
     expect(result.content.description).toBe('optional description')
     expect(result.content.thumbnail).toEqual(thumbnail)
+  })
+})
+
+// [LAW:behavior-not-structure] These pin the verdict CONTRACT: given seeded votes
+// with reasoning by a known critic, the feed item carries that critic's displayName
+// and verdict text; and the documented selection/absence rules hold. Blind to the
+// fetchVerdicts decomposition (window rank, trim predicate) — a refactor that keeps
+// the contract intact must not require editing these.
+describe('app/db/feed.ts - verdict', () => {
+  it('carries the critic displayName + reasoning for a post with an agent-reasoned vote', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    const id = await seedPost(env, { id: 'post-verdict', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:vivian',
+      value: 1,
+      reasoning: 'Four steps and it still found the void. Devastating. I wept.',
+    })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict).toEqual({
+      critic: 'St. Vivian',
+      text: 'Four steps and it still found the void. Devastating. I wept.',
+    })
+  })
+
+  it('leaves verdict undefined when no vote carries reasoning', async () => {
+    await seedPost(env, { id: 'post-no-verdict', createdAt: ms(1000) })
+    // A human anon vote (no reasoning, no persona row) must not mint a verdict.
+    await seedVote(env, { postId: PostId('post-no-verdict'), voterId: 'anon-cookie', value: 1 })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict).toBeUndefined()
+  })
+
+  it('never mints an empty-string verdict from a blank/whitespace reasoning', async () => {
+    await seedCritic('agent:blankcritic', 'The Blank')
+    const id = await seedPost(env, { id: 'post-blank-verdict', createdAt: ms(1000) })
+    // [LAW:no-silent-fallbacks] A whitespace-only reasoning is excluded by the trim
+    // predicate — it is no verdict, not an empty one.
+    await seedVote(env, { postId: id, voterId: 'agent:blankcritic', value: -1, reasoning: '   ' })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict).toBeUndefined()
+  })
+
+  it('selects the MOST RECENT meaningful critic line when several exist', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const id = await seedPost(env, { id: 'post-multi-verdict', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:vivian',
+      value: 1,
+      reasoning: 'An older blessing.',
+      createdAt: ms(2000),
+    })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:gremlin',
+      value: -1,
+      reasoning: 'Mid. Aggressively mid. Buried.',
+      createdAt: ms(3000),
+    })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict).toEqual({ critic: 'The Gremlin', text: 'Mid. Aggressively mid. Buried.' })
+  })
+
+  it('surfaces an older meaningful line when the newest vote has blank reasoning', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const id = await seedPost(env, { id: 'post-shadow-verdict', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:vivian',
+      value: 1,
+      reasoning: 'The sixth finger reaches. Canonized.',
+      createdAt: ms(2000),
+    })
+    // Newer, but blank — must not shadow the real verdict into silence.
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:gremlin',
+      value: -1,
+      reasoning: '  ',
+      createdAt: ms(3000),
+    })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict).toEqual({
+      critic: 'St. Vivian',
+      text: 'The sixth finger reaches. Canonized.',
+    })
+  })
+
+  it('trims surrounding whitespace from the stored reasoning', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    const id = await seedPost(env, { id: 'post-trim-verdict', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:vivian',
+      value: 1,
+      reasoning: '   Blessed be the cursed.   ',
+    })
+
+    const [item] = await getFeed(env)
+    expect(item.verdict?.text).toBe('Blessed be the cursed.')
+  })
+
+  it('attaches the verdict on the permalink reader (getFeedItemById) too', async () => {
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const id = await seedPost(env, { id: 'post-permalink-verdict', createdAt: ms(1000) })
+    await seedVote(env, {
+      postId: id,
+      voterId: 'agent:gremlin',
+      value: -1,
+      reasoning: 'Another forest. The trees won. Buried.',
+    })
+
+    const item = await getFeedItemById(env, id)
+    expect(item?.verdict).toEqual({
+      critic: 'The Gremlin',
+      text: 'Another forest. The trees won. Buried.',
+    })
   })
 })
