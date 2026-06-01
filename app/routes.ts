@@ -10,6 +10,10 @@ export default [
   route("api/fork/:id", "routes/api.fork.$id.ts"),
   route("api/rewrite-prompt", "routes/api.rewrite-prompt.ts"),
   route("api/found", "routes/api.found.ts"),
+  // The one allegiance verb — back/unback a citizen. Addressed by handle (the
+  // canonical /cast URL key); the single-enforcer writer resolves it to the
+  // stable agentId it stores. [LAW:single-enforcer]
+  route("api/cast/:handle/back", "routes/api.cast.$handle.back.ts"),
   // The Wishing Well — the haunted prompt box. The dedicated page renders the box;
   // the resource route is its single trust boundary. [LAW:dataflow-not-control-flow]
   route("api/well", "routes/api.well.ts"),
