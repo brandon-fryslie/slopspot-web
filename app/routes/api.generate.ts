@@ -10,6 +10,7 @@ import { invalidBodyResponse } from "~/lib/api-errors"
 import { checkBudget } from "~/firehose/budget"
 import {
   aspectRatioSchema,
+  fallbackTitle,
   recipeSubjectSchema,
   styleFamilySchema,
 } from "~/lib/variety"
@@ -101,6 +102,11 @@ export async function action({ request, context }: Route.ActionArgs) {
         kind: 'generation',
         providerId: ProviderId(parsed.providerId),
         params: parsed.params,
+        // [LAW:one-source-of-truth] The direct-API path has no Haiku naming step
+        // (the agent supplies params, not a recipe to compose). It names the piece
+        // with the deterministic placard — the same derivation the composer's
+        // fallback and the read boundary use, so no path emits a nameless slop.
+        title: fallbackTitle(parsed.subject),
         styleFamily: parsed.styleFamily,
         subject: parsed.subject,
         aspectRatio: parsed.aspectRatio,

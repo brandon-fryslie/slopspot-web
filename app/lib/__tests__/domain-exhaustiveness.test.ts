@@ -85,6 +85,7 @@ describe('domain exhaustiveness (compile-time)', () => {
   it('Content has exactly the variants the discriminator handles', () => {
     const generation: Content = {
       kind: 'generation',
+      title: 'A Placard',
       recipe: {
         providerId: ProviderId('p'),
         providerVersion: 'v',
