@@ -111,6 +111,35 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     ])
   })
 
+  it('makers: counts legacy {actor}-shaped attribution the feed still reads', async () => {
+    // 0016 leaves cleanly-mappable agent generations in the pre-attribution
+    // `{ actor }` shape; the feed resolves author ?? actor, so the ledger must too,
+    // or it undercounts older posts the feed attributes to this maker.
+    const legacyActor = JSON.stringify({ actor: { kind: 'agent', agentId: 'agent:maker' } })
+    await seedPost({ id: 'm_legacy', createdAt: 50, contentKind: 'generation', originJson: legacyActor })
+    await seedSucceededGeneration('m_legacy', image('/media/legacy'))
+
+    const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
+
+    expect(ledger.guild).toBe('makers')
+    if (ledger.guild !== 'makers') throw new Error('guard')
+    expect(ledger.made).toBe(1)
+    expect(ledger.works).toEqual([{ postId: 'm_legacy', image: '/media/legacy' }])
+  })
+
+  it('scavengers: counts legacy {actor}-shaped attribution the feed still reads', async () => {
+    const legacyActor = JSON.stringify({ actor: { kind: 'agent', agentId: 'agent:digger' } })
+    await seedPost({ id: 'f_legacy', createdAt: 50, contentKind: 'found', originJson: legacyActor })
+    await seedFound('f_legacy', 'an old rescue', 'https://example.com/legacy')
+
+    const ledger = await getCitizenLedger(env, persona('agent:digger', 'discoverer'))
+
+    expect(ledger.guild).toBe('scavengers')
+    if (ledger.guild !== 'scavengers') throw new Error('guard')
+    expect(ledger.rescued).toBe(1)
+    expect(ledger.finds).toEqual([{ postId: 'f_legacy', title: 'an old rescue', url: 'https://example.com/legacy' }])
+  })
+
   it('makers: a maker with nothing made is a real empty ledger, not an error', async () => {
     const ledger = await getCitizenLedger(env, persona('agent:idle-maker', 'generator'))
     expect(ledger).toEqual({ guild: 'makers', made: 0, works: [] })
