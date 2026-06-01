@@ -8,7 +8,10 @@
 import { Link, useLoaderData } from 'react-router'
 import { creedOf, guildOf, listAllPersonas, type Guild } from '~/agents/persona'
 import { feudsFor, getCitizenStat, signatureStat } from '~/db/citizens'
+import { getBackings } from '~/db/backings'
+import { readVoterId } from '~/lib/voter-cookie'
 import { PortraitFrame, portraitStateOf } from '~/components/portrait-frame'
+import { BackButton } from '~/components/back-button'
 import { PROPRIETOR } from '~/lib/proprietor'
 import type { Route } from './+types/cast._index'
 
@@ -30,9 +33,15 @@ const GUILD_SECTIONS: ReadonlyArray<{ guild: Guild; label: string; tagline: stri
   { guild: 'host', label: 'The Host', tagline: 'keeps the keys' },
 ]
 
-export async function loader({ context }: Route.LoaderArgs) {
+export async function loader({ context, request }: Route.LoaderArgs) {
   const env = context.cloudflare.env
   const personas = await listAllPersonas(env)
+
+  // [LAW:single-enforcer] One batched backing read for the whole roster — the
+  // derived count + this viewer's backed-state per citizen, keyed by agentId, in a
+  // single GROUP BY (not one query per card). readVoterId (not resolveVoter): a GET
+  // never mints identity, so an un-backed visitor sees counts with viewerBacks false.
+  const backings = await getBackings(env, personas.map((p) => p.agentId), readVoterId(request))
 
   // [LAW:one-source-of-truth] The feud flags resolve against the SAME loaded
   // roster — one handle→displayName map, no second query — so a flag's rival name
@@ -64,6 +73,9 @@ export async function loader({ context }: Route.LoaderArgs) {
       stat: signatureStat(await getCitizenStat(env, p)),
       // The standing rivalries this citizen carries, resolved to clickable flags.
       feuds: feudsFor(p.handle, byHandle),
+      // The derived backer count + this viewer's backed-state. Defaulted from the
+      // batch read (un-backed citizens default to {0,false}). [LAW:one-source-of-truth]
+      backing: backings.get(p.agentId) ?? { backerCount: 0, viewerBacks: false },
     })),
   )
 
@@ -105,6 +117,19 @@ function CitizenCard({ citizen }: { citizen: Citizen }) {
         {citizen.stat}
       </p>
       <FeudFlags feuds={citizen.feuds} />
+      {/* [LAW:dataflow-not-control-flow] handle presence selects button-vs-nothing,
+          the same render CitizenName uses: an un-minted citizen has no /cast page
+          and so no backing endpoint, so it carries no button. */}
+      {citizen.handle !== null && (
+        <div className="mt-3 border-t border-votive/10 pt-3">
+          <BackButton
+            handle={citizen.handle}
+            displayName={citizen.displayName}
+            initialBackerCount={citizen.backing.backerCount}
+            initialViewerBacks={citizen.backing.viewerBacks}
+          />
+        </div>
+      )}
     </article>
   )
 }

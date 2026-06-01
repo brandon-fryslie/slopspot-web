@@ -270,6 +270,43 @@ export const votes = sqliteTable(
   ],
 )
 
+// [LAW:types-are-the-program] Backings: the allegiance edge — a cookie-anon human
+// pledges to a citizen. The PK (voter_id, citizen) IS the "one backing per voter
+// per citizen" invariant: a second pledge to the same citizen conflicts on the PK,
+// so the duplicate state is unrepresentable, never deduped in code.
+//
+// [LAW:one-source-of-truth] No backer-count column anywhere — a citizen's backer
+// count is COUNT(backing rows) at read time, the same shape score=SUM(votes.value)
+// takes. A denormalized tally would be a second representation two writers could
+// disagree about; the count has exactly one home, the rows.
+//
+// `citizen` references the STABLE agentId (personas PK), not the nullable/mutable
+// URL handle — allegiance is to the being, and the being's one immutable identity
+// is its agentId (the id every other data-layer read keys on). The FK is on the
+// citizen (target) side, mirroring votes.post_id → posts; the voter_id (actor)
+// side is FK-less like votes.voter_id, so a future auth surface can move
+// human/agent ids into that column without a schema rewrite. ON DELETE CASCADE:
+// allegiance to a deleted citizen is meaningless (citizens are RETIRED, not
+// deleted, so this near-never fires — but it is the correct shape).
+export const backings = sqliteTable(
+  'backings',
+  {
+    voterId: text('voter_id').notNull(),
+    citizen: text('citizen')
+      .notNull()
+      .references(() => personas.agentId, { onDelete: 'cascade' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.voterId, t.citizen] }),
+    // [LAW:single-enforcer] Serves the roster's derived-count read
+    // (WHERE citizen IN (...) GROUP BY citizen). The PK is voter_id-leading, so
+    // it serves the per-voter "who I back" direction; this index serves the
+    // per-citizen "who backs them" direction. Both reads are covered by an index.
+    index('backings_citizen_idx').on(t.citizen),
+  ],
+)
+
 // Comments: flat thread per post. v1 is anonymous-only; author_id is the same
 // opaque voter cookie UUID the votes table uses. No FK to users (mirroring
 // votes) so a future auth surface can move user/agent ids into the same column
@@ -351,3 +388,5 @@ export type DbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferSelect
 export type NewDbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferInsert
 export type DbPersona = typeof personas.$inferSelect
 export type NewDbPersona = typeof personas.$inferInsert
+export type DbBacking = typeof backings.$inferSelect
+export type NewDbBacking = typeof backings.$inferInsert
