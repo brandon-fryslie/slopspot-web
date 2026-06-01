@@ -7,7 +7,14 @@ import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
 import { db } from '~/db/client'
 import { personas } from '~/db/schema'
-import { getPersonaByHandle, listPersonas, pickPersona, type PersonaRole } from '../persona'
+import {
+  getPersonaByHandle,
+  guildOf,
+  listAllPersonas,
+  listPersonas,
+  pickPersona,
+  type PersonaRole,
+} from '../persona'
 
 async function seedPersona(agentId: string, role: PersonaRole) {
   await db(env)
@@ -129,5 +136,45 @@ describe('persona registry', () => {
     for (const g of generators) {
       expect(typeof g.config.medium).toBe('string')
     }
+  })
+})
+
+describe('the host guild and the Proprietor', () => {
+  it('guildOf maps every role to its guild', () => {
+    // The total function the Cast roster groups by. Acting roles map to their
+    // working guild; the host presides over its own.
+    expect(guildOf('generator')).toBe('makers')
+    expect(guildOf('voter')).toBe('critics')
+    expect(guildOf('discoverer')).toBe('scavengers')
+    expect(guildOf('host')).toBe('host')
+  })
+
+  it('the Proprietor is seated as a host citizen (migration 0019 round-trip)', async () => {
+    // [LAW:behavior-not-structure] A real read against the migration-seeded D1.
+    // This fails loud if 0019 never inserted the row, or if the widened
+    // personas_role_shape CHECK still rejected role='host' — in which case the
+    // migration would not have applied and there'd be no Proprietor to find.
+    const p = await getPersonaByHandle(env, 'the-proprietor')
+
+    expect(p).not.toBeNull()
+    expect(p!.agentId).toBe('agent:the-proprietor')
+    expect(p!.displayName).toBe('The Proprietor')
+    expect(p!.role).toBe('host')
+    expect(guildOf(p!.role)).toBe('host')
+    // His voice round-trips from persona_prompt (the D1-tunable source), and his
+    // declined portrait round-trips as data the self-portrait work reads.
+    expect(p!.personaPrompt).toMatch(/^You are The Proprietor/)
+    expect(p!.config.portrait).toBe('declined')
+  })
+
+  it('listAllPersonas places exactly the Proprietor in the host guild', async () => {
+    // What the /cast loader does: read the whole roster, bucket by guildOf. The
+    // seeded city has one host, and it is the Proprietor.
+    const roster = await listAllPersonas(env)
+    const host = roster.filter((c) => guildOf(c.role) === 'host')
+
+    expect(host.map((c) => c.handle)).toEqual(['the-proprietor'])
+    expect(roster.filter((c) => guildOf(c.role) === 'makers').length).toBeGreaterThan(0)
+    expect(roster.filter((c) => guildOf(c.role) === 'critics').length).toBeGreaterThan(0)
   })
 })
