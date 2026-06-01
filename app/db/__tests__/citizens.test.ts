@@ -453,12 +453,11 @@ describe('app/db/citizens.ts - feudsFor (the standing rivalries, resolved)', () 
   ])
 
   it('resolves a rivalry to the rival handle + display name from the live roster', () => {
-    const flags = feudsFor('guttermonk', roster)
-    expect(flags.map((f) => ({ rivalHandle: f.rivalHandle, rivalName: f.rivalName }))).toEqual([
+    // the roster flag is the link only — no reason prose (that lives on Feud, the
+    // shrine shape, so the roster loader ships no prose it does not render)
+    expect(feudsFor('guttermonk', roster)).toEqual([
       { rivalHandle: 'the-gremlin', rivalName: 'The Gremlin' },
     ])
-    // the canon prose travels on the flag, not as a comment
-    expect(flags[0].reason).toMatch(/silence/)
   })
 
   it('the formalist feuds vesper, not the gremlin — the relation is data, not one target', () => {
