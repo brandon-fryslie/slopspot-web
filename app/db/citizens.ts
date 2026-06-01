@@ -348,7 +348,10 @@ async function makerWorks(env: Env, agentId: string): Promise<MakerLine[]> {
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
-    .orderBy(desc(posts.createdAt))
+    // [LAW:one-source-of-truth] id is the stable tiebreak — created_at is
+    // millisecond-resolution, so same-ms ties would otherwise let SQLite reorder
+    // the placard list between reads.
+    .orderBy(desc(posts.createdAt), asc(posts.id))
     .limit(RECENT_LIMIT)
   // [LAW:types-are-the-program] "No authored placard" is one absence — the maker
   // said nothing here — so the shrine branches on null alone, exactly as the
@@ -408,7 +411,11 @@ async function makerHighlights(env: Env, agentId: string): Promise<MakerHighligh
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
-    .orderBy(desc(posts.createdAt))
+    // [LAW:one-source-of-truth] id is the stable tiebreak under the ms-resolution
+    // created_at, so `latest` (rows[0]), the newest-failure scan, and the
+    // first-encountered-max in chooseHighlights all resolve deterministically
+    // rather than flickering when two posts share a millisecond.
+    .orderBy(desc(posts.createdAt), asc(posts.id))
 
   const picks = chooseHighlights(picksRows)
 
