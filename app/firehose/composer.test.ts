@@ -49,9 +49,13 @@ function jsonResponse(title: string, prompt: string): Response {
 }
 
 function expectedFallback(input: ComposerInput) {
-  const prompt = input.promptPrefix
+  const raw = input.promptPrefix
     ? `${input.promptPrefix}, ${renderTemplate(input.subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]}`
     : `${renderTemplate(input.subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]}`
+  // Mirror the composer: the fallback prompt respects maxLength too, not only the
+  // Haiku-success path.
+  const prompt =
+    input.maxLength && raw.length > input.maxLength ? raw.slice(0, input.maxLength) : raw
   return { prompt, title: fallbackTitle(input.subject) }
 }
 
@@ -253,6 +257,16 @@ describe('composePrompt', () => {
 
     const result = await composePrompt(makeInput({ maxLength: 500 }), mockEnv('test-key'))
     expect(result.prompt).toHaveLength(500)
+  })
+
+  it('truncates the FALLBACK prompt to maxLength too (not only the Haiku path)', async () => {
+    // A long persona voice forces the recipe-only fallback prompt over a small cap;
+    // the fallback must still respect maxLength or downstream params validation fails.
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('down'))
+    const input = makeInput({ promptPrefix: 'x'.repeat(300), maxLength: 120 })
+    const result = await composePrompt(input, mockEnv('test-key'))
+    expect(result.prompt.length).toBeLessThanOrEqual(120)
+    expect(result).toEqual(expectedFallback(input))
   })
 
   it('does not truncate the prompt when within maxLength', async () => {
