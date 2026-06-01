@@ -15,7 +15,7 @@
 // host has neither by construction (he presides; he does not make, judge, or
 // scavenge), an explicit arm, never a missing one.
 
-import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { found, generations, posts } from '~/db/schema'
 import { recentVotesForVoter, voterStats } from '~/db/votes'
@@ -528,17 +528,21 @@ async function answeredWishes(env: Env, agentId: string): Promise<AnsweredWish[]
     })
     .from(posts)
     .innerJoin(generations, eq(generations.postId, posts.id))
-    .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId), isNotNull(generations.wish)))
+    // [LAW:single-enforcer] The non-blank filter lives in SQL, BEFORE the limit, so the
+    // window counts only real wishes — a legacy '' (or space-run) wish must not steal a
+    // slot and underfill the panel below ANSWERED_WISH_LIMIT. `trim(wish) <> ''` is
+    // null-safe (trim(NULL) is NULL, excluded), so it subsumes the "is Well-born" check.
+    .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId), sql`trim(${generations.wish}) <> ''`))
     // [LAW:one-source-of-truth] id is the stable tiebreak under ms-resolution
     // created_at, so the windowed slice is deterministic across reads.
     .orderBy(desc(posts.createdAt), asc(posts.id))
     .limit(ANSWERED_WISH_LIMIT)
-  // [LAW:types-are-the-program] A wish is the panel's whole reason to exist, so a
-  // blank wish (a '' that slipped past the Well's non-empty guard) carries no gap to
-  // show and drops out — the panel renders only real wishes, never a hollow quotation.
-  // This is real-data-only enforced at the boundary, the same blankToNull collapse the
-  // placard and reasoning reads make, here promoted to a filter because an empty wish
-  // is not a renderable absence — it is nothing to reveal.
+  // [LAW:types-are-the-program] blankToNull trims the stored wish for display and
+  // narrows the nullable column to the non-null value the panel shows. The SQL filter
+  // keeps the window full of real wishes; this JS pass is the type-honest narrowing of
+  // a nullable column — and a backstop for the one whitespace SQLite's space-only
+  // trim() misses (a tab/newline-only wish JS's .trim() collapses), which drops here
+  // rather than rendering a hollow quotation. Real-data-only, at the boundary.
   return rows.flatMap((r) => {
     const wish = blankToNull(r.wish)
     return wish === null

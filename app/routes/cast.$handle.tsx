@@ -197,11 +197,12 @@ function HighlightCard({ highlight }: { highlight: MakerHighlight }) {
 
 // One answered wish: the human's verbatim words beside the slop the maker made of
 // them. [LAW:dataflow-not-control-flow] The caption is the SAME phrase the card's
-// wish-gap shows, read from its one home — and ALWAYS third-person here: these are
-// other petitioners' wishes, never the viewer's, so we never tell a visitor "what
-// YOU wished." The gap (human words → an image that went elsewhere) is shown, never
-// captioned with the conclusion — no "hijack", no "reinterpret". The user reads the
-// pattern and concludes it. [the reveal DAWNS]
+// wish-gap shows, read from its one home — and ALWAYS third-person here: the Cast
+// page is not viewer-aware (it never computes viewer identity, unlike the card's
+// RenderablePost.viewerIsModifier), so the copy is structurally third-person and a
+// visitor is never told "what YOU wished." The gap (human words → an image that went
+// elsewhere) is shown, never captioned with the conclusion — no "hijack", no
+// "reinterpret". The user reads the pattern and concludes it. [the reveal DAWNS]
 function AnsweredWishRow({ item }: { item: AnsweredWish }) {
   return (
     <li className="flex gap-4">
