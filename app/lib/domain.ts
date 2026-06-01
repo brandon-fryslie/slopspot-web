@@ -226,12 +226,32 @@ export type VoteIntent = VoteValue | 0
 // layer and rendering, and is the same whether a post arrives via the feed
 // list (getFeed) or via its permalink (getFeedItemById). One renderable
 // shape, two readers — not two types-that-happen-to-look-the-same.
+// [LAW:one-source-of-truth] A critic's bylined opinion on a slop: the persona's
+// vote reasoning (`text`) attributed to that persona (`critic` = displayName).
+// Both halves are authoritative elsewhere — reasoning on the vote row, displayName
+// on the persona row — so a Verdict is purely their read-time projection, stored
+// nowhere. [LAW:types-are-the-program] Both fields are non-empty by construction: the
+// read boundary mints a Verdict only from a vote whose reasoning AND whose critic name
+// are both meaningful, gating the two halves identically — a blank in EITHER is no
+// verdict at all, never an empty hot-take or a bylineless `— `.
+export type Verdict = {
+  text: string
+  critic: string
+}
+
 export type RenderablePost = {
   post: Post
   score: number
   myVote: VoteValue | null
   commentCount: number
   viewerIsModifier: boolean
+  // [LAW:dataflow-not-control-flow] The verdict is optional BY DATA: a slop that no
+  // critic has voted on with reasoning simply has no verdict, and the card renders it
+  // or not by its presence — never an `isReviewed` flag the card must consult. The
+  // read boundary (feed.ts) picks the ONE representative critic by a documented
+  // deterministic rule; its absence is a real discriminated absence, handled by
+  // structure, not a sentinel empty string.
+  verdict?: Verdict
 }
 
 // [LAW:one-type-per-behavior] A FeedItem IS a RenderablePost plus a list
