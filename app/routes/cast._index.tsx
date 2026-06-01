@@ -48,8 +48,9 @@ export async function loader({ context }: Route.LoaderArgs) {
       handle: p.handle,
       displayName: p.displayName,
       guild: guildOf(p.role),
-      // [LAW:one-source-of-truth] The creed is derived once, never the raw prompt.
-      creed: creedOf(p.personaPrompt),
+      // [LAW:one-source-of-truth] The creed is resolved once — the authored
+      // config.creed if present, else a bounded prose slice; never the raw prompt.
+      creed: creedOf(p),
       portrait: portraitStateOf(p.config),
       // Derive the one signature stat server-side and ship the string, not the
       // ledger — the verdict text / image URLs / haul belong to the shrine alone.

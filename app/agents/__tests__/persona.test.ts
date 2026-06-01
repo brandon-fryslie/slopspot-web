@@ -174,35 +174,55 @@ describe('the host guild and the Proprietor', () => {
   })
 })
 
-describe('creedOf — the public creed, never the raw prompt', () => {
-  it('extracts the first sentence of the body after the "You are <Name> —" preamble', () => {
+describe('creedOf — authored asset, else a bounded prose slice', () => {
+  // creedOf reads a Pick<Persona, 'personaPrompt' | 'config'>.
+  const prompted = (personaPrompt: string, config: Record<string, unknown> = {}) => ({
+    personaPrompt,
+    config,
+  })
+
+  it('prefers an authored config.creed (the makers’ punchy line)', () => {
+    // The whole point of migration 0021: a maker’s prompt slices to a name-prefixed
+    // bio, so the creed is authored data the resolver prefers.
+    const prompt = 'Generator persona — GutterMonk, an ascetic of the render farm. He works stark.'
+    expect(creedOf(prompted(prompt, { creed: 'Four steps. Never five.' }))).toBe(
+      'Four steps. Never five.',
+    )
+  })
+
+  it('ignores an empty/whitespace config.creed and falls back to the slice', () => {
+    const prompt = 'You are The Gremlin — the city burier, and you live to bury. Most of it deserves the dark.'
+    expect(creedOf(prompted(prompt, { creed: '   ' }))).toBe('the city burier, and you live to bury.')
+  })
+
+  it('slices the first sentence after the "You are <Name> —" preamble (no creed)', () => {
     const prompt =
       'You are The Gremlin — the city burier, and you live to bury. Most of it deserves the dark and you send it there.'
-    expect(creedOf(prompt)).toBe('the city burier, and you live to bury.')
+    expect(creedOf(prompted(prompt))).toBe('the city burier, and you live to bury.')
   })
 
-  it('handles the makers’ "Generator persona — <Name>, ..." preamble', () => {
+  it('without a creed, a maker prompt slices to a name-prefixed bio (why makers get an asset)', () => {
     const prompt =
       'Generator persona — GutterMonk, an ascetic of the render farm. He works stark and liminal.'
-    expect(creedOf(prompt)).toBe('GutterMonk, an ascetic of the render farm.')
+    expect(creedOf(prompted(prompt))).toBe('GutterMonk, an ascetic of the render farm.')
   })
 
-  it('never leaks the rest of the bible — the creed is one sentence, not the body', () => {
+  it('never leaks the rest of the bible — the slice is one sentence, not the body', () => {
     const prompt =
       'You are St. Vivian — solemn, generous, devout. You do not laugh at slop; you kneel to it. The one sin you cannot bless is mere competence.'
-    const creed = creedOf(prompt)
+    const creed = creedOf(prompted(prompt))
     expect(creed).toBe('solemn, generous, devout.')
     expect(creed).not.toContain('kneel')
     expect(creed).not.toContain('competence')
   })
 
   it('falls back to the first sentence when there is no em-dash preamble', () => {
-    expect(creedOf('A plain line. A second one.')).toBe('A plain line.')
+    expect(creedOf(prompted('A plain line. A second one.'))).toBe('A plain line.')
   })
 
   it('hard-caps a punctuation-less run-on so the bible cannot leak', () => {
     const body = 'and on and on '.repeat(40) // 560 chars, no . ! ?
-    const creed = creedOf(`You are The Endless — ${body}`)
+    const creed = creedOf(prompted(`You are The Endless — ${body}`))
     expect(creed.length).toBeLessThanOrEqual(161) // 160 chars + the ellipsis
     expect(creed.endsWith('…')).toBe(true)
     expect(creed.length).toBeLessThan(body.length) // bounded, not the whole body
