@@ -106,6 +106,16 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
   })
 
   describe('createGenerationPost', () => {
+    it('rejects a blank placard title before writing any row or calling the provider', async () => {
+      const { createPost } = await import('~/db/posts')
+      await expect(
+        createPost({ ...GENERATION_INPUT, title: '   ' }, { env: fakeEnv }),
+      ).rejects.toThrow('title must be a non-empty placard')
+
+      expect(mockBatch).not.toHaveBeenCalled()
+      expect(mockGenerate).not.toHaveBeenCalled()
+    })
+
     it('throws when generations INSERT returns success:false — runs orphan cleanup, does not call provider', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure('constraint error'))
 

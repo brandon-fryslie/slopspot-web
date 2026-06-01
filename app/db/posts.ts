@@ -144,6 +144,17 @@ async function createGenerationPost(
   }
   const params = validated.data
 
+  // [LAW:single-enforcer][LAW:no-silent-fallbacks] The placard is required and
+  // non-empty — enforce it at the one write boundary so a blank can never be
+  // persisted. Every legitimate caller already supplies a real name (the composer
+  // trims and rejects empty; fallbackTitle is total). A blank here is a caller bug,
+  // and persisting it would masquerade downstream as a pre-migration legacy row
+  // (firing the empty_title fallback), so fail loud before any row is written rather
+  // than launder the violation into the backlog metric.
+  if (input.title.trim().length === 0) {
+    throw new Error('createPost: generation title must be a non-empty placard, got blank')
+  }
+
   const id = makePostId(crypto.randomUUID())
   const startedAt = new Date()
 
