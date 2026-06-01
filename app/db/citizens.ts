@@ -31,8 +31,10 @@ const RECENT_LIMIT = 6
 // yet), rendered as a placeholder frame, NOT a violated invariant.
 export type MakerWork = { postId: PostId; image: string | null }
 
-// A critic's verdict — the value cast and the rationale (null for a vote with no
-// reasoning, which an agent critic always supplies but the type still admits).
+// A critic's verdict — the value cast and the rationale. `reasoning` is
+// meaningful text or null: a human vote carries none, and the vote schema admits
+// an empty/whitespace string which is normalized to null at the boundary below so
+// "no rationale" has exactly one representation the renderer can branch on.
 export type CriticVerdict = { postId: PostId; value: VoteValue; reasoning: string | null }
 
 // A scavenger's rescue — the found post. `title` is null for an orphan found
@@ -165,7 +167,14 @@ async function criticStat(env: Env, agentId: string): Promise<Extract<CitizenSta
 
 async function criticVerdicts(env: Env, agentId: string): Promise<CriticVerdict[]> {
   const recent = await recentVotesForVoter(env, agentId, RECENT_LIMIT)
-  return recent.map((v) => ({ postId: PostId(v.postId), value: v.value, reasoning: v.reasoning }))
+  return recent.map((v) => {
+    // [LAW:types-are-the-program] Collapse "no rationale" to one representation at
+    // this boundary: the vote schema admits an empty/whitespace string, which is
+    // semantically the same absence as null, so the renderer branches on null
+    // alone and never paints an empty (unlabeled) verdict line.
+    const reasoning = v.reasoning?.trim() ? v.reasoning.trim() : null
+    return { postId: PostId(v.postId), value: v.value, reasoning }
+  })
 }
 
 async function scavengerStat(env: Env, agentId: string): Promise<Extract<CitizenStat, { guild: 'scavengers' }>> {

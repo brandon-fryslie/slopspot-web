@@ -194,6 +194,19 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     ])
   })
 
+  it('critics: empty/whitespace reasoning is normalized to null (one absence)', async () => {
+    // The vote schema admits an empty string; the verdict must not carry "" (which
+    // would paint an empty, unlabeled line) — it collapses to null like a human vote.
+    await seedPost({ id: 'c_e', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
+    await seedSucceededGeneration('c_e', image('/media/ce'))
+    await seedVote({ postId: 'c_e', voterId: 'agent:critic', value: 1, reasoning: '   ', createdAt: 1000 })
+
+    const ledger = await getCitizenLedger(env, persona('agent:critic', 'voter'))
+
+    if (ledger.guild !== 'critics') throw new Error('guard')
+    expect(ledger.verdicts).toEqual([{ postId: 'c_e', value: 1, reasoning: null }])
+  })
+
   it('critics: a critic who has judged nothing is zeros, not absent', async () => {
     const ledger = await getCitizenLedger(env, persona('agent:silent-critic', 'voter'))
     expect(ledger).toEqual({ guild: 'critics', judged: 0, blessed: 0, buried: 0, verdicts: [] })
