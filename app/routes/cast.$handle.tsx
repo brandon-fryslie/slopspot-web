@@ -151,7 +151,7 @@ function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
     case 'makers':
       return (
         <>
-          <Panel heading="Voice">
+          <Panel heading="The placards">
             {ledger.works.length === 0 ? (
               <ProprietorLine>{PROPRIETOR.noVoice}</ProprietorLine>
             ) : (
@@ -162,7 +162,7 @@ function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
               </ul>
             )}
           </Panel>
-          <Panel heading="Work">
+          <Panel heading="The work">
             {ledger.works.length === 0 ? (
               <ProprietorLine>{PROPRIETOR.noWork}</ProprietorLine>
             ) : (
@@ -178,7 +178,7 @@ function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
     case 'critics':
       return (
         <>
-          <Panel heading="Verdicts">
+          <Panel heading="The verdicts">
             {ledger.verdicts.length === 0 ? (
               <ProprietorLine>{PROPRIETOR.noVoice}</ProprietorLine>
             ) : (
