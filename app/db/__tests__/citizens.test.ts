@@ -7,7 +7,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { feudsFor, getCitizenLedger, getCitizenStat, signatureStat } from '~/db/citizens'
+import {
+  feudsAround,
+  feudsFor,
+  getCitizenLedger,
+  getCitizenStat,
+  ritePresidedBy,
+  signatureStat,
+} from '~/db/citizens'
 import { AgentId, type Media } from '~/lib/domain'
 import type { Persona, PersonaRole } from '~/agents/persona'
 
@@ -41,15 +48,48 @@ async function seedPost(opts: {
     .run()
 }
 
-async function seedSucceededGeneration(postId: string, image: Media, title = 'a piece') {
+async function seedSucceededGeneration(
+  postId: string,
+  image: Media,
+  title = 'a piece',
+  styleFamily = 'photoreal',
+) {
   await env.DB.prepare(
     `INSERT INTO generations
        (post_id, provider_id, provider_version, params_json, title, style_family,
         subject_template, slots_json, aspect_ratio, status, completed_at, output_json)
-     VALUES (?, 'fal-flux', '1', '{}', ?, 'photoreal', 'T00', '{"freeText":""}', '1:1',
+     VALUES (?, 'fal-flux', '1', '{}', ?, ?, 'T00', '{"freeText":""}', '1:1',
         'succeeded', ?, ?)`,
   )
-    .bind(postId, title, 1000, JSON.stringify(image))
+    .bind(postId, title, styleFamily, 1000, JSON.stringify(image))
+    .run()
+}
+
+// A fork child: a generation post whose lineage points back at `parentId`. Authored
+// by a forker (not the parent's maker) so it counts toward the parent's most-bred
+// lineage without joining the maker's own body.
+async function seedForkChild(childId: string, parentId: string, createdAt: number) {
+  await seedPost({ id: childId, createdAt, contentKind: 'generation', originJson: authored('agent:forker') })
+  await env.DB.prepare(
+    `INSERT INTO generations
+       (post_id, provider_id, provider_version, params_json, title, style_family,
+        subject_template, slots_json, aspect_ratio, status, started_at, parent_post_id)
+     VALUES (?, 'fal-flux', '1', '{}', 'a fork', 'photoreal', 'T00', '{"freeText":""}', '1:1',
+        'running', ?, ?)`,
+  )
+    .bind(childId, createdAt, parentId)
+    .run()
+}
+
+async function seedFailedGeneration(postId: string, reason = 'provider timeout') {
+  await env.DB.prepare(
+    `INSERT INTO generations
+       (post_id, provider_id, provider_version, params_json, title, style_family,
+        subject_template, slots_json, aspect_ratio, status, failed_at, failed_reason)
+     VALUES (?, 'fal-flux', '1', '{}', 'a miss', 'photoreal', 'T00', '{"freeText":""}', '1:1',
+        'failed', ?, ?)`,
+  )
+    .bind(postId, 2000, reason)
     .run()
 }
 
@@ -90,7 +130,7 @@ async function seedVote(opts: {
 const image = (url: string): Media => ({ kind: 'image', url, w: 8, h: 8 })
 
 describe('app/db/citizens.ts - getCitizenLedger', () => {
-  it('makers: counts authored generations and surfaces recent works (placard + image) newest-first', async () => {
+  it('makers: counts authored generations and surfaces recent placard lines newest-first', async () => {
     await seedPost({ id: 'm_1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
     await seedSucceededGeneration('m_1', image('/media/aaa'), 'I gave it a hallway')
     await seedPost({ id: 'm_2', createdAt: 200, contentKind: 'generation', originJson: authored('agent:maker') })
@@ -104,10 +144,10 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(2)
-    // newest first: the running gen (placard, no image yet) then the succeeded one
+    // VOICE is the placard line only (no image) — newest first
     expect(ledger.works).toEqual([
-      { postId: 'm_2', title: 'four steps, never five', image: null },
-      { postId: 'm_1', title: 'I gave it a hallway', image: '/media/aaa' },
+      { postId: 'm_2', title: 'four steps, never five' },
+      { postId: 'm_1', title: 'I gave it a hallway' },
     ])
   })
 
@@ -124,7 +164,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(1)
-    expect(ledger.works).toEqual([{ postId: 'm_legacy', title: 'an old placard', image: '/media/legacy' }])
+    expect(ledger.works).toEqual([{ postId: 'm_legacy', title: 'an old placard' }])
   })
 
   it('scavengers: counts legacy {actor}-shaped attribution the feed still reads', async () => {
@@ -143,7 +183,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
   it('makers: an orphan generation (no sibling row) is counted AND listed, never dropped', async () => {
     // D1 batch inserts are non-transactional, so a generation post can briefly
     // exist with no generations sibling. `made` counts it; `works` must list it
-    // too (as a no-image frame) rather than innerJoin it away into a mismatch.
+    // too (as an untitled line) rather than innerJoin it away into a mismatch.
     await seedPost({ id: 'm_orphan', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
 
     const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
@@ -151,7 +191,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.guild).toBe('makers')
     if (ledger.guild !== 'makers') throw new Error('guard')
     expect(ledger.made).toBe(1)
-    expect(ledger.works).toEqual([{ postId: 'm_orphan', title: null, image: null }])
+    expect(ledger.works).toEqual([{ postId: 'm_orphan', title: null }])
   })
 
   it('makers: an empty/whitespace placard collapses to a null voice line (one absence)', async () => {
@@ -164,7 +204,7 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     const ledger = await getCitizenLedger(env, persona('agent:maker', 'generator'))
 
     if (ledger.guild !== 'makers') throw new Error('guard')
-    expect(ledger.works).toEqual([{ postId: 'm_blank', title: null, image: '/media/blank' }])
+    expect(ledger.works).toEqual([{ postId: 'm_blank', title: null }])
   })
 
   it('scavengers: an orphan found post (no sibling row) is counted AND listed untitled', async () => {
@@ -193,7 +233,90 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
 
   it('makers: a maker with nothing made is a real empty ledger, not an error', async () => {
     const ledger = await getCitizenLedger(env, persona('agent:idle-maker', 'generator'))
-    expect(ledger).toEqual({ guild: 'makers', made: 0, works: [] })
+    expect(ledger).toEqual({ guild: 'makers', made: 0, works: [], highlights: [], styles: [] })
+  })
+
+  it('makers: curates work by its four axes — best/most-bred/latest/a failure', async () => {
+    // best: the most-blessed piece (highest summed score)
+    await seedPost({ id: 'hi_best', createdAt: 100, contentKind: 'generation', originJson: authored('agent:hi') })
+    await seedSucceededGeneration('hi_best', image('/media/best'), 'the blessed one')
+    await seedVote({ postId: 'hi_best', voterId: 'agent:v1', value: 1, reasoning: null, createdAt: 10 })
+    await seedVote({ postId: 'hi_best', voterId: 'agent:v2', value: 1, reasoning: null, createdAt: 20 })
+    // most-bred: the most-forked piece (two children point back at it)
+    await seedPost({ id: 'hi_bred', createdAt: 200, contentKind: 'generation', originJson: authored('agent:hi') })
+    await seedSucceededGeneration('hi_bred', image('/media/bred'), 'the fertile one')
+    await seedForkChild('hi_child1', 'hi_bred', 210)
+    await seedForkChild('hi_child2', 'hi_bred', 220)
+    // a failure: a generation that never landed
+    await seedPost({ id: 'hi_fail', createdAt: 250, contentKind: 'generation', originJson: authored('agent:hi') })
+    await seedFailedGeneration('hi_fail')
+    // latest: the newest piece, no votes, no forks
+    await seedPost({ id: 'hi_new', createdAt: 300, contentKind: 'generation', originJson: authored('agent:hi') })
+    await seedSucceededGeneration('hi_new', image('/media/new'), 'the newest one')
+
+    const ledger = await getCitizenLedger(env, persona('agent:hi', 'generator'))
+    if (ledger.guild !== 'makers') throw new Error('guard')
+
+    // canonical order: best · most-bred · latest · a failure; each a distinct piece
+    expect(ledger.highlights).toEqual([
+      { postId: 'hi_best', title: 'the blessed one', image: '/media/best', labels: [{ kind: 'best', score: 2 }] },
+      { postId: 'hi_bred', title: 'the fertile one', image: '/media/bred', labels: [{ kind: 'most-bred', children: 2 }] },
+      { postId: 'hi_new', title: 'the newest one', image: '/media/new', labels: [{ kind: 'latest' }] },
+      // a failure keeps its placard but never landed an image — the honest miss
+      { postId: 'hi_fail', title: 'a miss', image: null, labels: [{ kind: 'failure' }] },
+    ])
+  })
+
+  it('makers: one piece can earn several axes — merged onto a single thumbnail', async () => {
+    // a maker with one blessed post: it is both his best AND his latest, one frame
+    await seedPost({ id: 'solo', createdAt: 100, contentKind: 'generation', originJson: authored('agent:solo') })
+    await seedSucceededGeneration('solo', image('/media/solo'), 'the only one')
+    await seedVote({ postId: 'solo', voterId: 'agent:v', value: 1, reasoning: null, createdAt: 10 })
+
+    const ledger = await getCitizenLedger(env, persona('agent:solo', 'generator'))
+    if (ledger.guild !== 'makers') throw new Error('guard')
+
+    expect(ledger.highlights).toEqual([
+      {
+        postId: 'solo',
+        title: 'the only one',
+        image: '/media/solo',
+        labels: [{ kind: 'best', score: 1 }, { kind: 'latest' }],
+      },
+    ])
+  })
+
+  it('makers: an all-zero, never-forked body still has a latest, but no best/most-bred', async () => {
+    // best needs an up-score; most-bred needs a fork. Absent signals filter out by
+    // data — the newest piece is the only axis a fresh maker has earned.
+    await seedPost({ id: 'fresh', createdAt: 100, contentKind: 'generation', originJson: authored('agent:fresh') })
+    await seedSucceededGeneration('fresh', image('/media/fresh'), 'untested')
+
+    const ledger = await getCitizenLedger(env, persona('agent:fresh', 'generator'))
+    if (ledger.guild !== 'makers') throw new Error('guard')
+
+    expect(ledger.highlights).toEqual([
+      { postId: 'fresh', title: 'untested', image: '/media/fresh', labels: [{ kind: 'latest' }] },
+    ])
+  })
+
+  it('makers: surfaces the territory it works in most, by frequency', async () => {
+    const seedStyle = async (id: string, createdAt: number, styleFamily: string) => {
+      await seedPost({ id, createdAt, contentKind: 'generation', originJson: authored('agent:painter') })
+      await seedSucceededGeneration(id, image(`/media/${id}`), 'a piece', styleFamily)
+    }
+    await seedStyle('st_a', 100, 'liminal')
+    await seedStyle('st_b', 110, 'liminal')
+    await seedStyle('st_c', 120, 'liminal')
+    await seedStyle('st_d', 130, 'anime')
+    await seedStyle('st_e', 140, 'anime')
+    await seedStyle('st_f', 150, 'photoreal')
+
+    const ledger = await getCitizenLedger(env, persona('agent:painter', 'generator'))
+    if (ledger.guild !== 'makers') throw new Error('guard')
+
+    // most-frequent first, capped at three
+    expect(ledger.styles).toEqual(['liminal', 'anime', 'photoreal'])
   })
 
   it('critics: tallies judged/blessed/buried and surfaces recent verdicts', async () => {
@@ -330,15 +453,20 @@ describe('app/db/citizens.ts - feudsFor (the standing rivalries, resolved)', () 
   ])
 
   it('resolves a rivalry to the rival handle + display name from the live roster', () => {
+    // the roster flag is the link only — no reason prose (that lives on Feud, the
+    // shrine shape, so the roster loader ships no prose it does not render)
     expect(feudsFor('guttermonk', roster)).toEqual([
       { rivalHandle: 'the-gremlin', rivalName: 'The Gremlin' },
     ])
   })
 
   it('the formalist feuds vesper, not the gremlin — the relation is data, not one target', () => {
-    expect(feudsFor('the-formalist', roster)).toEqual([
-      { rivalHandle: 'vesper-sloan', rivalName: 'Vesper Sloan' },
-    ])
+    expect(
+      feudsFor('the-formalist', roster).map((f) => ({
+        rivalHandle: f.rivalHandle,
+        rivalName: f.rivalName,
+      })),
+    ).toEqual([{ rivalHandle: 'vesper-sloan', rivalName: 'Vesper Sloan' }])
   })
 
   it('the gremlin is the fixed antagonist: everyone flags him, he feuds no one', () => {
@@ -357,5 +485,69 @@ describe('app/db/citizens.ts - feudsFor (the standing rivalries, resolved)', () 
   it('an edge whose rival is absent from the live roster collapses out — no dead link', () => {
     const withoutGremlin = new Map([['guttermonk', 'GutterMonk']])
     expect(feudsFor('guttermonk', withoutGremlin)).toEqual([])
+  })
+})
+
+describe('app/db/citizens.ts - feudsAround (the shrine lens: every edge that touches a citizen)', () => {
+  const roster = new Map([
+    ['guttermonk', 'GutterMonk'],
+    ['vesper-sloan', 'Vesper Sloan'],
+    ['st-vivian', 'St. Vivian'],
+    ['the-gremlin', 'The Gremlin'],
+    ['the-formalist', 'The Formalist'],
+  ])
+
+  it('a citizen who declares a grudge carries it outgoing, with the canon reason', () => {
+    const around = feudsAround('guttermonk', roster)
+    expect(around).toHaveLength(1)
+    expect(around[0]).toMatchObject({
+      rivalHandle: 'the-gremlin',
+      rivalName: 'The Gremlin',
+      stance: 'declares',
+    })
+    expect(around[0].reason).toMatch(/silence/)
+  })
+
+  it('the gremlin declares none yet his shrine fills with the city — all targeted-by', () => {
+    const around = feudsAround('the-gremlin', roster)
+    expect(around.every((f) => f.stance === 'targeted-by')).toBe(true)
+    expect(around.map((f) => f.rivalHandle).sort()).toEqual([
+      'guttermonk',
+      'st-vivian',
+      'vesper-sloan',
+    ])
+  })
+
+  it('vesper both declares (vs the gremlin) and is targeted-by (the formalist)', () => {
+    const stances = feudsAround('vesper-sloan', roster).map((f) => ({
+      handle: f.rivalHandle,
+      stance: f.stance,
+    }))
+    expect(stances).toContainEqual({ handle: 'the-gremlin', stance: 'declares' })
+    expect(stances).toContainEqual({ handle: 'the-formalist', stance: 'targeted-by' })
+  })
+
+  it('an edge whose other end is absent from the roster collapses out — no dead link', () => {
+    expect(feudsAround('guttermonk', new Map([['guttermonk', 'GutterMonk']]))).toEqual([])
+  })
+
+  it('an un-minted citizen (null handle) is touched by no edge', () => {
+    expect(feudsAround(null, roster)).toEqual([])
+  })
+})
+
+describe('app/db/citizens.ts - ritePresidedBy (the rite a citizen presides over)', () => {
+  it('a citizen the liturgical week seats presides over their rite', () => {
+    expect(ritePresidedBy('guttermonk')).toMatchObject({ day: 'Saturday', rite: 'The Confession' })
+    expect(ritePresidedBy('the-proprietor')).toMatchObject({ day: 'Friday', rite: 'The Miracle' })
+  })
+
+  it('a citizen the week does not seat presides over nothing — a real absence', () => {
+    expect(ritePresidedBy('idris')).toBeNull()
+    expect(ritePresidedBy('the-formalist')).toBeNull()
+  })
+
+  it('an un-minted citizen (null handle) presides over nothing', () => {
+    expect(ritePresidedBy(null)).toBeNull()
   })
 })

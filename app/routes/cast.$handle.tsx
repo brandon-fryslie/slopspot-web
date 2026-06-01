@@ -1,19 +1,34 @@
 // [RECONCILE A] The citizen page — the shrine to one being. /cast/:handle is
 // addressed by the persona's HANDLE (the canonical, stable, human-readable URL
 // key); agentId, the internal id, is never in a URL. The shell renders the
-// citizen's identity (portrait frame, name, creed), their signature stat, and
-// their guild-shaped body — a critic's verdicts, a maker's work, a scavenger's
-// haul, the host's greeting. The four-panel feud/bond enrichment and the BACK-HIM
-// allegiance verb are follow-ups (roll-call-47p.2/.3).
+// citizen's identity (portrait frame, name, creed), their signature stat, and the
+// four panels of the-roll-call.md: their guild-shaped VOICE and WORK (a maker's
+// curated highlights, a critic's verdicts + ledger, a scavenger's haul, the host's
+// greeting), their WORLD (the feuds that touch them — the soap opera), and the rite
+// they PRESIDE over. WORLD and PRESIDES are citizen-shaped editorial canon keyed by
+// handle, so they resolve in the loader alongside the guild ledger, not as arms of
+// it. The BACK-HIM allegiance verb is a follow-up (roll-call-47p.3).
 
 import { Link, useLoaderData } from 'react-router'
-import { creedOf, getPersonaByHandle, guildOf, type PersonaRole } from '~/agents/persona'
 import {
+  creedOf,
+  getPersonaByHandle,
+  guildOf,
+  listAllPersonas,
+  type PersonaRole,
+} from '~/agents/persona'
+import {
+  feudsAround,
   getCitizenLedger,
+  ritePresidedBy,
   signatureStat,
   type CitizenLedger,
   type CriticVerdict,
+  type Feud,
+  type MakerHighlight,
   type MakerWork,
+  type RitePresidency,
+  type WorkLabel,
 } from '~/db/citizens'
 import { PortraitFrame, portraitStateOf } from '~/components/portrait-frame'
 import { listProviders } from '~/providers'
@@ -48,7 +63,18 @@ export async function loader({ context, params }: Route.LoaderArgs) {
     throw new Response('Citizen not found', { status: 404 })
   }
 
-  const ledger = await getCitizenLedger(env, persona)
+  const [ledger, roster] = await Promise.all([
+    getCitizenLedger(env, persona),
+    listAllPersonas(env),
+  ])
+
+  // [LAW:one-source-of-truth] The feuds resolve against the SAME live roster the
+  // /cast index uses — one handle→displayName map — so a feud line's rival name and
+  // the rival's own shrine can never disagree, and an edge to an absent citizen
+  // collapses out rather than linking to a dead page.
+  const byHandle = new Map(
+    roster.flatMap((p) => (p.handle === null ? [] : [[p.handle, p.displayName] as const])),
+  )
 
   return {
     citizen: {
@@ -65,6 +91,11 @@ export async function loader({ context, params }: Route.LoaderArgs) {
       medium: readMedium(persona.role, persona.config),
     },
     ledger,
+    // The two citizen-shaped panels: every feud touching this handle (declared or
+    // received), and the rite they preside over (null for the citizens the
+    // liturgical week does not seat — a real absence the panel omits).
+    world: feudsAround(params.handle, byHandle),
+    presides: ritePresidedBy(params.handle),
   }
 }
 
@@ -107,7 +138,7 @@ function WorkThumb({ work }: { work: MakerWork }) {
   return (
     <Link
       to={`/p/${work.postId}`}
-      aria-label="View this work"
+      aria-label={`View ${work.title ?? 'an untitled piece'}`}
       className="block aspect-square overflow-hidden rounded-sm border border-votive/12 bg-base transition hover:border-votive/40"
     >
       {work.image !== null ? (
@@ -118,6 +149,59 @@ function WorkThumb({ work }: { work: MakerWork }) {
         </span>
       )}
     </Link>
+  )
+}
+
+// [LAW:types-are-the-program] The caption a WORK axis earns is read straight off
+// its label — the number lives on `best`/`most-bred`, so this never re-derives it.
+// Exhaustive over WorkLabel: a new axis forces a caption here before it compiles.
+function captionFor(label: WorkLabel): string {
+  switch (label.kind) {
+    case 'best':
+      return `best · ${label.score}▲`
+    case 'most-bred':
+      return `most-bred · ${label.children} bred`
+    case 'latest':
+      return 'latest'
+    case 'failure':
+      return 'a failure'
+    default: {
+      const _exhaustive: never = label
+      return _exhaustive
+    }
+  }
+}
+
+// One curated work: the thumbnail plus every axis it earned. A piece that is a
+// maker's best AND latest carries both captions on one frame — the de-dupe happened
+// in the read layer, so this only renders what it is handed.
+function HighlightCard({ highlight }: { highlight: MakerHighlight }) {
+  return (
+    <div className="space-y-1.5">
+      <WorkThumb work={highlight} />
+      <div className="flex flex-wrap gap-1">
+        {highlight.labels.map((label) => (
+          <span
+            key={label.kind}
+            className="font-terminal text-[10px] uppercase tracking-wider text-votive/70"
+          >
+            {captionFor(label)}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// The maker's body in one line: how much they made, and the territory they work in
+// most. An empty style list (a maker with only orphan rows, no countable family)
+// drops the "works mostly in" clause by data — the count alone remains.
+function WorkStats({ made, styles }: { made: number; styles: readonly string[] }) {
+  return (
+    <p className="mt-4 font-terminal text-[11px] uppercase tracking-wider text-ash">
+      <span className="text-bone">{made}</span> made
+      {styles.length > 0 && <> · works mostly in: {styles.map((s) => s.replace(/-/g, ' ')).join(' · ')}</>}
+    </p>
   )
 }
 
@@ -163,14 +247,17 @@ function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
             )}
           </Panel>
           <Panel heading="The work">
-            {ledger.works.length === 0 ? (
+            {ledger.highlights.length === 0 ? (
               <ProprietorLine>{PROPRIETOR.noWork}</ProprietorLine>
             ) : (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {ledger.works.map((w) => (
-                  <WorkThumb key={w.postId} work={w} />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {ledger.highlights.map((h) => (
+                    <HighlightCard key={h.postId} highlight={h} />
+                  ))}
+                </div>
+                <WorkStats made={ledger.made} styles={ledger.styles} />
+              </>
             )}
           </Panel>
         </>
@@ -233,8 +320,80 @@ function CitizenBody({ ledger }: { ledger: CitizenLedger }) {
   }
 }
 
+// [LAW:types-are-the-program] A feud reads one of two ways — this citizen declares
+// the grudge, or another has marked them. Exhaustive over the stance discriminator
+// so a new stance forces a headline here before it compiles. The rival name is
+// always a live /cast link (the resolver only emits edges whose other end is
+// present), so the fight is one click away.
+function feudHeadline(feud: Feud, rival: React.ReactNode): React.ReactNode {
+  switch (feud.stance) {
+    case 'declares':
+      return <>⚔ at war with {rival}</>
+    case 'targeted-by':
+      return <>⚔ marked by {rival}</>
+    default: {
+      const _exhaustive: never = feud.stance
+      return _exhaustive
+    }
+  }
+}
+
+function FeudLine({ feud }: { feud: Feud }) {
+  const rival = (
+    <Link
+      to={`/cast/${encodeURIComponent(feud.rivalHandle)}`}
+      className="text-profane/90 transition-colors hover:text-profane"
+    >
+      {feud.rivalName}
+    </Link>
+  )
+  return (
+    <li className="text-sm">
+      <p className="font-terminal text-[12px] uppercase tracking-wider text-profane/80">
+        {feudHeadline(feud, rival)}
+      </p>
+      <p className="mt-1 font-placard text-sm italic leading-snug text-bone/70">{feud.reason}</p>
+    </li>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The WORLD panel exists when the city's feud map
+// touches this citizen and is absent otherwise — the empty list selects no panel,
+// the same render the roster's feud flags use. A citizen with no rivalry simply has
+// no soap opera yet; the page does not manufacture an empty altar for it.
+function WorldPanel({ world }: { world: Feud[] }) {
+  if (world.length === 0) return null
+  return (
+    <Panel heading="The world">
+      <ul className="space-y-4">
+        {world.map((feud) => (
+          <FeudLine key={`${feud.stance}:${feud.rivalHandle}`} feud={feud} />
+        ))}
+      </ul>
+    </Panel>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The rite a citizen presides over, or no panel —
+// the liturgical week seats only some of the cast, and a citizen it does not seat
+// presides over nothing (a null), which renders as absence, never a fabricated
+// ceremony. "Last crowned" waits on the Daily Rite's own data; this panel states
+// the standing taste only.
+function PresidesPanel({ presides }: { presides: RitePresidency | null }) {
+  if (presides === null) return null
+  return (
+    <Panel heading="Presides over">
+      <p className="font-civic text-sm uppercase tracking-[0.2em] text-votive">
+        {presides.rite}
+        <span className="text-ash"> · {presides.day}</span>
+      </p>
+      <p className="mt-2 font-placard text-sm italic leading-snug text-bone/75">{presides.blurb}</p>
+    </Panel>
+  )
+}
+
 export default function CastCitizen() {
-  const { citizen, ledger } = useLoaderData<typeof loader>()
+  const { citizen, ledger, world, presides } = useLoaderData<typeof loader>()
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -266,6 +425,8 @@ export default function CastCitizen() {
       </header>
 
       <CitizenBody ledger={ledger} />
+      <WorldPanel world={world} />
+      <PresidesPanel presides={presides} />
     </main>
   )
 }
