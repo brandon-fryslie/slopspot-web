@@ -178,6 +178,19 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
     expect(ledger.finds).toEqual([{ postId: 'f_orphan', title: null }])
   })
 
+  it('scavengers: a whitespace-only find title collapses to a null haul line (one absence)', async () => {
+    // The find title takes the same boundary collapse as the maker's placard and
+    // the critic's reasoning, so a blank title is the SAME null absence — never an
+    // empty link label in the haul.
+    await seedPost({ id: 'f_blank', createdAt: 100, contentKind: 'found', originJson: foundBy('agent:digger') })
+    await seedFound('f_blank', '   ', 'https://example.com/blank')
+
+    const ledger = await getCitizenLedger(env, persona('agent:digger', 'discoverer'))
+
+    if (ledger.guild !== 'scavengers') throw new Error('guard')
+    expect(ledger.finds).toEqual([{ postId: 'f_blank', title: null }])
+  })
+
   it('makers: a maker with nothing made is a real empty ledger, not an error', async () => {
     const ledger = await getCitizenLedger(env, persona('agent:idle-maker', 'generator'))
     expect(ledger).toEqual({ guild: 'makers', made: 0, works: [] })
