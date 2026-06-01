@@ -782,15 +782,33 @@ export function renderTemplate(subject: RecipeSubject): string {
 // and they MUST agree, so the derivation lives once, here, beside renderTemplate
 // (its only dependency).
 //
+// [LAW:one-source-of-truth] "A placard is short" is one invariant with one cap,
+// owned where the placard concept lives. Both the composer's LLM-authored title and
+// the deterministic fallback below pass through capPlacard, so no naming path — not
+// Haiku, not the fallback, not a legacy T00 row whose freeText runs to 500 chars —
+// can produce an oversized card title.
+export const PLACARD_TITLE_MAX = 80
+
+export function capPlacard(title: string): string {
+  if (title.length <= PLACARD_TITLE_MAX) return title
+  // Cut back to the last word boundary inside the cap so a placard never ends
+  // mid-word; fall back to a hard slice if a single token exceeds the cap.
+  const cut = title.slice(0, PLACARD_TITLE_MAX)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()
+}
+
 // [LAW:no-silent-fallbacks] A fallback name is never the empty string and never
 // 'Untitled': it is the rendered subject, article-stripped and title-cased into a
-// placard ("a derelict lighthouse at dusk" → "Derelict Lighthouse At Dusk").
-// Deterministic in the subject, so the same row always derives the same name.
+// placard ("a derelict lighthouse at dusk" → "Derelict Lighthouse At Dusk"), then
+// capped to placard length. Deterministic in the subject, so the same row always
+// derives the same name.
 export function fallbackTitle(subject: RecipeSubject): string {
   const rendered = renderTemplate(subject)
   const stripped = rendered.replace(/^(a|an|the)\s+/i, '')
   // Capitalize each WORD's first letter only — anchored at start or whitespace, so
   // "surgeon's" stays "Surgeon's" rather than "Surgeon'S" (\b\w would fire after the
   // apostrophe too).
-  return stripped.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
+  const titled = stripped.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
+  return capPlacard(titled)
 }
