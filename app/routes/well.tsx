@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { z } from "zod"
-import { WISH_MAX } from "~/lib/well-response"
+import { WISH_MAX, wellVoiceLine } from "~/lib/well-response"
 
 // The Wishing Well — the haunted prompt box (design-docs/the-wishing-well.md).
 //
@@ -79,8 +79,15 @@ export default function WellPage() {
         signal: abort.signal,
       })
       if (!res.ok) {
+        // [LAW:no-silent-fallbacks] Fail loud — but loud in the WELL'S voice. The
+        // status + envelope go to the console (diagnosable); the human sees only a
+        // line in the well's register. The status (read here, never shown) picks the
+        // line; nothing of the HTTP envelope reaches the screen. [LAW:single-enforcer]
         const detail = await res.text().catch(() => "")
-        throw new Error(`the well went quiet (${res.status}) ${detail}`.trim())
+        console.warn("well: submission failed", { status: res.status, detail })
+        setError(wellVoiceLine(res.status))
+        setPhase("idle")
+        return
       }
 
       // [LAW:dataflow-not-control-flow] Switch on the arm, exhaustively — the
@@ -94,8 +101,9 @@ export default function WellPage() {
           navigate(`/p/${parsed.postId}`)
           return
         case "reply":
-          // Reserved (Acts IV–V): the spirit talked back. Not rendered as a
-          // conversation in v1 — surfacing the line is the talk-back ticket's UI.
+          // Reserved (Acts IV–V): the spirit's own talk-back line — already in the
+          // well's voice (server-authored), so it surfaces verbatim. Not rendered as a
+          // conversation in v1; the talk-back ticket owns that UI.
           setError(parsed.text)
           setPhase("idle")
           return
@@ -106,7 +114,12 @@ export default function WellPage() {
       }
     } catch (err) {
       if (!abort.signal.aborted) {
-        setError(err instanceof Error ? err.message : String(err))
+        // A network drop, a malformed-response parse, the impossible-arm throw — the
+        // JS error stays in the console, NEVER on screen (err.message would leak
+        // "Failed to fetch" / a stack onto the one surface that must hold the spell).
+        // No status to read here, so the line is the default quiet. [LAW:single-enforcer]
+        console.warn("well: submission threw", err)
+        setError(wellVoiceLine(null))
         setPhase("idle")
       }
     } finally {
