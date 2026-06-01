@@ -67,6 +67,44 @@ export type Persona = {
   config: Record<string, unknown>
 }
 
+// [LAW:one-source-of-truth] The ONE resolver for a citizen's public creed — the
+// single short line a visitor reads on the Cast surfaces. The full persona_prompt
+// is the private character bible (the voice the composer/critic speaks through)
+// and is NEVER shipped to the client. Every surface that shows a creed funnels
+// through here.
+//
+// [LAW:dataflow-not-control-flow] The creed is an authored character ASSET when a
+// citizen has one (config_json.creed — the makers' punchy lines, "Four steps.
+// Never five."), and a prose slice of the prompt otherwise. The resolution is by
+// DATA — creed present → use it; absent → slice — not a per-role special case: a
+// critic simply has no creed key and falls through to the slice.
+export function creedOf(persona: Pick<Persona, 'personaPrompt' | 'config'>): string {
+  const authored = persona.config.creed
+  return typeof authored === 'string' && authored.trim() !== ''
+    ? authored.trim()
+    : creedFromPrompt(persona.personaPrompt)
+}
+
+// The prose-slice fallback. The named-cast prompts open "You are <Name> — <creed>."
+// or "Generator persona — <Name>, <creed>." (a single paragraph — so a naive
+// first-LINE split would leak the whole bible). The slice takes the first SENTENCE
+// of the body after that em-dash preamble; it falls back to the first sentence of
+// the whole prompt when there is no em-dash. The guarantee is "never ship the
+// bible," so the result is bounded three ways — first line, then first sentence,
+// then a hard character cap — so a prompt with no sentence punctuation still cannot
+// leak the body.
+const CREED_MAX = 160
+
+function creedFromPrompt(personaPrompt: string): string {
+  const trimmed = personaPrompt.trim()
+  const emDash = trimmed.indexOf('—')
+  const body = (emDash === -1 ? trimmed : trimmed.slice(emDash + 1)).trim()
+  const firstSentence = body.split('\n')[0].split(/(?<=[.!?])\s/)[0].trim()
+  return firstSentence.length > CREED_MAX
+    ? `${firstSentence.slice(0, CREED_MAX).trimEnd()}…`
+    : firstSentence
+}
+
 // Returns [] when no personas match the role — the call site decides whether
 // an empty pool is an error (action modules) or a no-op (orchestrator bootstrap).
 // ORDER BY agent_id is the stability guarantee that makes pickPersona's
