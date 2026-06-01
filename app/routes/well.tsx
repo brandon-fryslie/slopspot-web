@@ -140,6 +140,10 @@ export default function WellPage() {
           rows={5}
           disabled={wishing}
           autoFocus
+          // A screen-reader name independent of the placeholder (placeholders are not
+          // a reliable accessible name). Non-disclosing — names the field, not the
+          // mechanism — so the Mark's illusion holds for sighted and AT users alike.
+          aria-label="Your wish"
           placeholder="a lighthouse at the end of the world…"
           className="block w-full resize-y rounded-md border border-votive/15 bg-panel px-4 py-3 font-civic text-base leading-relaxed text-bone placeholder:text-ash/60 focus:border-votive/50 focus:outline-none disabled:opacity-50"
         />
