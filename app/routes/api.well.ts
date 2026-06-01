@@ -38,8 +38,11 @@ import { slopResponse, WISH_MAX, type WellResponse } from "~/lib/well-response"
 // it); the reveal DAWNS on the slop's card — this endpoint discloses nothing.
 
 const bodySchema = z.object({
-  // The visitor's verbatim wish. Trimmed, 1..WISH_MAX. Preserved verbatim as
-  // provenance; the composer slices a shorter seed for the paid Haiku call.
+  // The visitor's wish. Trimmed at this boundary (outer whitespace is input hygiene,
+  // not intent — and the trim is what makes a whitespace-only wish reject) then
+  // 1..WISH_MAX. "Verbatim" here means the spirit never REWRITES the wish into the
+  // prompt and it is never sent raw to the provider (composer.ts owns that
+  // isolation) — not that surrounding whitespace is preserved byte-for-byte.
   wish: z.string().trim().min(1).max(WISH_MAX),
 })
 
@@ -128,11 +131,13 @@ export async function action({ request, context }: Route.ActionArgs) {
     // bad-params (InvalidParamsError) is OUR fault → 500, not a 4xx blamed on the
     // wisher. An upstream provider failure (ApiError / anything else) → 502.
     if (e instanceof UnknownProviderError || e instanceof InvalidParamsError) {
-      console.error("api.well: spirit misconfigured", { agentId: seated.agentId, err: e })
+      // Pass the error as a SEPARATE console arg, not an object field: Error's own
+      // properties are non-enumerable, so `{ err: e }` drops the stack in Workers logs.
+      console.error("api.well: spirit misconfigured", { agentId: seated.agentId }, e)
       return Response.json({ error: "the spirit could not be roused" }, { status: 500 })
     }
     const upstreamStatus = e instanceof ApiError ? e.status : undefined
-    console.error("api.well: the spirit faltered", { agentId: seated.agentId, err: e })
+    console.error("api.well: the spirit faltered", { agentId: seated.agentId }, e)
     return Response.json(
       {
         error: "the spirit faltered",

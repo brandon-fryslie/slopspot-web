@@ -84,9 +84,10 @@ export function parseGeneratorConfig(raw: Record<string, unknown>, agentId: stri
 // [LAW:types-are-the-program] What occasioned a slop, when a human did. Its
 // PRESENCE is the discriminator between the two paths: absent → the firehose (a
 // citizen fires on its own); present → the Well (a human's wish, re-authored by the
-// seated citizen). The wish is the visitor's verbatim words (steers composition,
-// NEVER sent raw to the provider — composer.ts owns that isolation); the wisher is
-// the human MODIFIER on the persona's authorship, never the author. There is no
+// seated citizen). The wish is the visitor's words — trimmed at the wire boundary
+// (api.well) but never REWRITTEN: it steers composition and is NEVER sent raw to the
+// provider (composer.ts owns that isolation); the wisher is the human MODIFIER on the
+// persona's authorship, never the author. There is no
 // `kind` flag — the optional value IS the variability. [LAW:dataflow-not-control-flow]
 export type WishOccasion = {
   readonly wish: string
@@ -212,11 +213,12 @@ export async function authorSlop(
     try {
       await recordRemark(env, post.id, remark)
     } catch (err) {
+      // Pass err as a SEPARATE console arg, not an object field: Error's own
+      // properties are non-enumerable, so embedding it drops the stack in Workers logs.
       console.error('authorSlop: remark persist failed; slop stands, remark absent', {
         postId: post.id,
         agentId: persona.agentId,
-        err,
-      })
+      }, err)
     }
   }
 
