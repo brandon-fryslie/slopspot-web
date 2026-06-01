@@ -119,6 +119,16 @@ function foundBy(agentId: string): SQL {
   ) = ${agentId}`
 }
 
+// [LAW:one-type-per-behavior] Collapse a blank line to one absence: a null
+// (leftJoin miss / human vote), an empty string (legacy sentinel), or a
+// whitespace-only string all mean "nothing was said here." A maker's placard
+// and a critic's reasoning are the SAME normalization, so they share one helper
+// rather than drifting on what counts as blank — and the trim happens once.
+function blankToNull(text: string | null): string | null {
+  const trimmed = text?.trim()
+  return trimmed ? trimmed : null
+}
+
 // [LAW:dataflow-not-control-flow] Image presence follows the generation's status
 // VALUE — only `succeeded` carries an output (the generations_status_shape CHECK
 // guarantees output_json is null in every other arm). A null status (an orphan
@@ -165,14 +175,12 @@ async function makerWorks(env: Env, agentId: string): Promise<MakerWork[]> {
     .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
     .orderBy(desc(posts.createdAt))
     .limit(RECENT_LIMIT)
-  // [LAW:types-are-the-program] Collapse "no authored placard" to one
-  // representation: the leftJoin null (orphan post, no sibling) and the ''
-  // legacy sentinel and a whitespace-only title are the same absence — the
+  // [LAW:types-are-the-program] "No authored placard" is one absence — the
   // maker said nothing here — so the shrine branches on null alone, exactly as
   // the scavenger's untitled find and the critic's empty reasoning do.
   return rows.map((r) => ({
     postId: PostId(r.id),
-    title: r.title?.trim() ? r.title.trim() : null,
+    title: blankToNull(r.title),
     image: imageOf(r.status, r.outputJson, r.id),
   }))
 }
@@ -193,14 +201,14 @@ async function criticStat(env: Env, agentId: string): Promise<Extract<CitizenSta
 
 async function criticVerdicts(env: Env, agentId: string): Promise<CriticVerdict[]> {
   const recent = await recentVotesForVoter(env, agentId, RECENT_LIMIT)
-  return recent.map((v) => {
-    // [LAW:types-are-the-program] Collapse "no rationale" to one representation at
-    // this boundary: the vote schema admits an empty/whitespace string, which is
-    // semantically the same absence as null, so the renderer branches on null
-    // alone and never paints an empty (unlabeled) verdict line.
-    const reasoning = v.reasoning?.trim() ? v.reasoning.trim() : null
-    return { postId: PostId(v.postId), value: v.value, reasoning }
-  })
+  // [LAW:types-are-the-program] "No rationale" is one absence: the vote schema
+  // admits an empty/whitespace string, the same absence as a human vote's null,
+  // so the renderer branches on null alone and never paints an empty verdict line.
+  return recent.map((v) => ({
+    postId: PostId(v.postId),
+    value: v.value,
+    reasoning: blankToNull(v.reasoning),
+  }))
 }
 
 async function scavengerStat(env: Env, agentId: string): Promise<Extract<CitizenStat, { guild: 'scavengers' }>> {
