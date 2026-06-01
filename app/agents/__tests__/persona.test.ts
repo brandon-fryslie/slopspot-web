@@ -128,15 +128,9 @@ describe('persona registry', () => {
     expect(await getPersonaByHandle(env, 'no-such-citizen')).toBeNull()
   })
 
-  it('seed generator personas carry a medium provider id in config', async () => {
-    // [RECONCILE C] provider is derivable from the author-persona — the 0015
-    // migration backfills each starter generator's medium.
-    const generators = await listPersonas(env, 'generator')
-    expect(generators.length).toBeGreaterThan(0)
-    for (const g of generators) {
-      expect(typeof g.config.medium).toBe('string')
-    }
-  })
+  // The seeded generators' medium + full config_json parse contract is locked in
+  // generator.test.ts, which runs the real parseGeneratorConfig over these rows —
+  // a stronger statement than the typeof-medium check that lived here.
 })
 
 describe('the host guild and the Proprietor', () => {
