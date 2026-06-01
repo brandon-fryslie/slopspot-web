@@ -28,6 +28,10 @@ export const PROPRIETOR = {
   noVoice: "Hasn't said a word yet. They will. They all do, down here.",
   // The Cast — a maker or scavenger with nothing on the walls under their name yet.
   noWork: "Nothing under this name on the walls yet. Give it a night.",
+  // The Cast — a maker no one has wished anything of yet (the Act-III panel, empty).
+  // The "before" of the pattern, honestly — the absence is covered, never filled with
+  // a fabricated wish. Gender-neutral about the cast, no apology, no explanation.
+  noWishes: "No one's asked this one for anything yet. Give it time.",
   // The Cast — the frame of the one who runs the place; the running gag, as data.
   declinesToBeRendered: "declines to be rendered",
   // The Cast — the Host's own page. He alone addresses you; he is unsurprised you
