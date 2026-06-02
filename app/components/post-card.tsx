@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, Crowning, CrownMark, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, RiteLens, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
 import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
@@ -26,6 +26,7 @@ export function PostCard({
   commentCount,
   viewerIsModifier,
   verdict,
+  crowning,
   frame,
 }: RenderablePost & { frame: FrameLevel }) {
   // [LAW:dataflow-not-control-flow] The wished-slop reveal is EMERGENT, not a mode:
@@ -37,6 +38,11 @@ export function PostCard({
   return (
     <article className="overflow-hidden rounded-lg border border-votive/12 bg-panel">
       <ContentView content={post.content} frame={frame} />
+      {/* [LAW:dataflow-not-control-flow] The eternal mark renders by the PRESENCE of
+          the Crowning the read boundary derived from the crowns table — never an
+          isCrowned flag. An uncrowned post carries no crowning and this block does
+          not appear; a crowned one wears its mark forever, here in the living feed. */}
+      {crowning !== undefined && <EternalMark crowning={crowning} />}
       {/* [LAW:types-are-the-program] The placard renders for generation content by
           the discriminator — the title is a guaranteed-present field on that arm,
           so there is no nameless branch. The citizen's name for the PIECE, never the
@@ -665,6 +671,55 @@ function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor 
 const VERDICT_ROBES: Record<VerdictDisposition, { glyph: string; bylineClass: string; accentClass: string }> = {
   blessed: { glyph: "✚", bylineClass: "text-gilt", accentClass: "border-gilt/40" },
   buried: { glyph: "✗", bylineClass: "text-profane", accentClass: "border-profane/50" },
+}
+
+// [LAW:dataflow-not-control-flow] The lens names the honour; the mark colours it.
+// Both are total maps over the closed unions (RiteLens, CrownMark), so an eighth
+// lens or a sixth mark breaks these literals at compile time — the badge can never
+// render an underived crown. The verb-label is the city's word for the act; the tone
+// is candlelight, never bling (the-threshold.md): gilt for the sainted, profane for
+// the monstrous, tarnished bronze for the resurrected, bone for the flawless, and
+// the divided Martyr split between gilt and profane.
+const CROWN_LABEL: Record<RiteLens, string> = {
+  saint: "Sainted",
+  villain: "Villain",
+  heretic: "Heretic",
+  relic: "Relic",
+  martyr: "Martyr",
+  miracle: "Miracle",
+  confession: "Confession",
+}
+const CROWN_TONE: Record<CrownMark, string> = {
+  gold: "text-gilt border-gilt/40",
+  magenta: "text-profane border-profane/40",
+  bronze: "text-[#b08d57] border-[#b08d57]/40",
+  split: "text-gilt border-profane/40",
+  bone: "text-bone border-bone/30",
+}
+
+// [LAW:one-source-of-truth] The eternal mark — derived entirely from the Crowning
+// the read boundary built from the crowns table (lens → label + mark; the day it
+// settled; who presided). Nothing here is stored on the post; the card is a pure
+// projection of the one crown record. The full gallery treatment is the gold-Drama
+// epic's; this is the foundational mark in the living feed.
+function EternalMark({ crowning }: { crowning: Crowning }) {
+  // The visible badge is terse; the aria-label carries the FULL crown to assistive
+  // tech (lens + presiding + day) since `title` is not reliably announced. The inner
+  // spans are decorative under the label, so the glyph and split date don't read as
+  // disjoint fragments.
+  const label = `${CROWN_LABEL[crowning.lens]} — crowned by ${crowning.presiding.displayName} on ${crowning.riteDay}`
+  return (
+    <div
+      className={`mx-3 mt-3 inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-terminal text-[0.7rem] uppercase tracking-wide ${CROWN_TONE[crowning.mark]}`}
+      role="note"
+      aria-label={label}
+      title={label}
+    >
+      <span aria-hidden>✚</span>
+      <span aria-hidden>{CROWN_LABEL[crowning.lens]}</span>
+      <span aria-hidden className="opacity-60">· {crowning.riteDay}</span>
+    </div>
+  )
 }
 
 // [LAW:dataflow-not-control-flow] The named critic's hot take — the blurb the city

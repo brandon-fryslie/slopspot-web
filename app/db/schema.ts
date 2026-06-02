@@ -307,6 +307,49 @@ export const backings = sqliteTable(
   ],
 )
 
+// [LAW:one-source-of-truth] Crowns: the ONE record of a crowning (The Daily Rite).
+// The eternal mark on a card, the Calendar entry, and the in-feed badge all derive
+// from a row here — there is NO is_crowned flag on posts that could drift, and no
+// stored mark (the mark is markFor(lens) at read time, the same shape score=SUM(votes)
+// takes). Crowns are forever: a row here persists indefinitely.
+//
+// `lens` is the discriminator everything derives from; the CHECK makes the seven
+// RiteLens arms real at the storage boundary (Drizzle's text-enum is type-level
+// only, like posts.content_kind). `presiding` records WHO presided at crowning time
+// — it is FK-less (actor-side, like votes.voter_id) on purpose: a crown is historical
+// fact, so a later persona retirement must not cascade-delete it. `decree_json` is the
+// Proprietor's serialized Utterance, authored once via utter() and kept forever.
+//
+// [LAW:types-are-the-program] The UNIQUE index on rite_day IS the "one ceremony per
+// day" invariant — the liturgical week presides one lens per day, so a second crown
+// for the same day is unrepresentable, and the 3am cron re-running is idempotent by
+// construction (ON CONFLICT DO NOTHING). post_id FK ON DELETE CASCADE: a crown of a
+// deleted post is meaningless (mirrors votes/comments); posts are not normally deleted.
+export const crowns = sqliteTable(
+  'crowns',
+  {
+    id: text('id').primaryKey(),
+    postId: text('post_id')
+      .notNull()
+      .references(() => posts.id, { onDelete: 'cascade' }),
+    riteDay: text('rite_day').notNull(),
+    lens: text('lens', {
+      enum: ['saint', 'villain', 'heretic', 'relic', 'martyr', 'miracle', 'confession'],
+    }).notNull(),
+    presiding: text('presiding').notNull(),
+    decreeJson: text('decree_json').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('crowns_rite_day_unique').on(t.riteDay),
+    index('crowns_post_idx').on(t.postId),
+    check(
+      'crowns_lens_shape',
+      sql`${t.lens} IN ('saint', 'villain', 'heretic', 'relic', 'martyr', 'miracle', 'confession')`,
+    ),
+  ],
+)
+
 // Comments: flat thread per post. v1 is anonymous-only; author_id is the same
 // opaque voter cookie UUID the votes table uses. No FK to users (mirroring
 // votes) so a future auth surface can move user/agent ids into the same column
@@ -390,3 +433,5 @@ export type DbPersona = typeof personas.$inferSelect
 export type NewDbPersona = typeof personas.$inferInsert
 export type DbBacking = typeof backings.$inferSelect
 export type NewDbBacking = typeof backings.$inferInsert
+export type DbCrown = typeof crowns.$inferSelect
+export type NewDbCrown = typeof crowns.$inferInsert
