@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
 import { getFeed, getFeedItemById, getPostById } from '~/db/feed'
+import { setBacking } from '~/db/backings'
 import {
   AgentId,
   PostId,
@@ -534,6 +535,87 @@ describe('app/db/feed.ts - getFeed', () => {
 
       await expect(getFeed(env)).rejects.toThrow(/non-persona author/)
     })
+  })
+})
+
+// [LAW:behavior-not-structure] The backing lens contract (roll-call-47p.4): backing a
+// citizen reorders the feed toward that citizen's expressed taste, an empty backing set
+// leaves the feed untouched, and the lens never mutates the displayed score. These pin
+// WHAT getFeed does for a viewer's backings — blind to whether the bias lives in a CTE
+// column, applySortMode, or a weight constant.
+//
+// The scenario isolates the lens by NEUTRALIZING the critic's real-score contribution:
+// each post the critic touches gets an opposing human vote, so all three posts have a
+// real score of 0. With equal scores, 'top' orders strictly by createdAt — so the
+// UNBACKED feed is [A, B, C] by recency. The ONLY thing that can reorder it is the
+// viewer-specific affinity term. The backed critic buried A and blessed C, so for a
+// viewer who backs that critic the order flips to [C, B, A].
+describe('app/db/feed.ts - getFeed backing lens (roll-call-47p.4)', () => {
+  const CRITIC = 'agent:gremlin-test'
+  const FAN = '10000000-0000-4000-8000-000000000001' // backs the critic
+  const STRANGER = '20000000-0000-4000-8000-000000000002' // backs nobody
+  const TOP_ALL = { mode: 'top', window: 'all' } as const
+
+  // Equal real scores (0 each), distinct createdAt so unbacked 'top' order is A>B>C.
+  async function seedLensScenario(): Promise<void> {
+    await seedCritic(CRITIC, 'The Gremlin')
+    const a = await seedPost(env, { id: 'lens-a', createdAt: ms(3000) })
+    // lens-b is the untouched middle — no votes, so it anchors the neutral band the
+    // buried post sinks below and the blessed post rises above. Seeded, not bound.
+    await seedPost(env, { id: 'lens-b', createdAt: ms(2000) })
+    const c = await seedPost(env, { id: 'lens-c', createdAt: ms(1000) })
+
+    // Critic buries A, blesses C — and each is cancelled by an opposing human vote so
+    // every post nets a real score of 0. The critic's opinion survives ONLY in the
+    // votes table as a per-citizen signal the lens can read; it does not tilt the
+    // unbacked ranking.
+    await seedVote(env, { postId: a, voterId: CRITIC, value: -1, reasoning: 'deserves the dark' })
+    await seedVote(env, { postId: a, voterId: 'human-a', value: 1 })
+    await seedVote(env, { postId: c, voterId: CRITIC, value: 1, reasoning: 'against my will, this works' })
+    await seedVote(env, { postId: c, voterId: 'human-c', value: -1 })
+  }
+
+  function order(items: { post: { id: string } }[]): string[] {
+    return items.map((i) => i.post.id)
+  }
+
+  it('unbacked viewers see the normal feed; backing the critic reorders toward its taste', async () => {
+    await seedLensScenario()
+
+    // A stranger who backs nobody and an anonymous viewer (no cookie) both get the
+    // identical normal feed — the empty backing set degrades to a 0 affinity by data.
+    const stranger = await getFeed(env, STRANGER, TOP_ALL)
+    const anon = await getFeed(env, undefined, TOP_ALL)
+    expect(order(stranger)).toEqual(['lens-a', 'lens-b', 'lens-c'])
+    expect(order(anon)).toEqual(['lens-a', 'lens-b', 'lens-c'])
+
+    // The fan backs the critic, then sees the city through its eyes: the buried post
+    // sinks to the bottom, the blessed post rises to the top. A measurable reorder
+    // driven solely by the allegiance.
+    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: true }, { env })
+    const fan = await getFeed(env, FAN, TOP_ALL)
+    expect(order(fan)).toEqual(['lens-c', 'lens-b', 'lens-a'])
+  })
+
+  it('the lens biases only the ORDER — the displayed score stays pure SUM(votes)', async () => {
+    await seedLensScenario()
+    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: true }, { env })
+
+    const fan = await getFeed(env, FAN, TOP_ALL)
+    // Every post nets 0 real votes; the lens reordered them but must not have leaked
+    // BACKING_WEIGHT into the number a viewer reads. [LAW:one-source-of-truth]
+    for (const item of fan) {
+      expect(item.score).toBe(0)
+    }
+  })
+
+  it('withdrawing a backing restores the normal feed (the lens is the backing set, nothing cached)', async () => {
+    await seedLensScenario()
+    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: true }, { env })
+    expect(order(await getFeed(env, FAN, TOP_ALL))).toEqual(['lens-c', 'lens-b', 'lens-a'])
+
+    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: false }, { env })
+    expect(order(await getFeed(env, FAN, TOP_ALL))).toEqual(['lens-a', 'lens-b', 'lens-c'])
   })
 })
 

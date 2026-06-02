@@ -18,7 +18,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { backings } from '~/db/schema'
 import { getPersonaByHandle } from '~/agents/persona'
-import type { AgentId } from '~/lib/domain'
+import { AgentId } from '~/lib/domain'
 
 export type SetBackingInput = {
   // The citizen's canonical URL key — the handle the human clicked. setBacking
@@ -152,4 +152,28 @@ export async function getBackings(
     if (!result.has(citizen)) result.set(citizen, { backerCount: 0, viewerBacks: false })
   }
   return result
+}
+
+// [LAW:single-enforcer] The viewer's set of backed citizens — the input the feed's
+// backing lens ranks by (the-roll-call.md). "Which citizens does this voter back" is a
+// backing read, so it lives here, beside the count/flag read, not duplicated as a raw
+// backings query inside feed.ts. The result is the stable agentIds the edge stores —
+// which are exactly the voter_id values a persona's votes carry, so the feed can fold
+// them straight into its affinity aggregate (Σ votes by these citizens).
+//
+// [LAW:dataflow-not-control-flow] A first-time visitor has no voter cookie yet
+// (readVoterId returns undefined). That is not a branch that skips the read — it is the
+// data state "this viewer backs no one," expressed with the same `?? ''` sentinel
+// getBackings and feed.ts's myVote join use: '' matches no real voter_id (every one is a
+// UUID/agentId), so the query returns no rows and the empty set falls out by data. The
+// feed then ranks with a 0 affinity for every post, degrading to the normal feed.
+export async function backedCitizenIds(
+  env: Env,
+  viewerId: string | undefined,
+): Promise<AgentId[]> {
+  const rows = await db(env)
+    .select({ citizen: backings.citizen })
+    .from(backings)
+    .where(eq(backings.voterId, viewerId ?? ''))
+  return rows.map((r) => AgentId(r.citizen))
 }
