@@ -15,6 +15,7 @@
 // decrees are the SAME shape — `Utterance` — produced by the SAME function.
 // The Well does not get a bespoke remark field; it gets an instance of this.
 
+import { z } from "zod";
 import type { AgentId, PostId } from "~/lib/domain";
 
 // --- who speaks -------------------------------------------------------------
@@ -107,6 +108,24 @@ export const withheld = (reason: WithheldReason): Utterance => ({
   kind: "withheld",
   reason,
 });
+
+// [LAW:no-silent-fallbacks] The storage-boundary validator for a persisted Utterance
+// (the Rite's decree_json, the Well's remark_json). A discriminated union over `kind`
+// — `null`, a missing field, or a bad reason fails loud at the boundary rather than
+// surviving as a cast that explodes at the first `.kind`. The schema lives with the
+// type so the two cannot drift. [LAW:one-source-of-truth]
+export const utteranceSchema: z.ZodType<Utterance> = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("spoke"), text: z.string() }),
+  z.object({
+    kind: z.literal("withheld"),
+    reason: z.enum([
+      "characteristic-silence",
+      "indifferent",
+      "beneath-comment",
+      "unavailable",
+    ]),
+  }),
+]);
 
 // --- the act ----------------------------------------------------------------
 

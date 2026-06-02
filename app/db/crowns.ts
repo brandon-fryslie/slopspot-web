@@ -13,12 +13,19 @@
 // flows ONLY through the write path here; the read path surfaces just the mark, so
 // the domain stays voice-free.
 
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { crowns, generations, personas, posts, votes } from '~/db/schema'
-import type { AgentId, Crowning, PostId } from '~/lib/domain'
-import { markFor, riteLensSchema, type RiteCandidate, type RiteLens } from '~/lib/rite'
-import type { Utterance } from '~/lib/voice'
+import type { AgentId, Crowning, PostId, VoteValue } from '~/lib/domain'
+import {
+  ballotCitizens,
+  markFor,
+  riteLensSchema,
+  type RiteBallot,
+  type RiteCandidate,
+  type RiteLens,
+} from '~/lib/rite'
+import { utteranceSchema, type Utterance } from '~/lib/voice'
 
 // What recordCrowning persists: the crowned post, the liturgical day, the lens, the
 // citizen who presided (recorded as fact, not re-derived), and the Proprietor's
@@ -49,16 +56,24 @@ export type RecordCrowningResult =
   | { recorded: true; id: string }
   | { recorded: false; existing: StoredCrowning }
 
-// [LAW:no-silent-fallbacks] decree_json is our own serialized Utterance; a malformed
-// value is a storage violation that fails loud with the day for context, never a
-// laundered cast. The shape is trusted at this boundary the way feed.ts trusts
-// params_json.
+// [LAW:no-silent-fallbacks] decree_json is validated at this storage boundary against
+// the Utterance schema — a malformed JSON string, a `null`, a missing field, or a bad
+// withheld-reason fails loud with the day for context, never a laundered cast that
+// would explode later at the first `.kind`. Mirrors feed.ts's storage-boundary parses.
 function parseDecree(json: string, riteDay: string): Utterance {
+  let raw: unknown
   try {
-    return JSON.parse(json) as Utterance
+    raw = JSON.parse(json)
   } catch (err) {
     throw new Error(`crowns: malformed decree_json for rite day ${riteDay}`, { cause: err })
   }
+  const parsed = utteranceSchema.safeParse(raw)
+  if (!parsed.success) {
+    throw new Error(
+      `crowns: decree_json for rite day ${riteDay} is not a valid Utterance: ${parsed.error.message}`,
+    )
+  }
+  return parsed.data
 }
 
 // [LAW:single-enforcer] The one reader of "the crown that settled this day." Serves
@@ -124,34 +139,64 @@ export async function recordCrowning(
   return { recorded: true, id: inserted[0].id }
 }
 
-// [LAW:dataflow-not-control-flow] The rite reads the votes that ALREADY exist — no
-// new mechanic. One row per succeeded generation the city has judged (INNER JOIN
-// votes): its net score and its blessing/burial counts, the extremes elect() reads.
-// A post with no votes is not a candidate (the city said nothing about it); a
-// candidate that clears no pole's bar simply yields the Unmoved Day downstream.
-// [LAW:one-source-of-truth] The placard (a piece's display name) is NOT gathered here
-// — it is derived in exactly one place (the feed reader's toContent, with its
-// non-empty fallback). The orchestrator re-reads the WINNER through that canonical
-// path, so a legacy blank title can never reach a decree.
-export async function gatherCandidates(env: Env): Promise<RiteCandidate[]> {
+// [LAW:dataflow-not-control-flow] The rite reads the votes that ALREADY exist — no new
+// mechanic. The candidate shape carries the whole-city overallScore (the acclaim
+// ballot's read + the "strongest" tiebreak) and the ballot citizens' own votes (what
+// the sole/feud ballots nominate from). The BALLOT decides which posts are gathered:
+// for sole/feud the candidate set is the slops the ballot's citizens voted on (a
+// monarchical nomination — the city's loudest post is NOT a candidate unless a
+// presiding citizen voted for it); for acclaim it is every judged slop.
+// [LAW:one-source-of-truth] The placard is NOT gathered here — it is derived in one
+// place (the feed reader's toContent); the orchestrator re-reads the WINNER through it.
+export async function gatherCandidates(
+  env: Env,
+  ballot: RiteBallot,
+): Promise<RiteCandidate[]> {
   const database = db(env)
-  const rows = await database
+
+  // Whole-city score per succeeded generation the city has judged.
+  const scoreRows = await database
     .select({
       postId: generations.postId,
       score: sql<number>`sum(${votes.value})`,
-      blessings: sql<number>`sum(case when ${votes.value} = 1 then 1 else 0 end)`,
-      burials: sql<number>`sum(case when ${votes.value} = -1 then 1 else 0 end)`,
     })
     .from(generations)
     .innerJoin(posts, eq(posts.id, generations.postId))
     .innerJoin(votes, eq(votes.postId, generations.postId))
     .where(eq(generations.status, 'succeeded'))
     .groupBy(generations.postId)
-  return rows.map((r) => ({
-    postId: r.postId as PostId,
-    score: r.score,
-    blessings: r.blessings,
-    burials: r.burials,
+  const scoreByPost = new Map(scoreRows.map((r) => [r.postId, r.score]))
+
+  const citizens = ballotCitizens(ballot)
+  if (citizens.length === 0) {
+    // acclaim: every judged slop is a candidate; no citizen ballot to resolve.
+    return scoreRows.map((r) => ({
+      postId: r.postId as PostId,
+      overallScore: r.score,
+      citizenVotes: {},
+    }))
+  }
+
+  // sole/feud: the candidates are the slops the ballot's citizens voted on — their
+  // own ballot. A slop no ballot citizen touched cannot be nominated.
+  const citizenRows = await database
+    .select({ postId: votes.postId, voterId: votes.voterId, value: votes.value })
+    .from(votes)
+    .innerJoin(
+      generations,
+      and(eq(generations.postId, votes.postId), eq(generations.status, 'succeeded')),
+    )
+    .where(inArray(votes.voterId, [...citizens]))
+  const byPost = new Map<string, Record<string, VoteValue>>()
+  for (const r of citizenRows) {
+    const m = byPost.get(r.postId) ?? {}
+    m[r.voterId] = r.value as VoteValue
+    byPost.set(r.postId, m)
+  }
+  return [...byPost.entries()].map(([postId, citizenVotes]) => ({
+    postId: postId as PostId,
+    overallScore: scoreByPost.get(postId) ?? 0,
+    citizenVotes,
   }))
 }
 

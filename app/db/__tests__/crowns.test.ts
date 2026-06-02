@@ -1,25 +1,29 @@
 // [LAW:behavior-not-structure] Pins the crown record against a real D1 isolate: a
 // crowning is persisted ONCE (the day's slot is unique — a re-fire is an idempotent
-// no-op); the candidates the rite weighs are the vote extremes that already exist
-// (net score + blessing/burial counts, succeeded generations only); and the eternal
-// mark on a feed card is DERIVED from the crown record alone (markFor(lens)), with
-// no is_crowned column anywhere — seed a crown, the feed shows its mark.
+// no-op); the candidates the rite weighs are gathered per BALLOT (a sole ballot
+// resolves only the presiding citizen's own votes; acclaim takes every judged slop);
+// a stored decree is validated at the read boundary; and the eternal mark on a feed
+// card is DERIVED from the crown record alone (markFor(lens)), with no is_crowned
+// column anywhere — seed a crown, the feed shows its mark.
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
 import { db } from '~/db/client'
 import { crowns } from '~/db/schema'
 import {
+  crowningForDay,
   crowningsForPosts,
   gatherCandidates,
   recordCrowning,
 } from '~/db/crowns'
 import { getFeed } from '~/db/feed'
 import { AgentId, PostId } from '~/lib/domain'
+import type { RiteBallot } from '~/lib/rite'
 import { spoke } from '~/lib/voice'
 import { seedPost, seedVote } from './helpers'
 
 const DECREE = spoke('A test decree.')
+const VIVIAN = AgentId('agent:slop-purist')
 
 async function seedProprietor(): Promise<void> {
   await env.DB.prepare(
@@ -62,27 +66,36 @@ describe('recordCrowning — one ceremony per day, idempotent', () => {
   })
 })
 
-describe('gatherCandidates — reads the votes that exist', () => {
-  it('aggregates net score and blessing/burial counts per judged generation', async () => {
-    const post = await seedPost(env)
-    await seedVote(env, { postId: post, voterId: 'v1', value: 1 })
-    await seedVote(env, { postId: post, voterId: 'v2', value: 1 })
-    await seedVote(env, { postId: post, voterId: 'v3', value: 1 })
-    await seedVote(env, { postId: post, voterId: 'v4', value: -1 })
+const SOLE_VIVIAN: RiteBallot = { kind: 'sole', citizen: VIVIAN, pole: 'blessed' }
+const ACCLAIM: RiteBallot = { kind: 'acclaim' }
 
-    const candidates = await gatherCandidates(env)
+describe('gatherCandidates — the ballot decides who nominates', () => {
+  it('a sole ballot nominates ONLY the presiding citizen’s votes, with overall score', async () => {
+    const blessed = await seedPost(env)
+    await seedVote(env, { postId: blessed, voterId: 'agent:slop-purist', value: 1 })
+    await seedVote(env, { postId: blessed, voterId: 'v2', value: -1 })
+    // A post the city loves but Vivian never voted on — NOT a sole-ballot candidate.
+    const popular = await seedPost(env)
+    await seedVote(env, { postId: popular, voterId: 'a', value: 1 })
+    await seedVote(env, { postId: popular, voterId: 'b', value: 1 })
+
+    const candidates = await gatherCandidates(env, SOLE_VIVIAN)
     expect(candidates).toHaveLength(1)
-    expect(candidates[0]).toMatchObject({
-      postId: post,
-      score: 2,
-      blessings: 3,
-      burials: 1,
+    expect(candidates[0]).toEqual({
+      postId: blessed,
+      overallScore: 0, // +1 (Vivian) −1 (v2)
+      citizenVotes: { 'agent:slop-purist': 1 },
     })
   })
 
-  it('excludes posts the city never voted on', async () => {
-    await seedPost(env) // a generation with no votes
-    expect(await gatherCandidates(env)).toHaveLength(0)
+  it('an acclaim ballot takes every judged slop with its whole-city score', async () => {
+    const a = await seedPost(env)
+    await seedVote(env, { postId: a, voterId: 'x', value: 1 })
+    await seedVote(env, { postId: a, voterId: 'y', value: 1 })
+    await seedPost(env) // no votes — not judged
+    const candidates = await gatherCandidates(env, ACCLAIM)
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0]).toEqual({ postId: a, overallScore: 2, citizenVotes: {} })
   })
 
   it('excludes generations that did not succeed', async () => {
@@ -92,8 +105,39 @@ describe('gatherCandidates — reads the votes that exist', () => {
         status: { kind: 'failed', reason: 'boom', failedAt: new Date('2026-01-01') },
       },
     })
-    await seedVote(env, { postId: failed, voterId: 'v1', value: 1 })
-    expect(await gatherCandidates(env)).toHaveLength(0)
+    await seedVote(env, { postId: failed, voterId: 'agent:slop-purist', value: 1 })
+    expect(await gatherCandidates(env, SOLE_VIVIAN)).toHaveLength(0)
+    expect(await gatherCandidates(env, ACCLAIM)).toHaveLength(0)
+  })
+})
+
+describe('crowningForDay — the stored decree is validated at the boundary', () => {
+  it('round-trips a recorded crown’s decree', async () => {
+    const post = await seedPost(env)
+    await recordCrowning(env, {
+      postId: post,
+      riteDay: '2026-05-17',
+      lens: 'saint',
+      presiding: VIVIAN,
+      decree: DECREE,
+    })
+    expect(await crowningForDay(env, '2026-05-17')).toEqual({
+      postId: post,
+      lens: 'saint',
+      decree: DECREE,
+    })
+  })
+
+  it('fails loud on a malformed decree_json (no silent null-cast)', async () => {
+    const post = await seedPost(env)
+    // A storage violation a raw write could produce: decree_json = the JSON literal null.
+    await env.DB.prepare(
+      `INSERT INTO crowns (id, post_id, rite_day, lens, presiding, decree_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind('crown:bad', post, '2026-05-18', 'saint', 'agent:slop-purist', 'null', 0)
+      .run()
+    await expect(crowningForDay(env, '2026-05-18')).rejects.toThrow(/valid Utterance/)
   })
 })
 
