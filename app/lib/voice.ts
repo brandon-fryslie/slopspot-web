@@ -44,20 +44,40 @@ export interface AnsweredWish {
   readonly slop: SlopGist;
 }
 
+// The slop a rite crowned: the piece's placard name and which rite crowned it.
+// The voice narrates this completed crowning — it never elects or persists it.
+export interface CrownedSlop {
+  readonly riteTitle: string;
+  readonly postId: PostId;
+  readonly placard: string;
+}
+
+// The target of a `decree`: the Proprietor pronounces the rite's OUTCOME — a
+// crowning, or an Unmoved altar (a titled rite that crowned nothing). The outcome
+// is the discriminator the one decree voice reads; the Unmoved Day is a real
+// target arm, not an absence the voice has to special-case.
+// [LAW:dataflow-not-control-flow] one occasion, one voice, the outcome value picks
+// the line.
+export type RiteOutcome =
+  | { readonly kind: "crowned"; readonly crowned: CrownedSlop }
+  | { readonly kind: "unmoved"; readonly riteTitle: string };
+
 // --- the moment (occasion) --------------------------------------------------
 
 // A closed union of occasions (v1). Each occasion fixes the legal target shape
 // via `OccasionTarget`, so an illegal occasion/target pairing is unrepresentable.
-export type Occasion = "caption" | "verdict" | "remark";
+export type Occasion = "caption" | "verdict" | "remark" | "decree";
 
 // The legal target for each occasion (design-docs/the-voice-layer.md pairing
-// table). foundation.7 builds only `remark`; `caption`/`verdict` are RESERVED —
-// their target binds `never` (uncallable) until the voice-layer session defines
-// it. Reserving the name, not the model, is the whole point of the seam.
+// table). `remark` (foundation.7) and `decree` (The Daily Rite) are bound;
+// `caption`/`verdict` are RESERVED — their target binds `never` (uncallable) until
+// the voice-layer session defines it. Reserving the name, not the model, is the
+// whole point of the seam.
 export interface OccasionTarget {
   caption: never;
   verdict: never;
   remark: AnsweredWish;
+  decree: RiteOutcome;
 }
 
 // --- the result (utterance) -------------------------------------------------
@@ -106,6 +126,25 @@ const composeRemark: Voice<"remark"> = (speaker, answered) =>
     `You asked for ${answered.wish}. The well answered with ${answered.slop.prompt}.`,
   );
 
+// The decree instance (The Daily Rite). A pure, deterministic line in which the
+// Proprietor pronounces the night's outcome — a crowning, or the Unmoved Day. The
+// LLM-backed Proprietor voice replaces this body later; the signature is unchanged.
+// [LAW:dataflow-not-control-flow] the outcome value selects the line, no skipped arm.
+const composeDecree: Voice<"decree"> = (speaker, outcome) => {
+  switch (outcome.kind) {
+    case "crowned":
+      return spoke(
+        `${speaker.displayName} crowns ${outcome.crowned.placard}. ${outcome.crowned.riteTitle}, settled.`,
+      );
+    case "unmoved":
+      return spoke(
+        `Nobody earned it today. ${outcome.riteTitle} stays in the drawer. Do better tomorrow — it's watching.`,
+      );
+    default:
+      return assertNever(outcome);
+  }
+};
+
 // A value the type proves cannot exist — the standard exhaustiveness marker.
 const assertNever = (x: never): never => {
   throw new Error(`unhandled variant: ${JSON.stringify(x)}`);
@@ -122,6 +161,7 @@ const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   caption: reserved,
   verdict: reserved,
   remark: composeRemark,
+  decree: composeDecree,
 };
 
 // [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice

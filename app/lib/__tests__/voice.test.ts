@@ -6,6 +6,7 @@ import {
   type ChosenSilenceReason,
   type Occasion,
   type OccasionTarget,
+  type RiteOutcome,
   type Utterance,
   type WithheldReason,
   spoke,
@@ -105,16 +106,18 @@ type Equal<A, B> =
     : false;
 
 describe("each occasion fixes its legal target (unrepresentable pairings)", () => {
-  it("binds remark→AnsweredWish, reserves caption/verdict, excludes non-v1", () => {
+  it("binds remark→AnsweredWish and decree→RiteOutcome, reserves caption/verdict", () => {
     const remarkBound: Equal<OccasionTarget["remark"], AnsweredWish> = true;
+    const decreeBound: Equal<OccasionTarget["decree"], RiteOutcome> = true;
     const captionReserved: Equal<OccasionTarget["caption"], never> = true;
     const verdictReserved: Equal<OccasionTarget["verdict"], never> = true;
-    const decreeExcluded: Equal<Extract<Occasion, "decree">, never> = true;
+    const decreeIsOccasion: Equal<Extract<Occasion, "decree">, "decree"> = true;
     expect([
       remarkBound,
+      decreeBound,
       captionReserved,
       verdictReserved,
-      decreeExcluded,
-    ]).toEqual([true, true, true, true]);
+      decreeIsOccasion,
+    ]).toEqual([true, true, true, true, true]);
   });
 });
