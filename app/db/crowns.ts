@@ -13,7 +13,7 @@
 // flows ONLY through the write path here; the read path surfaces just the mark, so
 // the domain stays voice-free.
 
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { crowns, generations, personas, posts, votes } from '~/db/schema'
 import type { AgentId, Crowning, PostId, VoteValue } from '~/lib/domain'
@@ -75,6 +75,23 @@ function parseDecree(json: string, riteDay: string): Utterance {
     )
   }
   return parsed.data
+}
+
+// [LAW:single-enforcer] The one reader of "the city's current crown" — the most recent
+// crowning, which on a healthy city IS today's, and on an Unmoved Day is the last Saint
+// still reigning until the next is settled. The home page heroes it (the gold Drama).
+// [LAW:one-source-of-truth] returns only the postId; the post itself (and its mark,
+// derived by crowningsForPosts) is read through the feed reader, so this module never
+// reconstructs a RenderablePost and the one-way dep crowns → feed is not inverted.
+// Ordered the same way crowningsForPosts ranks a post's own crowns (rite_day desc, then
+// created_at desc) so "the latest crown" and "a post's latest mark" agree by construction.
+export async function latestCrownedPostId(env: Env): Promise<PostId | null> {
+  const rows = await db(env)
+    .select({ postId: crowns.postId })
+    .from(crowns)
+    .orderBy(desc(crowns.riteDay), desc(crowns.createdAt))
+    .limit(1)
+  return rows.length === 0 ? null : (rows[0].postId as PostId)
 }
 
 // [LAW:single-enforcer] The one reader of "the crown that settled this day." Serves

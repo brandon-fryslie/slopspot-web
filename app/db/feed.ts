@@ -1055,3 +1055,16 @@ export async function getPostById(env: Env, id: PostId): Promise<Post | null> {
   const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
   return toPost(rows[0], parentsByChild.get(rows[0].post.id) ?? [])
 }
+
+// [LAW:single-enforcer] The one count of "how much slop the city has made" — the live
+// gauge under the masthead ("Non-Stop Slop") and the footer's tally read the SAME number,
+// so the two can never disagree. Every post is a slop (a generation, an upload, a found
+// link), so this is the full corpus, not a windowed page — the relentless productivity,
+// made visible. [LAW:one-source-of-truth] the footer no longer counts the rendered page
+// (which lies — it is the feed window, not the city's output); both read this.
+export async function countSlops(env: Env): Promise<number> {
+  const rows = await db(env)
+    .select({ count: sql<number>`count(*)` })
+    .from(posts)
+  return rows[0]?.count ?? 0
+}

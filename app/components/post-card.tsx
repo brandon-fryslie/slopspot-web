@@ -10,7 +10,20 @@ import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 // is categorically grander than the quiet levels so the masterpiece can command without
 // a quiet tile creeping up toward it. Adding a level fails to compile until RelicFrame
 // handles it.
-export type FrameLevel = "crowned" | "study" | "standalone"
+//
+// [LAW:types-are-the-program] The `crowned` arm CARRIES its mark — the grand frame is
+// the Rite hero's alone (assigned by exactly one renderer, above the wall) and its tone
+// IS the crown's mark (gilt for the sainted, profane for the villain, …). Threading the
+// mark through the level makes "a grand frame with no crown to colour it" unrepresentable:
+// you cannot construct `crowned` without a mark. [the gilt-scarcity lock] gilt is then
+// scarce BY CONSTRUCTION — only the single hero builds a `crowned` level, and it is gilt
+// only when the mark is gold; the Wall's loudest-now wears `votive` (heat, never gold),
+// so two gilt on one page cannot be expressed.
+export type FrameLevel =
+  | { kind: "crowned"; mark: CrownMark }
+  | { kind: "votive" }
+  | { kind: "study" }
+  | { kind: "standalone" }
 
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
 // shape that the feed reader and the permalink reader both produce — plus the
@@ -306,21 +319,22 @@ function ContentView({ content, frame }: { content: Content; frame: FrameLevel }
 // the room's center-light) only — never a frame of their own. The frame system lives
 // here and nowhere else, so the crown can never wear two frames.
 // [LAW:types-are-the-program] The level is a closed union rendered by exhaustive match.
-// What protects the hierarchy is the CROWN's distinctness: the crowned arm is its own
-// type — ornate aged-gilt, deep matting, an inner liner — categorically grander than the
-// quiet levels, so it commands the wall and no quiet tile can creep toward it. The two
-// quiet levels (study and standalone) are one QuietFrame at two sizes, both quiet by
-// design; collapsing them is safe precisely because neither was ever meant to compete.
-// [LAW:one-type-per-behavior] Gilt is the city's reserved mark for the canonized and
-// lives in the crowned arm ALONE; the quieter levels wear an aged bone line so gold
-// keeps its scarcity (the-threshold.md: "when you see gold, something was canonized").
-// The frame treatment is static patina — the matting, gilt, lines, and cast light add
-// no animation — so the relic framing introduces nothing for reduced-motion to gate. (The
-// in-progress placeholder it wraps carries its own pulse; that motion is the content's,
-// not the frame's, and predates this chunk.)
+// The hierarchy is protected by two distinct focal frames below the quiet pair: the
+// CROWNED frame (the Rite hero's grand aged-gilt molding, toned by its mark) and the
+// VOTIVE frame (the wall's loudest-now — prominent and centre-lit but in the city's heat
+// green, never gold). The two quiet levels (study and standalone) are one QuietFrame at
+// two sizes, both quiet by design; collapsing them is safe precisely because neither was
+// ever meant to compete.
+// [the gilt-scarcity lock] Gilt lives in the crowned arm ALONE and only when its mark is
+// gold; votive and the quiet levels never reach for gold, so canonization stays scarce
+// (the-threshold.md: "when you see gold, something was canonized"). The frame treatment
+// is static patina — the matting, lines, and cast light add no animation — so the relic
+// framing introduces nothing for reduced-motion to gate. (The in-progress placeholder it
+// wraps carries its own pulse; that motion is the content's, not the frame's.)
 function RelicFrame({ level, children }: { level: FrameLevel; children: React.ReactNode }) {
-  switch (level) {
-    case "crowned":    return <CrownedFrame>{children}</CrownedFrame>
+  switch (level.kind) {
+    case "crowned":    return <CrownedFrame mark={level.mark}>{children}</CrownedFrame>
+    case "votive":     return <VotiveFrame>{children}</VotiveFrame>
     case "study":      return <QuietFrame size="compact">{children}</QuietFrame>
     case "standalone": return <QuietFrame size="generous">{children}</QuietFrame>
     default:           return assertNever(level)
@@ -345,16 +359,49 @@ function RelicWell({ children }: { children: React.ReactNode }) {
   )
 }
 
-// THE CROWNED — the masterpiece, framed the way the Louvre frames Vermeer, except the
-// Louvre is a pawnshop and the gold is old. An ornate double frame: an aged-gilt outer
-// molding (tarnished gold, a bevel catch of light at its lip), a deep mat, then an inner
-// gilt liner around the relic. Deep matting + the gilt molding + the liner make this a
-// categorically grander object than any study — and the wall compounds it with size and
-// the room's center-light, so the crown is unmistakably the one masterpiece on the wall.
-function CrownedFrame({ children }: { children: React.ReactNode }) {
+// [LAW:one-type-per-behavior][LAW:dataflow-not-control-flow] The grand frame is ONE
+// object; its tone is the mark, a data table — not five bespoke frames and not a gilt
+// special case branched around. A total map over CrownMark, so a sixth mark breaks this
+// literal at compile time and the frame can never render an underived tone. Gold is the
+// aged-gilt molding (the Sainting); the others wear the same ornate double-frame in their
+// own colour — profane for the monstrous, tarnished bronze for the resurrected, gilt-into-
+// profane for the divided Martyr, bone for the flawless. Gilt appears for gold ALONE, so
+// the city's reserved mark stays reserved. [the gilt-scarcity lock]
+const GRAND_FRAME_TONE: Record<CrownMark, { outer: string; inner: string }> = {
+  gold:    { outer: "from-gilt/15 to-gilt/[0.05] ring-gilt/45 shadow-[0_0_0_1px_rgb(202_164_74/0.22),inset_0_1px_0_rgb(232_228_216/0.18)]",       inner: "ring-gilt/30" },
+  magenta: { outer: "from-profane/15 to-profane/[0.05] ring-profane/45 shadow-[0_0_0_1px_rgb(255_45_155/0.22),inset_0_1px_0_rgb(232_228_216/0.18)]", inner: "ring-profane/30" },
+  bronze:  { outer: "from-[#b08d57]/18 to-[#b08d57]/[0.05] ring-[#b08d57]/45 shadow-[0_0_0_1px_rgb(176_141_87/0.24),inset_0_1px_0_rgb(232_228_216/0.18)]", inner: "ring-[#b08d57]/30" },
+  split:   { outer: "from-gilt/15 to-profane/[0.07] ring-gilt/45 shadow-[0_0_0_1px_rgb(202_164_74/0.22),inset_0_1px_0_rgb(232_228_216/0.18)]",     inner: "ring-profane/30" },
+  bone:    { outer: "from-bone/12 to-bone/[0.04] ring-bone/40 shadow-[0_0_0_1px_rgb(232_228_216/0.20),inset_0_1px_0_rgb(232_228_216/0.18)]",      inner: "ring-bone/25" },
+}
+
+// THE CROWNED — the Rite hero, framed the way the Louvre frames Vermeer, except the
+// Louvre is a pawnshop and the gold is old. An ornate double frame: an aged outer molding
+// (a bevel catch of light at its lip), a deep mat, then an inner liner around the relic.
+// Deep matting + the molding + the liner make this a categorically grander object than
+// any study — and the hero wrapper compounds it with size and the room's center-light, so
+// the crown is unmistakably the one canonized relic on the page. Its colour is the mark;
+// the gold case is the Sainting the gallery is built toward.
+function CrownedFrame({ mark, children }: { mark: CrownMark; children: React.ReactNode }) {
+  const tone = GRAND_FRAME_TONE[mark]
   return (
-    <div className="m-3 rounded-sm bg-gradient-to-b from-gilt/15 to-gilt/[0.05] p-[3px] ring-2 ring-gilt/45 shadow-[0_0_0_1px_rgb(202_164_74/0.22),inset_0_1px_0_rgb(232_228_216/0.18)]">
-      <div className="rounded-sm bg-base/60 p-3 ring-1 ring-gilt/30">
+    <div className={`m-3 rounded-sm bg-gradient-to-b p-[3px] ring-2 ${tone.outer}`}>
+      <div className={`rounded-sm bg-base/60 p-3 ring-1 ${tone.inner}`}>
+        <RelicWell>{children}</RelicWell>
+      </div>
+    </div>
+  )
+}
+
+// THE VOTIVE — the wall's loudest-now hero. Prominent and centre-lit like the crown (the
+// wall gives it size + the room's light), but framed in the city's heat green, never gold:
+// popularity, not sainthood. A single votive-toned frame — grander than a study, quieter
+// than the crown — so the live loudest-now reads as its OWN kind of glory beside the Rite's.
+// [the gilt-scarcity lock] no gilt here, ever; gold is the crowned arm's alone.
+function VotiveFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="m-2.5 rounded-sm bg-gradient-to-b from-votive/[0.08] to-transparent p-[2px] ring-1 ring-votive/35 shadow-[0_0_0_1px_rgb(57_255_160/0.14)]">
+      <div className="rounded-sm bg-base/55 p-2.5 ring-1 ring-votive/18">
         <RelicWell>{children}</RelicWell>
       </div>
     </div>
@@ -708,24 +755,39 @@ const CROWN_TONE: Record<CrownMark, string> = {
 // [LAW:one-source-of-truth] The eternal mark — derived entirely from the Crowning
 // the read boundary built from the crowns table (lens → label + mark; the day it
 // settled; who presided). Nothing here is stored on the post; the card is a pure
-// projection of the one crown record. The full gallery treatment is the gold-Drama
-// epic's; this is the foundational mark in the living feed.
-function EternalMark({ crowning }: { crowning: Crowning }) {
-  // The visible badge is terse; the aria-label carries the FULL crown to assistive
-  // tech (lens + presiding + day) since `title` is not reliably announced. The inner
-  // spans are decorative under the label, so the glyph and split date don't read as
-  // disjoint fragments.
+// projection of the one crown record.
+//
+// A SEAL, not a tag. The city's most SACRED act must wear the sacred register, never the
+// machine-guts mono that reads as a metadata label (the-daily-rite.md, CD's refinement):
+// the canonization word in font-placard (the cathedral serif) with weight, the ✚ struck
+// as a ringed seal rather than an inline glyph. The feast-day date stays in the quiet
+// terminal register — liturgical metadata that grounds the mark in the calendar without
+// competing with the seal. The tone is the mark (CROWN_TONE): gilt for the sainted, so
+// gold appears here only for a Saint, the same scarcity the frame holds.
+export function EternalMark({ crowning }: { crowning: Crowning }) {
+  // The visible seal is terse; the aria-label carries the FULL crown to assistive tech
+  // (lens + presiding + day) since `title` is not reliably announced. The inner spans
+  // are decorative under the label, so the seal and date don't read as disjoint fragments.
   const label = `${CROWN_LABEL[crowning.lens]} — crowned by ${crowning.presiding.displayName} on ${crowning.riteDay}`
   return (
     <div
-      className={`mx-3 mt-3 inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-terminal text-[0.7rem] uppercase tracking-wide ${CROWN_TONE[crowning.mark]}`}
+      className={`mx-3 mt-3 inline-flex items-center gap-2 rounded-sm border px-2.5 py-1 ${CROWN_TONE[crowning.mark]}`}
       role="note"
       aria-label={label}
       title={label}
     >
-      <span aria-hidden>✚</span>
-      <span aria-hidden>{CROWN_LABEL[crowning.lens]}</span>
-      <span aria-hidden className="opacity-60">· {crowning.riteDay}</span>
+      <span
+        aria-hidden
+        className="grid h-5 w-5 place-items-center rounded-full border border-current text-[0.72rem] leading-none"
+      >
+        ✚
+      </span>
+      <span aria-hidden className="font-placard text-sm font-bold uppercase tracking-wide">
+        {CROWN_LABEL[crowning.lens]}
+      </span>
+      <span aria-hidden className="font-terminal text-[0.65rem] uppercase tracking-wide opacity-55">
+        · {crowning.riteDay}
+      </span>
     </div>
   )
 }
