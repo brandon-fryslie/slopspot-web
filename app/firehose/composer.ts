@@ -76,6 +76,19 @@ export function extractFirstJsonObject(text: string): string | null {
 // below, NOT trust-boundary validation (the Well's submission action owns that).
 const WISH_SEED_MAX = 1000
 
+// [LAW:types-are-the-program] What occasioned the text being composed, beyond the
+// bare firehose recipe. A closed union, so the two non-firehose modes are mutually
+// exclusive BY THE TYPE — a wish that is also a self-portrait cannot be expressed,
+// where two independent optionals would have re-admitted that illegal state. This
+// is deliberately NARROWER than the authoring occasion (generator.ts): it carries
+// only what STEERS COMPOSITION — the wish words, or the depicted citizen's name —
+// never the human wisher, which is an authoring concern the composer never sees.
+// Keeping it here (not importing the authoring type) also keeps the dependency
+// one-way: generator → composer, never back. [LAW:one-way-deps][LAW:one-source-of-truth]
+export type ComposerOccasion =
+  | { kind: 'wish'; wish: string }
+  | { kind: 'self-portrait'; displayName: string }
+
 export type ComposerInput = {
   styleFamily: StyleFamily
   subject: RecipeSubject
@@ -90,16 +103,16 @@ export type ComposerInput = {
   // concept to `voice` is a migration this ticket forbids; one name across the
   // config→composer boundary beats a prettier name with a translation seam).
   promptPrefix?: string
-  // [RECONCILE B] The human WISH that occasioned a Well fire. The composer READS
-  // it to steer Haiku in the persona's voice; the returned prompt is ALWAYS the
-  // machine's authorship (Haiku output) or the recipe-only fallback — the raw
-  // wish is never assigned as the prompt. [LAW:dataflow-not-control-flow] That
-  // is the isolation guarantee: not "no wish word may appear" (the Well's whole
-  // point is that the result is recognizably related to the wish), but "the wish
-  // is never passed through raw." foundation.3's structural isolation (the wish
-  // is not a generation input field) is a separate, type-level guarantee.
-  // Absent for the firehose.
-  wish?: string
+  // [RECONCILE B] What occasioned this composition. A WISH steers Haiku in the
+  // persona's voice yet is never assigned as the prompt raw (the returned prompt is
+  // always the machine's authorship or the recipe-only fallback —
+  // [LAW:dataflow-not-control-flow] the isolation is "never passed through raw," not
+  // "no wish word may appear"); a SELF-PORTRAIT swaps the depiction to the citizen
+  // itself while the recipe `subject` still travels to the post row. Both are the
+  // SAME single composer, same return type, same voice-steered call — only the
+  // depiction/seed value varies. Absent → the firehose depicts the recipe subject.
+  // [LAW:single-enforcer] one composer authors every persona's text (foundation.5).
+  occasion?: ComposerOccasion
   // [LAW:single-enforcer] The chosen provider's authoritative max prompt
   // length. Passed from generator.ts via provider.promptMaxLength so the
   // constraint travels from its declaration site to the composition step.
@@ -112,13 +125,13 @@ export type ComposerInput = {
 // pair without changing the return signature. Both halves fall back together: a
 // failed call leaves neither an orphan prompt nor an orphan name.
 export async function composePrompt(input: ComposerInput, env: Env): Promise<ComposedSlop> {
-  const { styleFamily, subject, aspectRatio, promptPrefix, wish, maxLength } = input
+  const { styleFamily, subject, aspectRatio, promptPrefix, occasion, maxLength } = input
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
 
   // [LAW:single-enforcer] Cap the embedded wish at the request boundary the
   // composer owns. slice is a pure transform applied to the value — when the
   // wish is absent it is undefined throughout, no branch around the embed.
-  const wishSeed = wish?.slice(0, WISH_SEED_MAX)
+  const wishSeed = occasion?.kind === 'wish' ? occasion.wish.slice(0, WISH_SEED_MAX) : undefined
 
   // [LAW:single-enforcer] One prompt-length enforcer for BOTH the Haiku output and
   // the fallback. The provider's promptMaxLength must hold on every path — an
@@ -127,7 +140,14 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // the happy path.
   const capPrompt = (p: string) => (maxLength && p.length > maxLength ? p.slice(0, maxLength) : p)
 
-  const rendered = renderTemplate(subject)
+  // [LAW:dataflow-not-control-flow] What this piece DEPICTS is a single value, not a
+  // branch in the prompt body: the recipe's subject normally, the citizen itself when
+  // a self-portrait was asked for. Both halves of composition (the metaPrompt and the
+  // fallback) read this one value, so the self-portrait directive can never disagree
+  // with itself across the two paths.
+  const depiction = occasion?.kind === 'self-portrait'
+    ? `a self-portrait of ${occasion.displayName}, a machine-citizen of this city, rendered in their own hand — their face is whatever their work would make of a face`
+    : renderTemplate(subject)
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[styleFamily]
   // [LAW:dataflow-not-control-flow] The wish is NOT in the fallback — not as a
   // guard against leaking it, but because the fallback's job is a recipe-only
@@ -136,8 +156,8 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // fallbackTitle — the same deterministic placard the read boundary derives, so a
   // Haiku-failed slop and a legacy row name the same recipe identically.
   const fallbackPrompt = promptPrefix
-    ? `${promptPrefix}, ${rendered}, ${styleSeed}`
-    : `${rendered}, ${styleSeed}`
+    ? `${promptPrefix}, ${depiction}, ${styleSeed}`
+    : `${depiction}, ${styleSeed}`
   const fallback: ComposedSlop = { prompt: capPrompt(fallbackPrompt), title: fallbackTitle(subject) }
 
   if (!apiKey) {
@@ -151,7 +171,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
 
   const metaPrompt = [
     `Compose a slop for SlopSpot — a city run by machines whose citizens treat AI-generated images as holy relics: reverent about garbage, deadpan, never embarrassed.`,
-    `You are authoring a ${styleFamily} piece depicting ${rendered}.`,
+    `You are authoring a ${styleFamily} piece depicting ${depiction}.`,
     `Aspect ratio: ${aspectLabel}.`,
     `Style notes: ${styleSeed}.`,
     promptPrefix ? `Your voice / tone: ${promptPrefix}.` : null,

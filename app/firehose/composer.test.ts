@@ -225,7 +225,7 @@ describe('composePrompt', () => {
       return jsonResponse('Lakeside Heresy', machinePrompt)
     })
 
-    const result = await composePrompt(makeInput({ wish }), mockEnv('test-key'))
+    const result = await composePrompt(makeInput({ occasion: { kind: 'wish', wish } }), mockEnv('test-key'))
 
     expect(capturedBody).toContain(wish)
     expect(result.prompt).toBe(machinePrompt)
@@ -236,7 +236,7 @@ describe('composePrompt', () => {
     const wish = 'a cozy cottage by a quiet lake at dawn'
     vi.mocked(fetch).mockRejectedValueOnce(new Error('down'))
 
-    const input = makeInput({ wish, promptPrefix: 'austere' })
+    const input = makeInput({ occasion: { kind: 'wish', wish }, promptPrefix: 'austere' })
     const result = await composePrompt(input, mockEnv('test-key'))
 
     // [LAW:dataflow-not-control-flow] The wish has no authoring path but Haiku;
@@ -255,9 +255,26 @@ describe('composePrompt', () => {
       return jsonResponse('Capped', 'ok')
     })
 
-    await composePrompt(makeInput({ wish }), mockEnv('test-key'))
+    await composePrompt(makeInput({ occasion: { kind: 'wish', wish } }), mockEnv('test-key'))
     expect(capturedBody).toContain(head)
     expect(capturedBody).not.toContain(tail)
+  })
+
+  // The self-portrait occasion (roll-call-47p.6) swaps the DEPICTION to the citizen
+  // itself; the recipe subject no longer drives what Haiku is told to render.
+  it('a self-portrait occasion depicts the citizen, not the recipe subject', async () => {
+    let capturedBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      capturedBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('A Stark Face', 'a figure in an empty hallway')
+    })
+
+    const input = makeInput({ occasion: { kind: 'self-portrait', displayName: 'GutterMonk' } })
+    await composePrompt(input, mockEnv('test-key'))
+
+    // The meta-prompt depicts GutterMonk's self-portrait, not the recipe's subject.
+    expect(capturedBody).toContain('self-portrait of GutterMonk')
+    expect(capturedBody).not.toContain(renderTemplate(input.subject))
   })
 
   it('trims leading/trailing whitespace from the parsed prompt and title', async () => {

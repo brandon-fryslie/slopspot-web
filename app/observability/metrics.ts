@@ -64,6 +64,15 @@ export type MetricLabels = {
   // surface here too, which is exactly what the metric should let you catch.
   // [LAW:single-enforcer] feed.ts toContent is the sole emitter.
   'slopspot.feed.title_fallback': { reason: 'empty_title' }
+  // [LAW:single-enforcer] The Cast self-portrait pass (agents/portrait.ts) is the
+  // sole emitter. One sample per citizen the pass touched: `rendered` (a new face
+  // committed), `failed` (the generation threw — the failed slop row is observable),
+  // or `skipped-budget` (the daily cap was hit before this target fired). The agent
+  // label is the citizen so per-citizen drift cadence is queryable.
+  'slopspot.portrait.render': {
+    agent_id: string
+    outcome: 'rendered' | 'failed' | 'skipped-budget'
+  }
 }
 
 export type MetricName = keyof MetricLabels
