@@ -40,8 +40,16 @@ export type PortraitState =
 // portrait." The rendered arm demands BOTH a url and a timestamp so a half-written
 // regeneration (url with no renderedAt) cannot masquerade as a fresh face the drift
 // scheduler would then never revisit.
+//
+// [LAW:types-are-the-program] The url is constrained to the LOCAL media path, not any
+// non-empty string. A rendered portrait's url is only ever ingestImage's output
+// (`/media/<sha256>`, same-origin) — so the strongest true theorem is "a local media
+// path," and admitting an arbitrary url would let a hostile config_json write make the
+// frame's <img src> fetch a third-party URL (a tracking pixel / exfil beacon). A
+// non-`/media/` url is not a portrait this app produced — it degrades to unrendered.
+const PORTRAIT_URL_PREFIX = '/media/'
 const renderedSchema = z.object({
-  url: z.string().min(1),
+  url: z.string().startsWith(PORTRAIT_URL_PREFIX),
   renderedAt: z.number().int().nonnegative(),
 })
 
