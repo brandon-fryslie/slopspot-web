@@ -242,10 +242,20 @@ function VoteControls({
   )
 }
 
-// [LAW:types-are-the-program] Closed union → exhaustive switch. Adding a new
-// Content or GenerationStatus variant will fail to compile here until handled.
-// The function's return type is the enforcement mechanism — no `default:`
-// needed, and none wanted.
+// [LAW:types-are-the-program] The compile-time exhaustiveness gate for this file's
+// closed-union switches: an unhandled variant reaches a `default` as a non-never value
+// and fails tsc -b. Local to this module, matching the codebase's per-file convention
+// (sort-mode, voice, challenge-outcome each carry their own).
+function assertNever(x: never): never {
+  throw new Error(`unhandled variant: ${JSON.stringify(x)}`)
+}
+
+// [LAW:types-are-the-program] Closed unions → exhaustive switches, the assertNever
+// defaults the enforcement: adding a Content or GenerationStatus variant makes a default
+// reachable with a non-never value, failing tsc -b HERE until this surface renders the
+// new variant. The central domain-exhaustiveness gate proves SOMEONE handles a new kind;
+// this local gate proves the RENDERER does — without noImplicitReturns the switch would
+// otherwise fall through to an undefined return, a valid ReactNode that renders nothing.
 function ContentView({ content, frame }: { content: Content; frame: FrameLevel }) {
   switch (content.kind) {
     case "upload":
@@ -270,8 +280,11 @@ function ContentView({ content, frame }: { content: Content; frame: FrameLevel }
         case "running":   return <RelicFrame level={frame}><StatusPlaceholder tone="working" label="generating…" /></RelicFrame>
         case "succeeded": return <RelicFrame level={frame}><MediaView media={status.output} /></RelicFrame>
         case "failed":    return <RelicFrame level={frame}><StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} /></RelicFrame>
+        default:          return assertNever(status)
       }
     }
+    default:
+      return assertNever(content)
   }
 }
 
@@ -295,6 +308,7 @@ function RelicFrame({ level, children }: { level: FrameLevel; children: React.Re
     case "crowned":    return <CrownedFrame>{children}</CrownedFrame>
     case "study":      return <StudyFrame>{children}</StudyFrame>
     case "standalone": return <StandaloneFrame>{children}</StandaloneFrame>
+    default:           return assertNever(level)
   }
 }
 
