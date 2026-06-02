@@ -37,13 +37,37 @@ export const HOTNESS_DECAY_S = 21_600 // 6h in seconds
 // in SQLite expressions since D1 exposes only `log(x)` (natural log).
 const LOG10_E = 0.4342944819032518
 
-// Context the caller supplies: the three expressions that differ across call sites.
+// [LAW:one-source-of-truth] The single weight a backed citizen's expressed opinion
+// carries in the viewer's ranking — the backing lens (the-roll-call.md). `affinity`
+// (supplied per post in SortCtx) is Σ of the vote values cast by citizens this viewer
+// backs; this constant is how many votes-equivalent each unit of that opinion is worth
+// when the feed is ranked. A backed critic's blessing (+1) lifts a post by
+// BACKING_WEIGHT; a burial (−1) sinks it by the same — so you browse the city through
+// your backed citizens' eyes: what they value rises, what they reject falls. It is a
+// BIAS on the ranking score, never a filter (no post is ever removed), and it touches
+// only the ORDER BY — the displayed score stays pure SUM(votes). Calibrate against real
+// vote velocity as traffic grows, the same way DECAY_CONSTANT will be.
+export const BACKING_WEIGHT = 10
+
+// Context the caller supplies: the expressions that differ across call sites.
 // `score` differs between the CTE inner query (rankScore subquery) and the outer query
-// (feedIds.score projection). `createdAt` and `id` are always from posts but the
+// (feedIds.score projection). `affinity` is the per-post backing-lens term (0 for every
+// post when the viewer backs no one). `createdAt` and `id` are always from posts but the
 // caller's query context determines which binding is in scope.
 // [LAW:one-source-of-truth] Callers do not hand-code ORDER BY expressions; every
 // mode's expression lives in this function's switch.
-type SortCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
+type SortCtx = { score: SQLWrapper; affinity: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
+
+// [LAW:dataflow-not-control-flow] The quality axis every score-ranked mode orders by:
+// the post's real score, biased by the viewer's backing lens. `affinity` is a VALUE
+// that is 0 for every post when the viewer backs no one (the affinity aggregate
+// degrades to no rows by data), so this expression equals `score` exactly in the
+// unbacked case — the normal feed, with no branch. Both 'top' and 'hot' route their
+// score through here so the lens lands in one place; 'new' has no quality axis and
+// ignores it (strict chronology), the same way 'new' ignores score.
+function effectiveScore(ctx: SortCtx): SQL {
+  return sql`(${ctx.score} + ${BACKING_WEIGHT} * ${ctx.affinity})`
+}
 
 function assertNever(discriminant: never): never {
   throw new Error(`sort-mode: unhandled discriminant ${String(discriminant)}`)
@@ -63,7 +87,7 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
         case 'all':
         case 'day':
         case 'week':
-          return [desc(ctx.score), desc(ctx.createdAt), desc(ctx.id)]
+          return [desc(effectiveScore(ctx)), desc(ctx.createdAt), desc(ctx.id)]
         default:
           return assertNever(sort.window)
       }
@@ -74,8 +98,12 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
       //   log10(max(|score|,1)) * sign(score) + (createdAt_s - REFERENCE_EPOCH) / DECAY_S
       // D1 has no log10; log(x) is ln(x), so log10(x) = log(x) * LOG10_E.
       // createdAt is stored as Unix ms (timestamp_ms mode) — divide by 1000 for seconds.
+      // The score term is the backing-lens-biased effectiveScore: a backed citizen's
+      // opinion enters the hotness exactly as extra votes would, so the lens and vote
+      // velocity share one quality axis rather than competing as two ORDER BY terms.
+      const s = effectiveScore(ctx)
       const hotnessExpr = sql<number>`
-        ${LOG10_E} * log(max(abs(${ctx.score}), 1)) * sign(${ctx.score})
+        ${LOG10_E} * log(max(abs(${s}), 1)) * sign(${s})
         + (${ctx.createdAt} / 1000 - ${HOTNESS_REFERENCE_EPOCH}) / ${HOTNESS_DECAY_S}`
       return [desc(hotnessExpr), desc(ctx.createdAt), desc(ctx.id)]
     }
