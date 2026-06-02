@@ -277,6 +277,17 @@ describe('composePrompt', () => {
     expect(capturedBody).not.toContain(renderTemplate(input.subject))
   })
 
+  // On the Haiku-failure fallback, the placard must track the depiction — a
+  // self-portrait is named for the citizen, not the recipe's subject, so the image
+  // and its title never describe different things.
+  it('the self-portrait fallback title names the citizen, not the recipe subject', async () => {
+    const input = makeInput({ occasion: { kind: 'self-portrait', displayName: 'GutterMonk' } })
+    const result = await composePrompt(input, mockEnv(undefined)) // no key → fallback
+
+    expect(result.title).toBe('GutterMonk')
+    expect(result.title).not.toBe(fallbackTitle(input.subject))
+  })
+
   it('trims leading/trailing whitespace from the parsed prompt and title', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse('  Padded Name  ', '  padded response  '))
 

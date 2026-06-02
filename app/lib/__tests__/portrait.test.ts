@@ -27,6 +27,17 @@ describe('portraitStateOf — the config.portrait parse', () => {
     expect(portraitStateOf({ medium: 'fal-flux' })).toEqual({ kind: 'unrendered' })
   })
 
+  it('rejects a non-local url — a rendered portrait is only ever a /media/ path', () => {
+    // A hostile config_json write must not make the frame's <img src> fetch a
+    // third-party URL; only ingestImage's same-origin output is a real portrait.
+    expect(portraitStateOf({ portrait: { url: 'https://evil.example/x.png', renderedAt: 1 } })).toEqual({
+      kind: 'unrendered',
+    })
+    expect(portraitStateOf({ portrait: { url: '//evil.example/x.png', renderedAt: 1 } })).toEqual({
+      kind: 'unrendered',
+    })
+  })
+
   it('degrades a half-written portrait to unrendered, never a fresh-looking rendered', () => {
     // A url with no renderedAt would be a face the drift scheduler then never
     // revisits — so the rendered arm demands BOTH. A bad shape is a placeholder,
