@@ -27,7 +27,7 @@ import { getRecentRecipes } from '~/db/recent'
 import { recordRemark } from '~/db/remark'
 import { pickPersona, type Persona } from '~/agents/persona'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
-import { composePrompt } from '~/firehose/composer'
+import { composePrompt, type ComposerOccasion } from '~/firehose/composer'
 import { utter } from '~/lib/voice'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import { getProvider } from '~/providers'
@@ -106,6 +106,29 @@ export type AuthoringOccasion =
   | { readonly kind: 'wish'; readonly wish: string; readonly wisher: HumanRef }
   | { readonly kind: 'self-portrait' }
 
+// [LAW:one-source-of-truth] Project the authoring occasion onto the composer's
+// narrower one — the composer steers on the wish words / the depicted citizen, never
+// the wisher. The self-portrait arm injects the persona's own name (the authoring
+// occasion does not carry it; the persona does). Exhaustive over the union: a new
+// authoring mode forces a decision here before it compiles, so the composer can
+// never silently receive the wrong occasion. [LAW:types-are-the-program]
+function composerOccasionOf(
+  occasion: AuthoringOccasion | undefined,
+  displayName: string,
+): ComposerOccasion | undefined {
+  if (occasion === undefined) return undefined
+  switch (occasion.kind) {
+    case 'wish':
+      return { kind: 'wish', wish: occasion.wish }
+    case 'self-portrait':
+      return { kind: 'self-portrait', displayName }
+    default: {
+      const _exhaustive: never = occasion
+      return _exhaustive
+    }
+  }
+}
+
 // [LAW:single-enforcer] The one implementation that authors a slop as a given
 // persona. The persona is the function's precondition (the caller seats/picks it);
 // authorSlop owns everything downstream — config parse, medium resolution, recipe
@@ -164,12 +187,9 @@ export async function authorSlop(
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
       promptPrefix: config.promptPrefix,
-      // [LAW:dataflow-not-control-flow] The occasion's arm selects which steering
-      // value the composer receives — a wish, or the self-portrait directive — and
-      // they are mutually exclusive by the union. The firehose passes neither.
-      wish: occasion?.kind === 'wish' ? occasion.wish : undefined,
-      selfPortrait:
-        occasion?.kind === 'self-portrait' ? { displayName: persona.displayName } : undefined,
+      // The occasion (a wish, a self-portrait, or none) flows as one closed value —
+      // the composer cannot receive both a wish and a self-portrait by construction.
+      occasion: composerOccasionOf(occasion, persona.displayName),
       maxLength: provider.promptMaxLength,
     },
     env,
