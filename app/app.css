@@ -74,12 +74,9 @@
   THE SIGN'S LIGHT — the neon shrine-sign hangs at the top of the gallery and
   throws votive light DOWN into the room, so EVERY page reads as "lit by a dying
   sign," not just home where the wordmark itself glows. [LAW:single-enforcer] this
-  is the room's one light owner. The first stop is the SOURCE: a tight, brighter
-  votive core right where the sign hangs, falling off into the three broad,
-  deliberately-subtle ambient stops below. That bright-point-to-soft-wash gradient
-  is what makes the eye read the light as CAST BY the sign rather than as an even
-  filter — so the source wants this core; the ambient stays as it was. It does the
-  one neon-catch flicker on load (via .flicker-on), then holds. Never loops.
+  is the room's one light owner. A bright-point-to-soft-wash gradient is what makes
+  the eye read the light as CAST BY the sign rather than as an even filter. One
+  flicker-to-life on load, like neon catching — then holds, never loops.
 */
 .room-sign-glow {
   position: fixed;
@@ -156,8 +153,7 @@
   animation: neon-catch 1.4s ease-out 1 both;
 }
 
-/* the perpetual faint buzz — mostly held at full, two brief micro-dips a cycle,
-   like a neon tube that's on but never perfectly steady. */
+/* the perpetual faint buzz — like a neon tube that's on but never perfectly steady. */
 @keyframes neon-buzz {
   0%, 36%, 100% { opacity: 1; }
   37% { opacity: 0.86; }
