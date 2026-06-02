@@ -29,6 +29,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body className="min-h-full">
+        {/*
+          THE ROOM — the atmosphere shell, applied once here at the layout root
+          so every page renders inside a lit space, not on a flat black plane.
+          [LAW:single-enforcer] one room; [LAW:locality-or-seam] pages render
+          inside it unchanged. The sign-glow does the one neon-catch flicker on
+          load (the room lighting up as you step in) and honors
+          prefers-reduced-motion via .flicker-on; aria-hidden because both layers
+          are pure atmosphere with no content to announce.
+        */}
+        <div className="room-sign-glow flicker-on" aria-hidden="true" />
+        <div className="room-vignette" aria-hidden="true" />
         {children}
         <ScrollRestoration />
         <Scripts />

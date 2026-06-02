@@ -31,14 +31,21 @@
 @layer base {
   body {
     font-family: var(--font-civic);
-    /* the room is lit by a dying sign — a faint votive wash from above */
-    background-color: var(--color-base);
-    background-image: radial-gradient(
-      120% 80% at 50% -10%,
-      rgb(var(--votive-rgb) / 0.05),
-      transparent 60%
-    );
     color: var(--color-bone);
+    /*
+      THE ROOM is its own stacking context, so the atmosphere layers below can
+      sit BEHIND page content (z-index: -1) while still painting above the base
+      floor — without wrapping a single page. [LAW:locality-or-seam] pages render
+      inside the room unchanged; the room is a layout-root shell, not an edit to
+      any page.
+    */
+    position: relative;
+    isolation: isolate;
+    /* the floor — just the base. [LAW:one-source-of-truth] the room's LIGHT has
+       one owner: the fixed .room-sign-glow below. A body background-image would
+       be a second light source that also scrolls away on a long feed, leaving
+       lower content unlit; the fixed layer lights every viewport the same. */
+    background-color: var(--color-base);
   }
 
   /*
@@ -54,6 +61,48 @@
     opacity: 0.05;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
+}
+
+/*
+  THE ROOM SHELL — the felt space, applied ONCE at the layout root over every
+  page. [LAW:single-enforcer] one room; pages render inside it unchanged. Two
+  fixed atmosphere layers sit behind content (the grain above sits in front):
+  the sign's cast light from the top, and an edge vignette for depth.
+*/
+
+/*
+  THE SIGN'S LIGHT — the neon shrine-sign buzzes at the top of the gallery and
+  throws votive light DOWN into the room. This is what makes EVERY page read as
+  "lit by a dying sign," not just home where the wordmark itself glows. It does
+  the one neon-catch flicker on load (via .flicker-on) — the room lighting up as
+  you step through the back door — then holds. Never loops.
+*/
+.room-sign-glow {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 38% at 50% -6%, rgb(var(--votive-rgb) / 0.2), transparent 60%),
+    radial-gradient(95% 55% at 50% -2%, rgb(var(--votive-rgb) / 0.06), transparent 72%),
+    radial-gradient(70% 60% at 50% 34%, rgb(var(--votive-rgb) / 0.04), transparent 65%);
+}
+
+/*
+  DEPTH — dim the edges so the lit center reads as a room with corners, not a
+  flat field. This is the move that turns the wide dead margins (the #1 "void"
+  failure) into atmosphere: a lit column standing in a dim room.
+*/
+.room-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    125% 105% at 50% 36%,
+    transparent 42%,
+    rgb(0 0 0 / 0.58) 100%
+  );
 }
 
 /*
