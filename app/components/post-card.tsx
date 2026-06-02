@@ -703,14 +703,21 @@ const CROWN_TONE: Record<CrownMark, string> = {
 // projection of the one crown record. The full gallery treatment is the gold-Drama
 // epic's; this is the foundational mark in the living feed.
 function EternalMark({ crowning }: { crowning: Crowning }) {
+  // The visible badge is terse; the aria-label carries the FULL crown to assistive
+  // tech (lens + presiding + day) since `title` is not reliably announced. The inner
+  // spans are decorative under the label, so the glyph and split date don't read as
+  // disjoint fragments.
+  const label = `${CROWN_LABEL[crowning.lens]} — crowned by ${crowning.presiding.displayName} on ${crowning.riteDay}`
   return (
     <div
       className={`mx-3 mt-3 inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 font-terminal text-[0.7rem] uppercase tracking-wide ${CROWN_TONE[crowning.mark]}`}
-      title={`Crowned by ${crowning.presiding.displayName}`}
+      role="note"
+      aria-label={label}
+      title={label}
     >
       <span aria-hidden>✚</span>
-      <span>{CROWN_LABEL[crowning.lens]}</span>
-      <span className="opacity-60">· {crowning.riteDay}</span>
+      <span aria-hidden>{CROWN_LABEL[crowning.lens]}</span>
+      <span aria-hidden className="opacity-60">· {crowning.riteDay}</span>
     </div>
   )
 }
