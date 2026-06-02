@@ -71,11 +71,15 @@
 */
 
 /*
-  THE SIGN'S LIGHT — the neon shrine-sign buzzes at the top of the gallery and
-  throws votive light DOWN into the room. This is what makes EVERY page read as
-  "lit by a dying sign," not just home where the wordmark itself glows. It does
-  the one neon-catch flicker on load (via .flicker-on) — the room lighting up as
-  you step through the back door — then holds. Never loops.
+  THE SIGN'S LIGHT — the neon shrine-sign hangs at the top of the gallery and
+  throws votive light DOWN into the room, so EVERY page reads as "lit by a dying
+  sign," not just home where the wordmark itself glows. [LAW:single-enforcer] this
+  is the room's one light owner. The first stop is the SOURCE: a tight, brighter
+  votive core right where the sign hangs, falling off into the three broad,
+  deliberately-subtle ambient stops below. That bright-point-to-soft-wash gradient
+  is what makes the eye read the light as CAST BY the sign rather than as an even
+  filter — so the source wants this core; the ambient stays as it was. It does the
+  one neon-catch flicker on load (via .flicker-on), then holds. Never loops.
 */
 .room-sign-glow {
   position: fixed;
@@ -83,6 +87,7 @@
   z-index: -1;
   pointer-events: none;
   background:
+    radial-gradient(20% 15% at 50% 0%, rgb(var(--votive-rgb) / 0.34), transparent 62%),
     radial-gradient(55% 38% at 50% -6%, rgb(var(--votive-rgb) / 0.2), transparent 60%),
     radial-gradient(95% 55% at 50% -2%, rgb(var(--votive-rgb) / 0.06), transparent 72%),
     radial-gradient(70% 60% at 50% 34%, rgb(var(--votive-rgb) / 0.04), transparent 65%);
@@ -106,23 +111,34 @@
 }
 
 /*
-  THE SIGN — the masthead is neon. It gets the only bloom and the only flicker
-  on the page; restraint is what makes the one glowing thing feel real.
+  THE SIGN — the masthead is neon that is ON. The layered shadow runs from a tight
+  near-opaque core (the lit tube) out to a wide faint halo (the bloom it throws),
+  so it reads as a glowing sign, not colored text. The slow buzz is a real tube's
+  faint instability — mostly steady, the occasional micro-dip — never a strobe.
+  It gets the only bloom and the only buzz on the page; restraint is what makes the
+  one glowing thing feel real.
 */
 .sign-neon {
   color: var(--color-votive);
   text-shadow:
-    0 0 4px rgb(var(--votive-rgb) / 0.55),
-    0 0 18px rgb(var(--votive-rgb) / 0.35),
-    0 0 42px rgb(var(--votive-rgb) / 0.18);
+    0 0 2px rgb(var(--votive-rgb) / 0.95),
+    0 0 7px rgb(var(--votive-rgb) / 0.7),
+    0 0 20px rgb(var(--votive-rgb) / 0.5),
+    0 0 44px rgb(var(--votive-rgb) / 0.32),
+    0 0 78px rgb(var(--votive-rgb) / 0.18);
+  animation: neon-buzz 5.3s ease-in-out infinite;
 }
 
 .sign-neon-profane {
   color: var(--color-profane);
   text-shadow:
-    0 0 4px rgb(var(--profane-rgb) / 0.55),
-    0 0 18px rgb(var(--profane-rgb) / 0.35),
-    0 0 42px rgb(var(--profane-rgb) / 0.18);
+    0 0 2px rgb(var(--profane-rgb) / 0.95),
+    0 0 7px rgb(var(--profane-rgb) / 0.7),
+    0 0 20px rgb(var(--profane-rgb) / 0.5),
+    0 0 44px rgb(var(--profane-rgb) / 0.32),
+    0 0 78px rgb(var(--profane-rgb) / 0.18);
+  /* a beat off the votive tube's period so the two halves never lockstep */
+  animation: neon-buzz 6.1s ease-in-out infinite;
 }
 
 /* one flicker-to-life on load — like neon catching. once, never looping. */
@@ -140,8 +156,21 @@
   animation: neon-catch 1.4s ease-out 1 both;
 }
 
+/* the perpetual faint buzz — mostly held at full, two brief micro-dips a cycle,
+   like a neon tube that's on but never perfectly steady. */
+@keyframes neon-buzz {
+  0%, 36%, 100% { opacity: 1; }
+  37% { opacity: 0.86; }
+  38% { opacity: 1; }
+  62% { opacity: 0.97; }
+  63% { opacity: 0.8; }
+  64% { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .flicker-on {
+  .flicker-on,
+  .sign-neon,
+  .sign-neon-profane {
     animation: none;
   }
 }
