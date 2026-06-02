@@ -152,13 +152,17 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // [LAW:dataflow-not-control-flow] The wish is NOT in the fallback — not as a
   // guard against leaking it, but because the fallback's job is a recipe-only
   // machine prompt; the wish's only authoring path is Haiku. Same recipe shape
-  // whether or not a wish was made. [LAW:one-source-of-truth] the fallback NAME is
-  // fallbackTitle — the same deterministic placard the read boundary derives, so a
-  // Haiku-failed slop and a legacy row name the same recipe identically.
+  // whether or not a wish was made.
   const fallbackPrompt = promptPrefix
     ? `${promptPrefix}, ${depiction}, ${styleSeed}`
     : `${depiction}, ${styleSeed}`
-  const fallback: ComposedSlop = { prompt: capPrompt(fallbackPrompt), title: fallbackTitle(subject) }
+  // [LAW:one-source-of-truth] The fallback NAME tracks the same DEPICTION the prompt
+  // does, so a Haiku-failed slop's placard and its image always describe the same
+  // thing: a self-portrait is named for the citizen, anything else by the recipe's
+  // deterministic placard (the same one the read boundary derives for legacy rows).
+  const fallbackName =
+    occasion?.kind === 'self-portrait' ? capPlacard(occasion.displayName) : fallbackTitle(subject)
+  const fallback: ComposedSlop = { prompt: capPrompt(fallbackPrompt), title: fallbackName }
 
   if (!apiKey) {
     console.warn('composer: SLOPSPOT_ANTHROPIC_API_KEY not set; using recipe fallback (prompt + title)')
