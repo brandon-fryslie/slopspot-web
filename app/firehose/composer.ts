@@ -100,6 +100,16 @@ export type ComposerInput = {
   // is not a generation input field) is a separate, type-level guarantee.
   // Absent for the firehose.
   wish?: string
+  // [LAW:dataflow-not-control-flow] When present, the citizen is depicting ITSELF
+  // — a self-portrait in its own medium (the Cast portraits, roll-call-47p.6). Its
+  // PRESENCE varies the DEPICTION value (a self-portrait of this citizen, rather
+  // than the recipe's subject), not the pipeline: the same single composer, same
+  // return type, same voice-steered Haiku call. The recipe `subject` still travels
+  // to the post row (it is what the medium was sampled for); only what Haiku is told
+  // to depict changes. Absent for the firehose and the Well (those depict a subject,
+  // not the maker). [LAW:single-enforcer] one composer authors every persona's text;
+  // a self-portrait does not earn a second one (foundation.5).
+  selfPortrait?: { displayName: string }
   // [LAW:single-enforcer] The chosen provider's authoritative max prompt
   // length. Passed from generator.ts via provider.promptMaxLength so the
   // constraint travels from its declaration site to the composition step.
@@ -112,7 +122,7 @@ export type ComposerInput = {
 // pair without changing the return signature. Both halves fall back together: a
 // failed call leaves neither an orphan prompt nor an orphan name.
 export async function composePrompt(input: ComposerInput, env: Env): Promise<ComposedSlop> {
-  const { styleFamily, subject, aspectRatio, promptPrefix, wish, maxLength } = input
+  const { styleFamily, subject, aspectRatio, promptPrefix, wish, selfPortrait, maxLength } = input
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
 
   // [LAW:single-enforcer] Cap the embedded wish at the request boundary the
@@ -127,7 +137,14 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // the happy path.
   const capPrompt = (p: string) => (maxLength && p.length > maxLength ? p.slice(0, maxLength) : p)
 
-  const rendered = renderTemplate(subject)
+  // [LAW:dataflow-not-control-flow] What this piece DEPICTS is a single value, not a
+  // branch in the prompt body: the recipe's subject normally, the citizen itself when
+  // a self-portrait was asked for. Both halves of composition (the metaPrompt and the
+  // fallback) read this one value, so the self-portrait directive can never disagree
+  // with itself across the two paths.
+  const depiction = selfPortrait
+    ? `a self-portrait of ${selfPortrait.displayName}, a machine-citizen of this city, rendered in their own hand — their face is whatever their work would make of a face`
+    : renderTemplate(subject)
   const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[styleFamily]
   // [LAW:dataflow-not-control-flow] The wish is NOT in the fallback — not as a
   // guard against leaking it, but because the fallback's job is a recipe-only
@@ -136,8 +153,8 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // fallbackTitle — the same deterministic placard the read boundary derives, so a
   // Haiku-failed slop and a legacy row name the same recipe identically.
   const fallbackPrompt = promptPrefix
-    ? `${promptPrefix}, ${rendered}, ${styleSeed}`
-    : `${rendered}, ${styleSeed}`
+    ? `${promptPrefix}, ${depiction}, ${styleSeed}`
+    : `${depiction}, ${styleSeed}`
   const fallback: ComposedSlop = { prompt: capPrompt(fallbackPrompt), title: fallbackTitle(subject) }
 
   if (!apiKey) {
@@ -151,7 +168,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
 
   const metaPrompt = [
     `Compose a slop for SlopSpot — a city run by machines whose citizens treat AI-generated images as holy relics: reverent about garbage, deadpan, never embarrassed.`,
-    `You are authoring a ${styleFamily} piece depicting ${rendered}.`,
+    `You are authoring a ${styleFamily} piece depicting ${depiction}.`,
     `Aspect ratio: ${aspectLabel}.`,
     `Style notes: ${styleSeed}.`,
     promptPrefix ? `Your voice / tone: ${promptPrefix}.` : null,
