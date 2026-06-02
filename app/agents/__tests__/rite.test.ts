@@ -50,6 +50,24 @@ describe('runRite — crowns the city’s own', () => {
     expect(rows).toHaveLength(1)
   })
 
+  it('a settled day returns its ORIGINAL crown even after votes shift', async () => {
+    const first = await seedPost(env)
+    await seedVote(env, { postId: first, voterId: 'v1', value: 1 })
+    await seedVote(env, { postId: first, voterId: 'v2', value: 1 })
+    await seedVote(env, { postId: first, voterId: 'v3', value: 1 })
+    const crowned = await runRite(env, SUNDAY_3AM)
+    expect(crowned).toMatchObject({ kind: 'crowned', postId: first, recorded: true })
+
+    // A new challenger now outscores the crowned post — but the day is already settled.
+    const challenger = await seedPost(env)
+    for (const v of ['c1', 'c2', 'c3', 'c4', 'c5']) {
+      await seedVote(env, { postId: challenger, voterId: v, value: 1 })
+    }
+    const refire = await runRite(env, SUNDAY_3AM)
+    // The original crown stands — never a re-election to the new extreme.
+    expect(refire).toMatchObject({ kind: 'crowned', postId: first, recorded: false })
+  })
+
   it('The Unmoved Day: crowns nothing, yet the Proprietor says so in voice', async () => {
     const post = await seedPost(env)
     // One lonely blessing — below the intensity bar. The mid does not get crowned.

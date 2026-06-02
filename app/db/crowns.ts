@@ -31,13 +31,60 @@ export type CrowningRecord = {
   decree: Utterance
 }
 
+// The settled crown for a rite day — what was actually crowned, read back. The
+// decree is the whole stored Utterance (spoke or a meant silence), authored once and
+// never re-voiced on a re-fire.
+export type StoredCrowning = {
+  postId: PostId
+  lens: RiteLens
+  decree: Utterance
+}
+
 // [LAW:types-are-the-program] recordCrowning has two real outcomes: the crown was
-// recorded, or the day was already crowned. The UNIQUE(rite_day) index makes "one
-// ceremony per day" unrepresentable in storage, so a 3am cron re-fire returns
-// `already_crowned_today` rather than double-crowning — idempotent by construction.
+// recorded, or the day was already crowned — and in the latter case it returns the
+// crown that IS there, so a re-fire reports the authoritative crown rather than the
+// caller's discarded re-election. The UNIQUE(rite_day) index makes "one ceremony per
+// day" unrepresentable in storage; idempotency is by construction.
 export type RecordCrowningResult =
   | { recorded: true; id: string }
-  | { recorded: false; reason: 'already_crowned_today' }
+  | { recorded: false; existing: StoredCrowning }
+
+// [LAW:no-silent-fallbacks] decree_json is our own serialized Utterance; a malformed
+// value is a storage violation that fails loud with the day for context, never a
+// laundered cast. The shape is trusted at this boundary the way feed.ts trusts
+// params_json.
+function parseDecree(json: string, riteDay: string): Utterance {
+  try {
+    return JSON.parse(json) as Utterance
+  } catch (err) {
+    throw new Error(`crowns: malformed decree_json for rite day ${riteDay}`, { cause: err })
+  }
+}
+
+// [LAW:single-enforcer] The one reader of "the crown that settled this day." Serves
+// both the orchestrator's settled-day short-circuit and recordCrowning's
+// conflict-recovery, so the rite_day → crown read lives in exactly one place.
+export async function crowningForDay(
+  env: Env,
+  riteDay: string,
+): Promise<StoredCrowning | null> {
+  const rows = await db(env)
+    .select({
+      postId: crowns.postId,
+      lens: crowns.lens,
+      decreeJson: crowns.decreeJson,
+    })
+    .from(crowns)
+    .where(eq(crowns.riteDay, riteDay))
+    .limit(1)
+  if (rows.length === 0) return null
+  const r = rows[0]
+  return {
+    postId: r.postId as PostId,
+    lens: riteLensSchema.parse(r.lens),
+    decree: parseDecree(r.decreeJson, riteDay),
+  }
+}
 
 // [LAW:single-enforcer] The one writer of a crown row. [LAW:types-are-the-program]
 // The UNIQUE(rite_day) index IS the one-ceremony-per-day invariant; onConflictDoNothing
@@ -66,7 +113,13 @@ export async function recordCrowning(
     .onConflictDoNothing({ target: crowns.riteDay })
     .returning({ id: crowns.id })
   if (inserted.length === 0) {
-    return { recorded: false, reason: 'already_crowned_today' }
+    // The day was already crowned (a race between a settled-check and this insert).
+    // Return the crown that IS there so the caller reports the authoritative result.
+    const existing = await crowningForDay(env, input.riteDay)
+    if (existing === null) {
+      throw new Error(`crowns: rite day ${input.riteDay} conflicted yet has no crown`)
+    }
+    return { recorded: false, existing }
   }
   return { recorded: true, id: inserted[0].id }
 }
