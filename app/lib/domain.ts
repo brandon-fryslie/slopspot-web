@@ -247,6 +247,46 @@ export type Verdict = {
   disposition: VerdictDisposition
 }
 
+// [LAW:types-are-the-program] The seven lenses of The Daily Rite — the axes of
+// greatness the city crowns by (design-docs/the-daily-rite.md). A closed union:
+// the lens IS the discriminator from which the eternal mark, the presiding
+// citizen, and the liturgical day all derive. There is no second `is_crowned`
+// boolean and no stored mark — a crowned post carries exactly one lens, and
+// everything visible about its crown is a pure function of that lens plus the day.
+export type RiteLens =
+  | 'saint'
+  | 'villain'
+  | 'heretic'
+  | 'relic'
+  | 'martyr'
+  | 'miracle'
+  | 'confession'
+
+// [LAW:one-source-of-truth] The eternal mark's TONE — a pure function of the lens
+// (markFor in app/lib/rite.ts), never stored. Gold for the sainted, magenta for
+// the monstrous, bronze for the resurrected, split for the divisive, bone for the
+// flawless. The gallery reads this tone to dress the card; it never re-derives
+// lens→tone on its own, so the two can never disagree. Coarser than the lens (two
+// lenses can share a tone) — the lens is the fine identity, the mark is its colour.
+export type CrownMark = 'gold' | 'magenta' | 'bronze' | 'split' | 'bone'
+
+// [LAW:one-source-of-truth] The read-time projection of a single crown record (the
+// crowns table). Every field is derived: `lens` is stored, `mark` is markFor(lens),
+// `riteDay` is the day the crown settled, `presiding` resolves the recorded
+// presiding citizen's agentId into its public CitizenRef. The Proprietor's decree
+// (an Utterance) is persisted on the record but NOT carried here — the feed needs
+// only the mark; the Calendar surfaces the decree. A post with no crown has no
+// Crowning at all (absence is the discriminator, not an `isCrowned` flag).
+// [LAW:types-are-the-program] Crowns are forever, so `presiding` is the citizen who
+// presided AT crowning time (read from the record), never re-derived from today's
+// lens→citizen binding — a binding change must not rewrite history.
+export type Crowning = {
+  lens: RiteLens
+  mark: CrownMark
+  riteDay: string
+  presiding: CitizenRef
+}
+
 export type RenderablePost = {
   post: Post
   score: number
@@ -260,6 +300,12 @@ export type RenderablePost = {
   // deterministic rule; its absence is a real discriminated absence, handled by
   // structure, not a sentinel empty string.
   verdict?: Verdict
+  // [LAW:dataflow-not-control-flow] The eternal mark is optional BY DATA: an
+  // uncrowned post simply has no Crowning, and the card renders the mark by its
+  // presence — never an `isCrowned` flag the card must consult. Derived at read
+  // time from the crowns table alone (feed.ts crowningsForPosts), the same shape
+  // score=SUM(votes) takes — no stored mark to drift. [LAW:one-source-of-truth]
+  crowning?: Crowning
 }
 
 // [LAW:one-type-per-behavior] A FeedItem IS a RenderablePost plus a list

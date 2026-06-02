@@ -53,6 +53,7 @@ import {
   type VoteValue,
 } from '~/lib/domain'
 import { authorLabel } from '~/lib/author-label'
+import { crowningsForPosts } from '~/db/crowns'
 import { emit } from '~/observability/metrics'
 import {
   aspectRatioSchema,
@@ -819,16 +820,19 @@ export async function getFeed(
   // they run concurrently — one round-trip's latency, not two.
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
   const postIds = renderables.map((r) => r.post.id)
-  const [refs, verdicts] = await Promise.all([
+  const [refs, verdicts, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
     fetchVerdicts(database, postIds),
+    crowningsForPosts(database, postIds),
   ])
 
   return renderables.map((r, i): FeedItem => {
-    // [LAW:dataflow-not-control-flow] The verdict's presence is the discriminator —
-    // a post with no critic line spreads nothing, so the field is genuinely absent
-    // (not `undefined`-valued), which exactOptionalPropertyTypes demands.
+    // [LAW:dataflow-not-control-flow] The verdict's and crowning's PRESENCE is the
+    // discriminator — a post with no critic line / no crown spreads nothing, so the
+    // field is genuinely absent (not `undefined`-valued), which
+    // exactOptionalPropertyTypes demands.
     const verdict = verdicts.get(r.post.id)
+    const crowning = crownings.get(r.post.id)
     return {
       post: enrichPost(r.post, refs),
       score: r.score,
@@ -836,6 +840,7 @@ export async function getFeed(
       commentCount: r.commentCount,
       viewerIsModifier: r.viewerIsModifier,
       ...(verdict !== undefined ? { verdict } : {}),
+      ...(crowning !== undefined ? { crowning } : {}),
       rank: i + 1,
     }
   })
@@ -865,17 +870,21 @@ export async function getFeedItemById(
 
   const renderable = rowToRenderablePost(rows[0], voterId)
   const agentIds = collectAgentIds([renderable.post])
-  const [refs, verdicts] = await Promise.all([
+  const [refs, verdicts, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
     fetchVerdicts(database, [renderable.post.id]),
+    crowningsForPosts(database, [renderable.post.id]),
   ])
   // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed
-  // does, so it carries the verdict the same way — present iff a critic line exists.
+  // does, so it carries the verdict and the eternal mark the same way — each present
+  // iff its record exists.
   const verdict = verdicts.get(renderable.post.id)
+  const crowning = crownings.get(renderable.post.id)
   return {
     ...renderable,
     post: enrichPost(renderable.post, refs),
     ...(verdict !== undefined ? { verdict } : {}),
+    ...(crowning !== undefined ? { crowning } : {}),
   }
 }
 
