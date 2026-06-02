@@ -17,6 +17,7 @@ import type { PostId } from '~/lib/domain'
 import { emit } from '~/observability/metrics'
 import {
   CROWN_INTENSITY_THRESHOLD,
+  RITE_WINDOW_MS,
   elect,
   riteForDay,
   type RiteLens,
@@ -78,7 +79,13 @@ export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteRe
   }
 
   const speaker = await proprietorRef(env)
-  const candidates = await gatherCandidates(env, def.ballot)
+  // [LAW:dataflow-not-control-flow] The ballot is the DAY's votes — the 24h before the
+  // ceremony — so the rite reads today's judgment, not the all-time favourite, and a
+  // new saint can be crowned every night.
+  const candidates = await gatherCandidates(env, def.ballot, {
+    sinceMs: scheduledTimeMs - RITE_WINDOW_MS,
+    untilMs: scheduledTimeMs,
+  })
   const election = elect(def.ballot, candidates, CROWN_INTENSITY_THRESHOLD)
 
   if (election.kind === 'unmoved') {

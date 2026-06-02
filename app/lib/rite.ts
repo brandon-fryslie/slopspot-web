@@ -37,9 +37,15 @@ export const riteLensSchema: z.ZodType<RiteLens> = z.enum([
 //   feud    — the Martyr (Thursday, "presides: the feud itself"). The intersection:
 //             a slop one citizen blessed AND another buried — divisive by construction.
 //             A single presiding agentId cannot express two citizens; this arm does.
-//   acclaim — the Miracle alone. The doc's "highest score with the lowest curse" is
-//             genuinely the city's democratic verdict; this is the ONE lens a
-//             whole-feed score read is correct for.
+//   acclaim — the Miracle alone, and it is the CORRECT exception, not the democratic
+//             inversion the monarchical fix removed (that was the Saint going
+//             whole-city; it is now a citizen's ballot). The Miracle is the one rite
+//             the HOST presides — and the host keeps no ballot, he hosts but does not
+//             vote — so a citizen's-taste crown is impossible here by construction.
+//             Its whole point is the slop that is plainly, universally good: clean
+//             beauty IS consensus, so the city's own verdict (highest score, lowest
+//             curse) is the honest ballot, not a betrayal of the thesis. Do NOT
+//             "correct" this to a citizen ballot. [LAW:one-source-of-truth]
 export type RiteBallot =
   | { readonly kind: 'sole'; readonly citizen: AgentId; readonly pole: 'blessed' | 'buried' }
   | { readonly kind: 'feud'; readonly blessedBy: AgentId; readonly buriedBy: AgentId }
@@ -139,12 +145,23 @@ export function markFor(lens: RiteLens): CrownMark {
   }
 }
 
+// [LAW:types-are-the-program] The ballot is the DAY's votes — "St. Vivian's strongest
+// blessing OF THE DAY" (the-daily-rite.md). The window is the 24h preceding the
+// ceremony: a half-open [sinceMs, untilMs) interval over votes.created_at (a vote's
+// time, NOT a post's — so a citizen blessing an OLD slop today still nominates it,
+// which is exactly how the Ragpicker resurrects a Relic). Without it the rite would
+// re-crown the same all-time favourite every night and the daily novelty would die.
+export type RiteWindow = { readonly sinceMs: number; readonly untilMs: number }
+
+// The span of a rite's ballot — one day. The window is [ceremony − 1 day, ceremony).
+export const RITE_WINDOW_MS = 24 * 60 * 60 * 1000
+
 // [LAW:dataflow-not-control-flow] A candidate the rite weighs. `overallScore` is the
-// whole city's SUM(votes) — the acclaim ballot reads it and it breaks ties for the
+// day's SUM(votes) — the acclaim ballot reads it and it breaks ties for the
 // "strongest" of a citizen's nominees. `citizenVotes` carries ONLY the ballot's
-// citizens' votes on this slop (a citizen who did not vote is absent — a real absence,
-// not a 0), which the sole/feud ballots nominate from. No new voting mechanic: every
-// number here is a vote already cast.
+// citizens' votes on this slop within the window (a citizen who did not vote is absent
+// — a real absence, not a 0), which the sole/feud ballots nominate from. No new voting
+// mechanic: every number here is a vote already cast within the day.
 export type RiteCandidate = {
   readonly postId: PostId
   readonly overallScore: number

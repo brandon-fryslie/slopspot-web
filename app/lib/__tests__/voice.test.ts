@@ -12,6 +12,7 @@ import {
   spoke,
   speak,
   utter,
+  utteranceSchema,
   withheld,
 } from "~/lib/voice";
 
@@ -93,6 +94,23 @@ describe("Utterance value space is exhaustive", () => {
       "indifferent",
       "unavailable",
     ]);
+  });
+});
+
+describe("utteranceSchema validates the persisted shape at the boundary", () => {
+  it("accepts a spoken line and a meant silence", () => {
+    expect(utteranceSchema.safeParse(spoke("a line")).success).toBe(true);
+    expect(utteranceSchema.safeParse(withheld("characteristic-silence")).success).toBe(true);
+  });
+
+  it("rejects an empty spoke.text — a silence is withheld, never empty text", () => {
+    expect(utteranceSchema.safeParse({ kind: "spoke", text: "" }).success).toBe(false);
+  });
+
+  it("rejects null, a bad kind, and an unknown withheld reason", () => {
+    expect(utteranceSchema.safeParse(null).success).toBe(false);
+    expect(utteranceSchema.safeParse({ kind: "muttered", text: "x" }).success).toBe(false);
+    expect(utteranceSchema.safeParse({ kind: "withheld", reason: "bored" }).success).toBe(false);
   });
 });
 
