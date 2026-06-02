@@ -78,8 +78,8 @@ export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteRe
   }
 
   const speaker = await proprietorRef(env)
-  const candidates = await gatherCandidates(env)
-  const election = elect(def.pole, candidates, CROWN_INTENSITY_THRESHOLD)
+  const candidates = await gatherCandidates(env, def.ballot)
+  const election = elect(def.ballot, candidates, CROWN_INTENSITY_THRESHOLD)
 
   if (election.kind === 'unmoved') {
     // [LAW:no-silent-fallbacks] The Unmoved Day — crown nothing, and the Proprietor

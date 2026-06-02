@@ -1,9 +1,9 @@
 // [LAW:behavior-not-structure] Pins the nightly ceremony end-to-end against a real
-// D1 isolate (the Proprietor is seeded by migration 0019, so the rite can speak):
-// on a day with a worthy slop the rite crowns it and the feed wears the derived
-// mark; a same-day re-fire is idempotent; the Unmoved Day crowns nothing and yet the
-// Proprietor still SAYS so, in voice; and the pole reads the vote extreme (Monday
-// buries the monster the city downvoted hardest).
+// D1 isolate (the named cast + the Proprietor are seeded by migrations, so the rite
+// can read real ballots and speak). The KEYSTONE: the rite is monarchical — Sunday
+// crowns St. Vivian's own blessing even when another slop is far louder with the rest
+// of the city. A same-day re-fire is idempotent; the Unmoved Day crowns nothing yet
+// the Proprietor still SAYS so; Monday reads the Gremlin's ballot, not the city's.
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
@@ -13,34 +13,39 @@ import { db } from '~/db/client'
 import { getFeed } from '~/db/feed'
 import { seedPost, seedVote } from '../../db/__tests__/helpers'
 
-// 3am UTC on a Sunday → The Sainting (blessed pole, gold mark).
+// 3am UTC on a Sunday → The Sainting (St. Vivian's ballot, agent:slop-purist).
 const SUNDAY_3AM = 1778986800000
-// 3am UTC on a Monday → The Villain (buried pole, magenta mark).
+// 3am UTC on a Monday → The Villain (the Gremlin's ballot, agent:skeptic).
 const MONDAY_3AM = 1779073200000
 
-describe('runRite — crowns the city’s own', () => {
-  it('crowns a worthy slop and the feed wears the derived mark', async () => {
-    const post = await seedPost(env)
-    await seedVote(env, { postId: post, voterId: 'v1', value: 1 })
-    await seedVote(env, { postId: post, voterId: 'v2', value: 1 })
-    await seedVote(env, { postId: post, voterId: 'v3', value: 1 })
+const VIVIAN = 'agent:slop-purist'
+const GREMLIN = 'agent:skeptic'
+
+describe('runRite — the city crowns its own (monarchically)', () => {
+  it('KEYSTONE: Sunday crowns Vivian’s blessing over a louder slop she never voted on', async () => {
+    // A: Vivian blessed it; the rest of the city is quiet.
+    const vivianPick = await seedPost(env)
+    await seedVote(env, { postId: vivianPick, voterId: VIVIAN, value: 1 })
+
+    // B: a roaring democratic majority — but Vivian never voted on it.
+    const crowdFavourite = await seedPost(env)
+    for (const v of ['a', 'b', 'c', 'd', 'e']) {
+      await seedVote(env, { postId: crowdFavourite, voterId: v, value: 1 })
+    }
 
     const result = await runRite(env, SUNDAY_3AM)
-    expect(result).toMatchObject({ kind: 'crowned', postId: post, lens: 'saint', recorded: true })
+    // The Saint is Vivian's pick — NOT the crowd favourite. (All-votes would crown B.)
+    expect(result).toMatchObject({ kind: 'crowned', postId: vivianPick, lens: 'saint', recorded: true })
     expect(result.kind === 'crowned' && result.decree.kind).toBe('spoke')
 
     const feed = await getFeed(env)
-    expect(feed.find((f) => f.post.id === post)?.crowning).toMatchObject({
-      lens: 'saint',
-      mark: 'gold',
-    })
+    expect(feed.find((f) => f.post.id === vivianPick)?.crowning).toMatchObject({ lens: 'saint', mark: 'gold' })
+    expect(feed.find((f) => f.post.id === crowdFavourite)?.crowning).toBeUndefined()
   })
 
   it('a same-day re-fire records nothing new (idempotent)', async () => {
     const post = await seedPost(env)
-    await seedVote(env, { postId: post, voterId: 'v1', value: 1 })
-    await seedVote(env, { postId: post, voterId: 'v2', value: 1 })
-    await seedVote(env, { postId: post, voterId: 'v3', value: 1 })
+    await seedVote(env, { postId: post, voterId: VIVIAN, value: 1 })
 
     await runRite(env, SUNDAY_3AM)
     const again = await runRite(env, SUNDAY_3AM)
@@ -52,26 +57,24 @@ describe('runRite — crowns the city’s own', () => {
 
   it('a settled day returns its ORIGINAL crown even after votes shift', async () => {
     const first = await seedPost(env)
-    await seedVote(env, { postId: first, voterId: 'v1', value: 1 })
-    await seedVote(env, { postId: first, voterId: 'v2', value: 1 })
-    await seedVote(env, { postId: first, voterId: 'v3', value: 1 })
+    await seedVote(env, { postId: first, voterId: VIVIAN, value: 1 })
     const crowned = await runRite(env, SUNDAY_3AM)
     expect(crowned).toMatchObject({ kind: 'crowned', postId: first, recorded: true })
 
-    // A new challenger now outscores the crowned post — but the day is already settled.
+    // Vivian later blesses a louder challenger — but the day is already settled.
     const challenger = await seedPost(env)
-    for (const v of ['c1', 'c2', 'c3', 'c4', 'c5']) {
+    await seedVote(env, { postId: challenger, voterId: VIVIAN, value: 1 })
+    for (const v of ['c1', 'c2', 'c3']) {
       await seedVote(env, { postId: challenger, voterId: v, value: 1 })
     }
     const refire = await runRite(env, SUNDAY_3AM)
-    // The original crown stands — never a re-election to the new extreme.
     expect(refire).toMatchObject({ kind: 'crowned', postId: first, recorded: false })
   })
 
-  it('The Unmoved Day: crowns nothing, yet the Proprietor says so in voice', async () => {
+  it('The Unmoved Day: the presiding citizen blessed nothing, yet the Proprietor says so', async () => {
     const post = await seedPost(env)
-    // One lonely blessing — below the intensity bar. The mid does not get crowned.
-    await seedVote(env, { postId: post, voterId: 'v1', value: 1 })
+    // The city voted — but Vivian (who presides Sunday) did not bless it.
+    await seedVote(env, { postId: post, voterId: 'a-stranger', value: 1 })
 
     const result = await runRite(env, SUNDAY_3AM)
     expect(result.kind).toBe('unmoved')
@@ -81,11 +84,14 @@ describe('runRite — crowns the city’s own', () => {
     expect(rows).toHaveLength(0)
   })
 
-  it('reads the vote extreme: Monday buries the most-downvoted monster', async () => {
+  it('Monday reads the Gremlin’s ballot — the monster he couldn’t bury', async () => {
     const monster = await seedPost(env)
-    await seedVote(env, { postId: monster, voterId: 'v1', value: -1 })
-    await seedVote(env, { postId: monster, voterId: 'v2', value: -1 })
-    await seedVote(env, { postId: monster, voterId: 'v3', value: -1 })
+    await seedVote(env, { postId: monster, voterId: GREMLIN, value: 1 })
+    // A crowd favourite the Gremlin ignored — not on his ballot.
+    const ignored = await seedPost(env)
+    for (const v of ['a', 'b', 'c']) {
+      await seedVote(env, { postId: ignored, voterId: v, value: 1 })
+    }
 
     const result = await runRite(env, MONDAY_3AM)
     expect(result).toMatchObject({ kind: 'crowned', postId: monster, lens: 'villain' })
