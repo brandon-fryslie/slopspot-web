@@ -62,6 +62,7 @@ import {
   type RecipeSubject,
 } from '~/lib/variety'
 import { applySortMode, defaultSortMode, windowFilter, type SortMode } from '~/lib/sort-mode'
+import { backedCitizenIds } from '~/db/backings'
 
 // One flat join row. The sibling tables are nullable because the DB does not
 // enforce cross-table cardinality (that is createPost's transactional invariant);
@@ -564,16 +565,31 @@ function computeViewerIsModifier(origin: Origin, viewerId: string | undefined): 
 // caller's filter value is what changes. Drizzle's `.where(undefined)` is a
 // no-op (no WHERE emitted), so passing undefined is the data-flow expression
 // of "no filter."
-function voteScoreSubquery(database: ReturnType<typeof db>, filter: SQL | undefined) {
+// [LAW:single-enforcer] The `alias` parameter lets one query host two instances of
+// this aggregate without a SQL alias collision: the ranking score (every vote) and the
+// backing-lens affinity (only votes by the viewer's backed citizens) are the SAME
+// SUM(votes.value) shape over different WHERE filters. One definition, two filters, two
+// aliases — never a second hand-rolled sum that could drift from this one.
+//
+// The inner SUM column is named per-alias (`<alias>__sum`) because Drizzle renders a
+// subquery column reference UNQUALIFIED (bare `"score"`). With two of these joined into
+// one FROM, a shared inner name makes that bare reference ambiguous at the SQLite layer;
+// a distinct name per subquery keeps it unambiguous. The `score` expression this returns
+// is the only thing callers touch, so the inner name stays an implementation detail.
+function voteScoreSubquery(
+  database: ReturnType<typeof db>,
+  filter: SQL | undefined,
+  alias = 'vote_score',
+) {
   const voteScore = database
     .select({
       postId: votes.postId,
-      score: sql<number>`sum(${votes.value})`.as('score'),
+      score: sql<number>`sum(${votes.value})`.as(`${alias}__sum`),
     })
     .from(votes)
     .where(filter)
     .groupBy(votes.postId)
-    .as('vote_score')
+    .as(alias)
 
   const score = sql<number>`coalesce(${voteScore.score}, 0)`
 
@@ -716,16 +732,41 @@ export async function getFeed(
 
   const { voteScore: rankVoteScore, score: rankScore } = voteScoreSubquery(database, undefined)
 
+  // [LAW:dataflow-not-control-flow] The backing lens (the-roll-call.md) is a per-post
+  // VALUE folded into the ranking, never a second feed path. `backed` is the set of
+  // citizens this viewer pledges to; the affinity aggregate is the SAME SUM(votes.value)
+  // shape as the rank score, filtered to votes those citizens cast. An empty `backed`
+  // makes inArray emit `false` SQL → the aggregate matches no rows → affinity coalesces
+  // to 0 for every post → effectiveScore == score in applySortMode → the byte-identical
+  // normal feed, by data. No `if (backed.length)`, no toggle.
+  const backed = await backedCitizenIds(env, voterId)
+  const { voteScore: lensVotes, score: lensAffinity } = voteScoreSubquery(
+    database,
+    inArray(votes.voterId, backed),
+    'backing_affinity',
+  )
+
   // [LAW:dataflow-not-control-flow] applySortMode returns the ORDER BY expressions;
   // windowFilter returns the WHERE predicate (or undefined = no filter); both are
   // called unconditionally — the SortMode value picks the expressions and predicate.
+  // affinity rides in the same ctx as score: the lens biases the ORDER BY only — the
+  // selected `score` stays pure SUM(votes), so the displayed score never carries the
+  // viewer-specific lens. [LAW:one-source-of-truth]
   const feedIds = database.$with('feed_ids').as(
     database
-      .select({ id: posts.id, score: rankScore.as('score') })
+      .select({ id: posts.id, score: rankScore.as('score'), affinity: lensAffinity.as('affinity') })
       .from(posts)
       .leftJoin(rankVoteScore, eq(rankVoteScore.postId, posts.id))
+      .leftJoin(lensVotes, eq(lensVotes.postId, posts.id))
       .where(windowFilter(sort, posts.createdAt, Date.now()))
-      .orderBy(...applySortMode(sort, { score: rankScore, createdAt: posts.createdAt, id: posts.id }))
+      .orderBy(
+        ...applySortMode(sort, {
+          score: rankScore,
+          affinity: lensAffinity,
+          createdAt: posts.createdAt,
+          id: posts.id,
+        }),
+      )
       .limit(50),
   )
 
@@ -760,7 +801,17 @@ export async function getFeed(
     .leftJoin(found, eq(found.postId, posts.id))
     .leftJoin(commentCount, eq(commentCount.postId, posts.id))
     .leftJoin(myVote, and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)))
-    .orderBy(...applySortMode(sort, { score: feedIds.score, createdAt: posts.createdAt, id: posts.id }))
+    // The outer hydration ORDER BY recomputes the same effectiveScore the CTE ranked by,
+    // from the score AND affinity columns the CTE carried out — so display order matches
+    // selection order. [LAW:one-source-of-truth] both call the same applySortMode.
+    .orderBy(
+      ...applySortMode(sort, {
+        score: feedIds.score,
+        affinity: feedIds.affinity,
+        createdAt: posts.createdAt,
+        id: posts.id,
+      }),
+    )
 
   const renderables = rows.map((row) => rowToRenderablePost(row, voterId))
   // Two independent post-CTE resolutions over the same visible set: persona faces

@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm'
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import {
+  BACKING_WEIGHT,
   HOTNESS_DECAY_S,
   HOTNESS_REFERENCE_EPOCH,
   TOP_WINDOW_MS,
@@ -27,6 +28,7 @@ import {
 const dialect = new SQLiteSyncDialect({ casing: 'snake_case' })
 const mockCtx = {
   score: sql`"score"`,
+  affinity: sql`"affinity"`,
   createdAt: sql`"created_at"`,
   id: sql`"id"`,
 }
@@ -174,11 +176,16 @@ describe('app/lib/sort-mode.ts', () => {
       expect(dialect.sqlToQuery(exprs[1]).sql).toBe('"id" desc')
     })
 
-    it('all top windows emit score DESC, createdAt DESC, id DESC (window is a WHERE concern)', () => {
+    it('all top windows emit effectiveScore DESC, createdAt DESC, id DESC (window is a WHERE concern)', () => {
       for (const window of ['all', 'day', 'week'] as const) {
         const exprs = applySortMode({ mode: 'top', window }, mockCtx)
         expect(exprs).toHaveLength(3)
-        expect(dialect.sqlToQuery(exprs[0]).sql).toBe('"score" desc')
+        // [LAW:dataflow-not-control-flow] The primary key is score biased by the backing
+        // lens: score + BACKING_WEIGHT * affinity. With affinity 0 (the unbacked feed)
+        // this evaluates to score exactly — the bias is a value, not a branch.
+        const { sql: primary, params } = dialect.sqlToQuery(exprs[0])
+        expect(primary).toBe('("score" + ? * "affinity") desc')
+        expect(params).toEqual([BACKING_WEIGHT])
         expect(dialect.sqlToQuery(exprs[1]).sql).toBe('"created_at" desc')
         expect(dialect.sqlToQuery(exprs[2]).sql).toBe('"id" desc')
       }
@@ -222,6 +229,26 @@ describe('app/lib/sort-mode.ts', () => {
       expect(postC).toBeCloseTo(1.0, 5)
       expect(postA).toBeGreaterThan(postB)
       expect(postB).toBeGreaterThan(postC)
+    })
+
+    // [LAW:dataflow-not-control-flow] The backing lens is a VALUE in the ORDER BY, not a
+    // mode. These pin where it lands: the score-ranked modes carry affinity * weight;
+    // 'new' (strict chronology, no quality axis) ignores it the same way it ignores
+    // score. This is the contract the empty-set degradation rests on — affinity is
+    // always in the expression, and 0 affinity makes it vanish arithmetically.
+    describe('backing lens', () => {
+      it('hot folds affinity into the hotness quality axis', () => {
+        const primary = dialect.sqlToQuery(applySortMode({ mode: 'hot' }, mockCtx)[0]).sql
+        expect(primary).toContain('"affinity"')
+        expect(primary).toContain('"score"')
+      })
+
+      it('new ignores affinity — chronology has no quality axis to bias', () => {
+        const exprs = applySortMode({ mode: 'new' }, mockCtx)
+        for (const expr of exprs) {
+          expect(dialect.sqlToQuery(expr).sql).not.toContain('affinity')
+        }
+      })
     })
   })
 
