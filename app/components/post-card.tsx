@@ -4,14 +4,21 @@ import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 
+// [LAW:types-are-the-program] How grandly a slop is FRAMED is a closed union, never a
+// loose flag. Each container assigns the level — a feed by prominence, a permalink as a
+// lone relic — and the card renders the frame by exhaustive match. The crowned treatment
+// is categorically grander than the quiet levels so the masterpiece can command without
+// a quiet tile creeping up toward it. Adding a level fails to compile until RelicFrame
+// handles it.
+export type FrameLevel = "crowned" | "study" | "standalone"
+
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
-// shape that the feed reader and the permalink reader both produce. The
-// list-position `rank` field that lives on FeedItem is deliberately NOT
-// in this prop type: PostCard renders the same way whether it appears in
-// a ranked list or as a permalink, so it has no business reading rank.
-// The type carries that fact: a caller that has a FeedItem can pass it
-// here (FeedItem extends RenderablePost), and a caller that only has a
-// RenderablePost (the permalink loader) is not forced to invent a rank.
+// shape that the feed reader and the permalink reader both produce — plus the
+// frame LEVEL its container assigns. The list-position `rank` field that lives
+// on FeedItem is deliberately NOT in this prop type: PostCard renders the same
+// way whether it appears in a ranked list or as a permalink, so it has no
+// business reading rank. The frame level is the one presentation variable a
+// container gets to set; everything else is the renderable itself.
 export function PostCard({
   post,
   score,
@@ -19,7 +26,8 @@ export function PostCard({
   commentCount,
   viewerIsModifier,
   verdict,
-}: RenderablePost) {
+  frame,
+}: RenderablePost & { frame: FrameLevel }) {
   // [LAW:dataflow-not-control-flow] The wished-slop reveal is EMERGENT, not a mode:
   // a non-null WishContext is a property of the snapshot (a generation carrying the
   // human's verbatim wish, authored by a citizen). Its presence — never an isWished
@@ -28,7 +36,7 @@ export function PostCard({
   const wish = wishContext(post)
   return (
     <article className="overflow-hidden rounded-lg border border-votive/12 bg-panel">
-      <ContentView content={post.content} />
+      <ContentView content={post.content} frame={frame} />
       {/* [LAW:types-are-the-program] The placard renders for generation content by
           the discriminator — the title is a guaranteed-present field on that arm,
           so there is no nameless branch. The citizen's name for the PIECE, never the
@@ -233,17 +241,28 @@ function VoteControls({
   )
 }
 
-// [LAW:types-are-the-program] Closed union → exhaustive switch. Adding a new
-// Content or GenerationStatus variant will fail to compile here until handled.
-// The function's return type is the enforcement mechanism — no `default:`
-// needed, and none wanted.
-function ContentView({ content }: { content: Content }) {
+// [LAW:types-are-the-program] The compile-time exhaustiveness gate for this file's
+// closed-union switches: an unhandled variant reaches a `default` as a non-never value
+// and fails tsc -b. Local to this module, matching the codebase's per-file convention
+// (sort-mode, voice, challenge-outcome each carry their own).
+function assertNever(x: never): never {
+  throw new Error(`unhandled variant: ${JSON.stringify(x)}`)
+}
+
+// [LAW:types-are-the-program] Closed unions → exhaustive switches, the assertNever
+// defaults the enforcement: adding a Content or GenerationStatus variant makes a default
+// reachable with a non-never value, failing tsc -b HERE until this surface renders the
+// new variant. The central domain-exhaustiveness gate proves SOMEONE handles a new kind;
+// this local gate proves the RENDERER does — without noImplicitReturns the switch would
+// otherwise fall through to an undefined return, a valid ReactNode that renders nothing.
+function ContentView({ content, frame }: { content: Content; frame: FrameLevel }) {
   switch (content.kind) {
     case "upload":
-      return <MediaView media={content.asset} />
+      return <RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame>
     case "found":
       return (
         <FoundLinkCard
+          frame={frame}
           url={content.url}
           title={content.title}
           description={content.description}
@@ -252,14 +271,101 @@ function ContentView({ content }: { content: Content }) {
       )
     case "generation": {
       const status = content.status
+      // [LAW:single-enforcer] Every relic — the finished image and the not-yet-finished
+      // frame alike — hangs through the SAME RelicFrame at the same level. An in-progress
+      // slop is an empty frame already on the wall, not an unframed loading state.
       switch (status.kind) {
-        case "pending":   return <StatusPlaceholder tone="queued"  label="queued" />
-        case "running":   return <StatusPlaceholder tone="working" label="generating…" />
-        case "succeeded": return <MediaView media={status.output} />
-        case "failed":    return <StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} />
+        case "pending":   return <RelicFrame level={frame}><StatusPlaceholder tone="queued"  label="queued" /></RelicFrame>
+        case "running":   return <RelicFrame level={frame}><StatusPlaceholder tone="working" label="generating…" /></RelicFrame>
+        case "succeeded": return <RelicFrame level={frame}><MediaView media={status.output} /></RelicFrame>
+        case "failed":    return <RelicFrame level={frame}><StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} /></RelicFrame>
+        default:          return assertNever(status)
       }
     }
+    default:
+      return assertNever(content)
   }
+}
+
+// [LAW:single-enforcer][LAW:one-source-of-truth] The card is the ONE owner of relic
+// framing. Containers compute prominence and pass it as a level; they do layout (size,
+// the room's center-light) only — never a frame of their own. The frame system lives
+// here and nowhere else, so the crown can never wear two frames.
+// [LAW:types-are-the-program] The level is a closed union rendered by exhaustive match.
+// What protects the hierarchy is the CROWN's distinctness: the crowned arm is its own
+// type — ornate aged-gilt, deep matting, an inner liner — categorically grander than the
+// quiet levels, so it commands the wall and no quiet tile can creep toward it. The two
+// quiet levels (study and standalone) are one QuietFrame at two sizes, both quiet by
+// design; collapsing them is safe precisely because neither was ever meant to compete.
+// [LAW:one-type-per-behavior] Gilt is the city's reserved mark for the canonized and
+// lives in the crowned arm ALONE; the quieter levels wear an aged bone line so gold
+// keeps its scarcity (the-threshold.md: "when you see gold, something was canonized").
+// The frame treatment is static patina — the matting, gilt, lines, and cast light add
+// no animation — so the relic framing introduces nothing for reduced-motion to gate. (The
+// in-progress placeholder it wraps carries its own pulse; that motion is the content's,
+// not the frame's, and predates this chunk.)
+function RelicFrame({ level, children }: { level: FrameLevel; children: React.ReactNode }) {
+  switch (level) {
+    case "crowned":    return <CrownedFrame>{children}</CrownedFrame>
+    case "study":      return <QuietFrame size="compact">{children}</QuietFrame>
+    case "standalone": return <QuietFrame size="generous">{children}</QuietFrame>
+    default:           return assertNever(level)
+  }
+}
+
+// [LAW:one-source-of-truth] The RELIC itself is invariant across every frame level: the
+// image recessed into a dim well, caught by the votive light the sign throws down, hung
+// so it casts a soft shadow on the wall below. Only how grandly it is FRAMED varies — so
+// the lit, hung quality of the piece is defined once and the frames differ only at their
+// border and matting. The light is a faint top wash (the sign overhead), pointer-events
+// off so it stays pure atmosphere over interactive media.
+function RelicWell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative overflow-hidden rounded-sm bg-base shadow-[0_10px_30px_-16px_rgb(0_0_0/0.85),inset_0_1px_0_rgb(232_228_216/0.06)]">
+      {children}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-votive/[0.045] to-transparent"
+      />
+    </div>
+  )
+}
+
+// THE CROWNED — the masterpiece, framed the way the Louvre frames Vermeer, except the
+// Louvre is a pawnshop and the gold is old. An ornate double frame: an aged-gilt outer
+// molding (tarnished gold, a bevel catch of light at its lip), a deep mat, then an inner
+// gilt liner around the relic. Deep matting + the gilt molding + the liner make this a
+// categorically grander object than any study — and the wall compounds it with size and
+// the room's center-light, so the crown is unmistakably the one masterpiece on the wall.
+function CrownedFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="m-3 rounded-sm bg-gradient-to-b from-gilt/15 to-gilt/[0.05] p-[3px] ring-2 ring-gilt/45 shadow-[0_0_0_1px_rgb(202_164_74/0.22),inset_0_1px_0_rgb(232_228_216/0.18)]">
+      <div className="rounded-sm bg-base/60 p-3 ring-1 ring-gilt/30">
+        <RelicWell>{children}</RelicWell>
+      </div>
+    </div>
+  )
+}
+
+// [LAW:one-type-per-behavior] THE QUIET FRAME — study and standalone are ONE frame with
+// a size config, not two types. Both are quiet by design (neither competes with the
+// crown); they differ only in how much room the relic gets — a study packs tight in the
+// dense wall, a lone permalinked relic breathes. The presets are a data table, so a new
+// quiet size is a row, not a component. No gilt at either size — gold is the crown's
+// alone (only the Rite canonizes; viewing a relic does not). The genuinely distinct type
+// is the crown's CrownedFrame, so collapsing the two quiet levels cannot flatten the
+// hierarchy — the crown still dominates and neither quiet size creeps toward it.
+const QUIET_FRAME = {
+  compact: "m-2 p-1.5 ring-bone/[0.07]",
+  generous: "m-3 p-2.5 ring-bone/12 shadow-[inset_0_1px_0_rgb(232_228_216/0.06)]",
+} as const
+
+function QuietFrame({ size, children }: { size: keyof typeof QUIET_FRAME; children: React.ReactNode }) {
+  return (
+    <div className={`rounded-sm ring-1 ${QUIET_FRAME[size]}`}>
+      <RelicWell>{children}</RelicWell>
+    </div>
+  )
 }
 
 // [LAW:dataflow-not-control-flow] One link-card shape. The optional thumbnail
@@ -269,11 +375,13 @@ function ContentView({ content }: { content: Content }) {
 // the linked page from navigating us via window.opener, and noreferrer hides
 // our referrer header from the destination.
 function FoundLinkCard({
+  frame,
   url,
   title,
   description,
   thumbnail,
 }: {
+  frame: FrameLevel
   url: string
   title: string
   description?: string
@@ -294,9 +402,14 @@ function FoundLinkCard({
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block transition hover:bg-bone/[0.03]"
+      // overflow-hidden makes the anchor a block-formatting context so the framed
+      // thumbnail's outer margin stays INSIDE it (and under the hover wash) rather than
+      // collapsing out the top — the same containment the post <article> already relies on.
+      className="group block overflow-hidden transition hover:bg-bone/[0.03]"
     >
-      {thumbnail !== undefined && <MediaView media={thumbnail} />}
+      {thumbnail !== undefined && (
+        <RelicFrame level={frame}><MediaView media={thumbnail} /></RelicFrame>
+      )}
       <div className="flex flex-col gap-1 px-3 py-3">
         <h2 className="font-placard text-xl leading-snug text-bone group-hover:text-votive">
           {title}
