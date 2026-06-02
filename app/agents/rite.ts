@@ -12,6 +12,7 @@
 
 import { getPersonaByHandle } from '~/agents/persona'
 import { gatherCandidates, recordCrowning } from '~/db/crowns'
+import { getPostById } from '~/db/feed'
 import type { PostId } from '~/lib/domain'
 import { emit } from '~/observability/metrics'
 import {
@@ -78,20 +79,23 @@ export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteRe
     return { kind: 'unmoved', lens: def.lens, decree }
   }
 
-  const winner = candidates.find((c) => c.postId === election.postId)
-  if (winner === undefined) {
-    // elect() only ever returns a postId it read from `candidates`, so this is a
-    // can't-happen invariant — fail loud rather than crown a phantom post.
-    throw new Error(`rite: elected post ${election.postId} is absent from candidates`)
+  // [LAW:one-source-of-truth] Re-read the winner through the canonical content path
+  // (toContent applies the same non-empty placard fallback the cards use), so the
+  // decree's placard is derived in exactly one place and a legacy blank title can
+  // never reach it. The elected post is a succeeded generation by construction;
+  // anything else is a storage-integrity violation and fails loud.
+  const winnerPost = await getPostById(env, election.postId)
+  if (winnerPost === null || winnerPost.content.kind !== 'generation') {
+    throw new Error(`rite: elected post ${election.postId} is not a resolvable generation`)
   }
 
   const decree = utter(speaker, 'decree', {
     kind: 'crowned',
-    crowned: { riteTitle: def.title, postId: winner.postId, placard: winner.placard },
+    crowned: { riteTitle: def.title, postId: election.postId, placard: winnerPost.content.title },
   })
 
   const result = await recordCrowning(env, {
-    postId: winner.postId,
+    postId: election.postId,
     riteDay,
     lens: def.lens,
     presiding: def.presiding,
@@ -103,5 +107,5 @@ export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteRe
     { lens: def.lens, outcome: result.recorded ? 'crowned' : 'already-crowned' },
     1,
   )
-  return { kind: 'crowned', postId: winner.postId, lens: def.lens, decree, recorded: result.recorded }
+  return { kind: 'crowned', postId: election.postId, lens: def.lens, decree, recorded: result.recorded }
 }

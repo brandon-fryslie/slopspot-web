@@ -39,51 +39,52 @@ export type RecordCrowningResult =
   | { recorded: true; id: string }
   | { recorded: false; reason: 'already_crowned_today' }
 
-// [LAW:single-enforcer] The one writer of a crown row. Pre-checks the day's slot
-// (the rite runs once per day, serially on the 3am cron — no concurrent writer), so
-// a re-fire is a clean no-op. The decree is serialized whole; a withheld decree (a
+// [LAW:single-enforcer] The one writer of a crown row. [LAW:types-are-the-program]
+// The UNIQUE(rite_day) index IS the one-ceremony-per-day invariant; onConflictDoNothing
+// makes a concurrent or retried re-fire converge on it without throwing, and RETURNING
+// discriminates the outcome at the single statement — a returned row means THIS call
+// recorded the crown, an empty result means the day was already crowned. No
+// check-then-insert TOCTOU. The decree is serialized whole; a withheld decree (a
 // Confession's held silence) persists as faithfully as a spoken one.
 export async function recordCrowning(
   env: Env,
   input: CrowningRecord,
 ): Promise<RecordCrowningResult> {
   const database = db(env)
-  const existing = await database
-    .select({ id: crowns.id })
-    .from(crowns)
-    .where(eq(crowns.riteDay, input.riteDay))
-    .limit(1)
-  if (existing.length > 0) {
+  const id = `crown:${crypto.randomUUID()}`
+  const inserted = await database
+    .insert(crowns)
+    .values({
+      id,
+      postId: input.postId,
+      riteDay: input.riteDay,
+      lens: input.lens,
+      presiding: input.presiding,
+      decreeJson: JSON.stringify(input.decree),
+      createdAt: new Date(),
+    })
+    .onConflictDoNothing({ target: crowns.riteDay })
+    .returning({ id: crowns.id })
+  if (inserted.length === 0) {
     return { recorded: false, reason: 'already_crowned_today' }
   }
-  const id = `crown:${crypto.randomUUID()}`
-  await database.insert(crowns).values({
-    id,
-    postId: input.postId,
-    riteDay: input.riteDay,
-    lens: input.lens,
-    presiding: input.presiding,
-    decreeJson: JSON.stringify(input.decree),
-    createdAt: new Date(),
-  })
-  return { recorded: true, id }
+  return { recorded: true, id: inserted[0].id }
 }
-
-// A candidate gathered from storage, carrying its placard name so the orchestrator
-// can voice the winner's decree without a second fetch.
-export type GatheredCandidate = RiteCandidate & { placard: string }
 
 // [LAW:dataflow-not-control-flow] The rite reads the votes that ALREADY exist — no
 // new mechanic. One row per succeeded generation the city has judged (INNER JOIN
 // votes): its net score and its blessing/burial counts, the extremes elect() reads.
 // A post with no votes is not a candidate (the city said nothing about it); a
 // candidate that clears no pole's bar simply yields the Unmoved Day downstream.
-export async function gatherCandidates(env: Env): Promise<GatheredCandidate[]> {
+// [LAW:one-source-of-truth] The placard (a piece's display name) is NOT gathered here
+// — it is derived in exactly one place (the feed reader's toContent, with its
+// non-empty fallback). The orchestrator re-reads the WINNER through that canonical
+// path, so a legacy blank title can never reach a decree.
+export async function gatherCandidates(env: Env): Promise<RiteCandidate[]> {
   const database = db(env)
   const rows = await database
     .select({
       postId: generations.postId,
-      placard: generations.title,
       score: sql<number>`sum(${votes.value})`,
       blessings: sql<number>`sum(case when ${votes.value} = 1 then 1 else 0 end)`,
       burials: sql<number>`sum(case when ${votes.value} = -1 then 1 else 0 end)`,
@@ -95,7 +96,6 @@ export async function gatherCandidates(env: Env): Promise<GatheredCandidate[]> {
     .groupBy(generations.postId)
   return rows.map((r) => ({
     postId: r.postId as PostId,
-    placard: r.placard,
     score: r.score,
     blessings: r.blessings,
     burials: r.burials,
