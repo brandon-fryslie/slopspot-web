@@ -1,11 +1,11 @@
 // [LAW:single-enforcer] The Cast self-portraits (roll-call-47p.6). A citizen's
 // avatar IS an example of its own work — rendered in the citizen's own medium
 // (well-foundation F1). This module owns the two acts that touch a portrait: one
-// (re)render, and the scheduled drift pass that decides who is due. It does NOT
-// re-implement generation — `renderSelfPortrait` goes through `authorSlop`, the one
-// place a persona authors a slop (which goes through createPost → provider →
-// ingestImage). A self-portrait is just a persona authoring a slop OF ITSELF; the
-// only new datum is the write-back of the resulting asset onto the citizen's config.
+// (re)render, and the scheduled drift pass that decides who is due. Generation is
+// NOT re-implemented here: a self-portrait is just a persona authoring a slop OF
+// ITSELF, so it reuses the one authoring path the firehose and the Well already
+// take and adds nothing to the generation plumbing. The only new datum is the
+// write-back of the resulting asset onto the citizen's config.
 //
 // [LAW:dataflow-not-control-flow] WHO renders is data, not a per-citizen branch: a
 // citizen is due iff it has a medium (so it CAN render in its own hand) and its
@@ -36,9 +36,9 @@ export const PORTRAIT_DRIFT_MS = 7 * 24 * 60 * 60 * 1000
 // provider it is depicted in. It IS `config.medium` (F1/item 9: a persona's medium is
 // the provider it works in; a self-portrait renders in that same hand). A citizen
 // without a medium (every critic/scavenger/host today) cannot have a self-portrait by
-// construction — it returns null and drops out of the target set, never a placeholder
-// that lies about a face to come. Lighting such a citizen up is a one-row data change
-// (give it a medium), no code edit — the engine is medium-driven, not role-driven.
+// construction, so it drops out of the target set rather than promising a face that
+// never comes. Lighting such a citizen up is a one-row data change (give it a medium),
+// no code edit — the engine is medium-driven, not role-driven.
 export function portraitMediumOf(config: Record<string, unknown>): string | null {
   const medium = config.medium
   return typeof medium === 'string' && medium.trim() !== '' ? medium : null
@@ -73,22 +73,22 @@ export function selectPortraitTargets(
   })
 }
 
-// [LAW:single-enforcer] One (re)render: author a self-portrait through authorSlop and
-// write the resulting asset onto the citizen's config. The persona must have a medium
-// (the caller selects only medium-having citizens); authorSlop owns the medium
-// resolution + prod-mock guard + recipe + voice-steered composition + the write.
+// [LAW:single-enforcer] One (re)render: author a self-portrait through the single
+// authoring path and write the resulting asset onto the citizen's config. The persona
+// must have a medium (the caller selects only medium-having citizens); the authoring
+// path owns the medium resolution, prod-mock guard, recipe, and voice-steered
+// composition.
 //
-// authorSlop returns a succeeded image generation by construction — createPost throws
-// on a provider failure (the failed slop row is left observable) and on a non-image
-// return — so a returned post always carries a usable url. A post that somehow is not
-// one is a broken invariant: fail loud, never write a portrait pointing at nothing.
+// That path returns a succeeded image generation by construction — a provider failure
+// throws (leaving the failed slop row observable) and a non-image return throws — so a
+// returned post always carries a usable url. A post that somehow is not one is a broken
+// invariant: fail loud, never write a portrait pointing at nothing.
 export async function renderSelfPortrait(env: Env, persona: Persona, nowMs: number): Promise<string> {
   const post = await authorSlop(env, persona, nowMs, { kind: 'self-portrait' })
   const url = portraitUrlOf(post)
   // [LAW:one-source-of-truth] Write the reference beside the rest of the citizen's
-  // config (preserve medium/bias/voice/creed) — updatePersonaConfig re-serialises the
-  // whole blob, so a spread is the correct merge. renderedAt stamps the face for the
-  // drift scheduler.
+  // config — the whole blob is re-serialised on write, so a spread preserves the
+  // medium, biases, voice, and creed. renderedAt stamps the face for the drift scheduler.
   await updatePersonaConfig(env, persona.agentId, {
     ...persona.config,
     portrait: { url, renderedAt: nowMs },
@@ -111,10 +111,10 @@ function portraitUrlOf(post: Post): string {
 }
 
 // [LAW:single-enforcer] The scheduled drift pass — folded into the existing daily
-// cron (workers/app.ts), NOT a parallel scheduler. Regenerates every due citizen,
-// gated by the one spend authority the firehose shares (checkBudget). An empty target
-// set is the no-op pass (zero iterations) — the ~6-of-7-days case once faces settle —
-// and it returns before touching the budget query, mirroring the firehose tick.
+// cron, NOT a parallel scheduler. Regenerates every due citizen, gated by the one
+// spend authority the firehose shares. An empty target set is the no-op pass (zero
+// iterations) — the ~6-of-7-days case once faces settle — and it returns before
+// touching the budget query, mirroring the firehose tick.
 export async function runPortraitPass(env: Env, nowMs: number): Promise<void> {
   const targets = selectPortraitTargets(await listAllPersonas(env), nowMs)
   if (targets.length === 0) return
