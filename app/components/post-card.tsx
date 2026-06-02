@@ -4,14 +4,22 @@ import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 
+// [LAW:types-are-the-program] How grandly a slop is FRAMED is a closed union, never a
+// loose flag. The wall computes prominence (its focal/studies partition) and the
+// permalink knows it shows a lone relic; each names the level and the card renders the
+// frame by exhaustive match. crowned / study / standalone are CATEGORICALLY distinct
+// treatments — not one frame with a fanciness dial — so the masterpiece can command the
+// wall without the studies creeping up toward it. Adding a level fails to compile until
+// RelicFrame handles it.
+export type FrameLevel = "crowned" | "study" | "standalone"
+
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
-// shape that the feed reader and the permalink reader both produce. The
-// list-position `rank` field that lives on FeedItem is deliberately NOT
-// in this prop type: PostCard renders the same way whether it appears in
-// a ranked list or as a permalink, so it has no business reading rank.
-// The type carries that fact: a caller that has a FeedItem can pass it
-// here (FeedItem extends RenderablePost), and a caller that only has a
-// RenderablePost (the permalink loader) is not forced to invent a rank.
+// shape that the feed reader and the permalink reader both produce — plus the
+// frame LEVEL its container assigns. The list-position `rank` field that lives
+// on FeedItem is deliberately NOT in this prop type: PostCard renders the same
+// way whether it appears in a ranked list or as a permalink, so it has no
+// business reading rank. The frame level is the one presentation variable a
+// container gets to set; everything else is the renderable itself.
 export function PostCard({
   post,
   score,
@@ -19,7 +27,8 @@ export function PostCard({
   commentCount,
   viewerIsModifier,
   verdict,
-}: RenderablePost) {
+  frame,
+}: RenderablePost & { frame: FrameLevel }) {
   // [LAW:dataflow-not-control-flow] The wished-slop reveal is EMERGENT, not a mode:
   // a non-null WishContext is a property of the snapshot (a generation carrying the
   // human's verbatim wish, authored by a citizen). Its presence — never an isWished
@@ -28,7 +37,7 @@ export function PostCard({
   const wish = wishContext(post)
   return (
     <article className="overflow-hidden rounded-lg border border-votive/12 bg-panel">
-      <ContentView content={post.content} />
+      <ContentView content={post.content} frame={frame} />
       {/* [LAW:types-are-the-program] The placard renders for generation content by
           the discriminator — the title is a guaranteed-present field on that arm,
           so there is no nameless branch. The citizen's name for the PIECE, never the
@@ -237,13 +246,14 @@ function VoteControls({
 // Content or GenerationStatus variant will fail to compile here until handled.
 // The function's return type is the enforcement mechanism — no `default:`
 // needed, and none wanted.
-function ContentView({ content }: { content: Content }) {
+function ContentView({ content, frame }: { content: Content; frame: FrameLevel }) {
   switch (content.kind) {
     case "upload":
-      return <MediaView media={content.asset} />
+      return <RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame>
     case "found":
       return (
         <FoundLinkCard
+          frame={frame}
           url={content.url}
           title={content.title}
           description={content.description}
@@ -252,14 +262,98 @@ function ContentView({ content }: { content: Content }) {
       )
     case "generation": {
       const status = content.status
+      // [LAW:single-enforcer] Every relic — the finished image and the not-yet-finished
+      // frame alike — hangs through the SAME RelicFrame at the same level. An in-progress
+      // slop is an empty frame already on the wall, not an unframed loading state.
       switch (status.kind) {
-        case "pending":   return <StatusPlaceholder tone="queued"  label="queued" />
-        case "running":   return <StatusPlaceholder tone="working" label="generating…" />
-        case "succeeded": return <MediaView media={status.output} />
-        case "failed":    return <StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} />
+        case "pending":   return <RelicFrame level={frame}><StatusPlaceholder tone="queued"  label="queued" /></RelicFrame>
+        case "running":   return <RelicFrame level={frame}><StatusPlaceholder tone="working" label="generating…" /></RelicFrame>
+        case "succeeded": return <RelicFrame level={frame}><MediaView media={status.output} /></RelicFrame>
+        case "failed":    return <RelicFrame level={frame}><StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} /></RelicFrame>
       }
     }
   }
+}
+
+// [LAW:single-enforcer][LAW:one-source-of-truth] The card is the ONE owner of relic
+// framing. Containers compute prominence and pass it as a level; they do layout (size,
+// the room's center-light) only — never a frame of their own. The frame system lives
+// here and nowhere else, so the crown can never wear two frames.
+// [LAW:types-are-the-program] The level is a closed union rendered by exhaustive match.
+// The three arms are CATEGORICALLY distinct treatments, not one frame turned up: a
+// crowned masterpiece in ornate aged-gilt with deep matting; a study hung quietly under
+// a single worn line; a standalone relic given a lone-piece's reverence. Keeping them
+// distinct is what lets the crown DOMINATE — a study cannot creep toward the crown
+// because they are not the same frame with a dial.
+// [LAW:one-type-per-behavior] Gilt is the city's reserved mark for the canonized and
+// lives in the crowned arm ALONE; the quieter levels wear an aged bone line so gold
+// keeps its scarcity (the-threshold.md: "when you see gold, something was canonized").
+// The whole system is static patina — no animation to gate — so reduced-motion is
+// honored by construction (the relic frame never moves; the Hum is a separate chunk).
+function RelicFrame({ level, children }: { level: FrameLevel; children: React.ReactNode }) {
+  switch (level) {
+    case "crowned":    return <CrownedFrame>{children}</CrownedFrame>
+    case "study":      return <StudyFrame>{children}</StudyFrame>
+    case "standalone": return <StandaloneFrame>{children}</StandaloneFrame>
+  }
+}
+
+// [LAW:one-source-of-truth] The RELIC itself is invariant across every frame level: the
+// image recessed into a dim well, caught by the votive light the sign throws down, hung
+// so it casts a soft shadow on the wall below. Only how grandly it is FRAMED varies — so
+// the lit, hung quality of the piece is defined once and the frames differ only at their
+// border and matting. The light is a faint top wash (the sign overhead), pointer-events
+// off so it stays pure atmosphere over interactive media.
+function RelicWell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative overflow-hidden rounded-sm bg-base shadow-[0_10px_30px_-16px_rgb(0_0_0/0.85),inset_0_1px_0_rgb(232_228_216/0.06)]">
+      {children}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-votive/[0.045] to-transparent"
+      />
+    </div>
+  )
+}
+
+// THE CROWNED — the masterpiece, framed the way the Louvre frames Vermeer, except the
+// Louvre is a pawnshop and the gold is old. An ornate double frame: an aged-gilt outer
+// molding (tarnished gold, a bevel catch of light at its lip), a deep mat, then an inner
+// gilt liner around the relic. Deep matting + the gilt molding + the liner make this a
+// categorically grander object than any study — and the wall compounds it with size and
+// the room's center-light, so the crown is unmistakably the one masterpiece on the wall.
+function CrownedFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="m-3 rounded-sm bg-gradient-to-b from-gilt/15 to-gilt/[0.05] p-[3px] ring-2 ring-gilt/45 shadow-[0_0_0_1px_rgb(202_164_74/0.22),inset_0_1px_0_rgb(232_228_216/0.18)]">
+      <div className="rounded-sm bg-base/60 p-3 ring-1 ring-gilt/30">
+        <RelicWell>{children}</RelicWell>
+      </div>
+    </div>
+  )
+}
+
+// THE STUDY — a study hung in the dense gallery. A single thin worn line and a tight
+// mat: quiet by design so a wall of them reads as abundance, not noise, and so the
+// crowned masterpiece dominates. No gilt — gold is the crown's alone. The bone line is
+// dim and aged, not a clean modern border.
+function StudyFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="m-2 rounded-sm p-1.5 ring-1 ring-bone/[0.07]">
+      <RelicWell>{children}</RelicWell>
+    </div>
+  )
+}
+
+// THE STANDALONE — the permalink's lone relic. No wall to compete with, so it earns a
+// more generous mat and a slightly fuller aged line than a study tile: a single piece
+// given its room. Still off-gilt — viewing a relic does not canonize it; only the Rite
+// crowns.
+function StandaloneFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="m-3 rounded-sm p-2.5 ring-1 ring-bone/12 shadow-[inset_0_1px_0_rgb(232_228_216/0.06)]">
+      <RelicWell>{children}</RelicWell>
+    </div>
+  )
 }
 
 // [LAW:dataflow-not-control-flow] One link-card shape. The optional thumbnail
@@ -269,11 +363,13 @@ function ContentView({ content }: { content: Content }) {
 // the linked page from navigating us via window.opener, and noreferrer hides
 // our referrer header from the destination.
 function FoundLinkCard({
+  frame,
   url,
   title,
   description,
   thumbnail,
 }: {
+  frame: FrameLevel
   url: string
   title: string
   description?: string
@@ -296,7 +392,9 @@ function FoundLinkCard({
       rel="noopener noreferrer"
       className="group block transition hover:bg-bone/[0.03]"
     >
-      {thumbnail !== undefined && <MediaView media={thumbnail} />}
+      {thumbnail !== undefined && (
+        <RelicFrame level={frame}><MediaView media={thumbnail} /></RelicFrame>
+      )}
       <div className="flex flex-col gap-1 px-3 py-3">
         <h2 className="font-placard text-xl leading-snug text-bone group-hover:text-votive">
           {title}

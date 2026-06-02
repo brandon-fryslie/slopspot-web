@@ -73,7 +73,7 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
           PostCard's prop shape. Spread it as a single value flowing across
           the boundary rather than re-listing every field; the type system
           carries the contract. */}
-      <PostCard {...item} />
+      <PostCard {...item} frame="standalone" />
     </main>
   )
 }
