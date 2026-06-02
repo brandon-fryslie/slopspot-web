@@ -27,7 +27,7 @@ import { getRecentRecipes } from '~/db/recent'
 import { recordRemark } from '~/db/remark'
 import { pickPersona, type Persona } from '~/agents/persona'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
-import { composePrompt } from '~/firehose/composer'
+import { composePrompt, type ComposerOccasion } from '~/firehose/composer'
 import { utter } from '~/lib/voice'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import { getProvider } from '~/providers'
@@ -64,6 +64,14 @@ const generatorPersonaConfigSchema = z.object({
   // generator does not consume it, but .strict() would reject the key migration
   // 0021 writes onto the maker configs — so it is admitted here explicitly.
   creed: z.string().optional(),
+  // The citizen's self-portrait reference (roll-call-47p.6), written by the
+  // portrait pass onto this same config. The generator does not consume it, but
+  // .strict() would otherwise reject the key on the FIRST fire after a portrait
+  // renders — coupling the maker's slops to its face. Admitted as `unknown` (not
+  // the precise portrait shape) ON PURPOSE: lib/portrait owns the soft parse, so a
+  // malformed portrait degrades the FRAME to a placeholder and never fails-loud the
+  // firehose. [LAW:locality-or-seam] the portrait cannot break slop generation.
+  portrait: z.unknown().optional(),
 }).strict()
 
 export type GeneratorPersonaConfig = z.infer<typeof generatorPersonaConfigSchema>
@@ -81,17 +89,44 @@ export function parseGeneratorConfig(raw: Record<string, unknown>, agentId: stri
   return result.data
 }
 
-// [LAW:types-are-the-program] What occasioned a slop, when a human did. Its
-// PRESENCE is the discriminator between the two paths: absent → the firehose (a
-// citizen fires on its own); present → the Well (a human's wish, re-authored by the
-// seated citizen). The wish is the visitor's words — trimmed at the wire boundary
-// (api.well) but never REWRITTEN: it steers composition and is NEVER sent raw to the
-// provider (composer.ts owns that isolation); the wisher is the human MODIFIER on the
-// persona's authorship, never the author. There is no
-// `kind` flag — the optional value IS the variability. [LAW:dataflow-not-control-flow]
-export type WishOccasion = {
-  readonly wish: string
-  readonly wisher: HumanRef
+// [LAW:types-are-the-program] What occasioned a slop beyond the bare firehose. A
+// closed union over the three authoring modes, NOT a bag of independent optionals:
+//   absent          → the firehose (a citizen fires on its own; depict the recipe)
+//   'wish'          → the Well (a human's wish, re-authored by the seated citizen)
+//   'self-portrait' → the Cast portrait (the citizen depicts ITSELF, its own medium)
+// The union makes the illegal both-at-once state — a wish that is also a
+// self-portrait — UNREPRESENTABLE, which two separate optional params could not.
+// The `wish` arm carries the visitor's words (trimmed at the wire boundary, never
+// REWRITTEN): it steers composition and is NEVER sent raw to the provider
+// (composer.ts owns that isolation); the wisher is the human MODIFIER on the
+// persona's authorship, never the author. The `self-portrait` arm carries no human
+// — the house's drift schedule occasioned it — so it adds no wisher, no provenance,
+// no remark; only the composer's depiction changes. [LAW:dataflow-not-control-flow]
+export type AuthoringOccasion =
+  | { readonly kind: 'wish'; readonly wish: string; readonly wisher: HumanRef }
+  | { readonly kind: 'self-portrait' }
+
+// [LAW:one-source-of-truth] Project the authoring occasion onto the composer's
+// narrower one — the composer steers on the wish words / the depicted citizen, never
+// the wisher. The self-portrait arm injects the persona's own name (the authoring
+// occasion does not carry it; the persona does). Exhaustive over the union: a new
+// authoring mode forces a decision here before it compiles, so the composer can
+// never silently receive the wrong occasion. [LAW:types-are-the-program]
+function composerOccasionOf(
+  occasion: AuthoringOccasion | undefined,
+  displayName: string,
+): ComposerOccasion | undefined {
+  if (occasion === undefined) return undefined
+  switch (occasion.kind) {
+    case 'wish':
+      return { kind: 'wish', wish: occasion.wish }
+    case 'self-portrait':
+      return { kind: 'self-portrait', displayName }
+    default: {
+      const _exhaustive: never = occasion
+      return _exhaustive
+    }
+  }
 }
 
 // [LAW:single-enforcer] The one implementation that authors a slop as a given
@@ -110,7 +145,7 @@ export async function authorSlop(
   env: Env,
   persona: Persona,
   recipeSeedMs: number,
-  occasion?: WishOccasion,
+  occasion?: AuthoringOccasion,
 ): Promise<Post> {
   const recent = await getRecentRecipes(env, RECENT_WINDOW)
   const config = parseGeneratorConfig(persona.config, persona.agentId)
@@ -152,7 +187,9 @@ export async function authorSlop(
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
       promptPrefix: config.promptPrefix,
-      wish: occasion?.wish,
+      // The occasion (a wish, a self-portrait, or none) flows as one closed value —
+      // the composer cannot receive both a wish and a self-portrait by construction.
+      occasion: composerOccasionOf(occasion, persona.displayName),
       maxLength: provider.promptMaxLength,
     },
     env,
@@ -171,7 +208,7 @@ export async function authorSlop(
   const origin: AuthoredOrigin = {
     kind: 'authored',
     author: { kind: 'agent', agentId: persona.agentId },
-    ...(occasion
+    ...(occasion?.kind === 'wish'
       ? { human: { role: 'wisher', by: occasion.wisher } satisfies HumanModifier }
       : {}),
   }
@@ -187,8 +224,9 @@ export async function authorSlop(
       aspectRatio: recipe.aspectRatio,
       origin,
       // The wish persists as provenance (foundation.3/.4) beside the machine prompt
-      // — the gap between them is the Well's art. Absent for the firehose.
-      ...(occasion ? { wish: occasion.wish } : {}),
+      // — the gap between them is the Well's art. Absent for the firehose AND the
+      // self-portrait (neither carries a human wish).
+      ...(occasion?.kind === 'wish' ? { wish: occasion.wish } : {}),
     },
     { env },
   )
@@ -196,9 +234,10 @@ export async function authorSlop(
   // [LAW:one-type-per-behavior] foundation.7 — the signed remark is the first
   // instance of the voice layer (utter), narrating the COMPLETED slop. The voice
   // reads a done snapshot and never triggers the act, so the remark is authored
-  // AFTER createPost with the minted id. No occasion → no AnsweredWish → nothing to
-  // narrate: the firehose has no remark by the shape of the data, not a guard.
-  if (occasion !== undefined) {
+  // AFTER createPost with the minted id. Only a WISH produces an AnsweredWish to
+  // narrate: the firehose (no occasion) and the self-portrait (no human, nothing
+  // answered) have no remark by the shape of the data, not a guard.
+  if (occasion?.kind === 'wish') {
     // [LAW:one-source-of-truth] The remark's gist (SlopGist.prompt) is the placard
     // TITLE, not the machine prompt — matching post-card.tsx's SignedRemark, which
     // reconstructs the same utterance from `resultTitle`. Persisting the title here
@@ -239,7 +278,7 @@ export async function authorSlop(
     styleFamily: recipe.styleFamily,
     subjectTemplate: recipe.subject.subjectTemplate,
     aspectRatio: recipe.aspectRatio,
-    wished: occasion !== undefined,
+    occasion: occasion?.kind ?? 'firehose',
   })
   return post
 }

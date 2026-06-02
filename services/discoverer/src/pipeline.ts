@@ -28,6 +28,12 @@ const personaConfigSchema = z
     // Worker). The discoverer does not consume it, but .strict() would reject the
     // key migration 0023 writes onto the scavenger configs — so it is admitted here.
     creed: z.string().optional(),
+    // The citizen's self-portrait reference (a Worker-only Cast datum, migration
+    // 0025+). The discoverer does not consume it, but .strict() would reject the
+    // key should a scavenger ever be given a portrait medium — the same
+    // cross-service break the creed admit above prevents. z.unknown so it tolerates
+    // both the string forms ('declined'/'refused') and the rendered object.
+    portrait: z.unknown().optional(),
   })
   .strict()
 
