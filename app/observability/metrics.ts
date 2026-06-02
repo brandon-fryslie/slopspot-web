@@ -73,6 +73,15 @@ export type MetricLabels = {
     agent_id: string
     outcome: 'rendered' | 'failed' | 'skipped-budget'
   }
+  // [LAW:single-enforcer] The Daily Rite (app/agents/rite.ts) is the sole emitter.
+  // One sample per nightly ceremony: `crowned` (a slop took the crown), `unmoved`
+  // (the Unmoved Day — nobody cleared the bar, the crown stayed in the drawer), or
+  // `already-crowned` (a re-fire found the day already settled — idempotent no-op).
+  // The lens label makes per-lens crown cadence queryable across the liturgical week.
+  'slopspot.rite.outcome': {
+    lens: string
+    outcome: 'crowned' | 'unmoved' | 'already-crowned'
+  }
 }
 
 export type MetricName = keyof MetricLabels
