@@ -11,28 +11,51 @@ import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 // a quiet tile creeping up toward it. Adding a level fails to compile until RelicFrame
 // handles it.
 //
-// [LAW:types-are-the-program] The `crowned` arm CARRIES its mark — the grand frame is
-// the Rite hero's alone (assigned by exactly one renderer, above the wall) and its tone
-// IS the crown's mark (gilt for the sainted, profane for the villain, …). Threading the
-// mark through the level makes "a grand frame with no crown to colour it" unrepresentable:
-// you cannot construct `crowned` without a mark. [the gilt-scarcity lock] gilt is then
-// scarce BY CONSTRUCTION — only the single hero builds a `crowned` level, and it is gilt
-// only when the mark is gold; the Wall's loudest-now wears `votive` (heat, never gold),
-// so two gilt on one page cannot be expressed.
-export type FrameLevel =
+// [LAW:single-enforcer][the gilt-scarcity lock] The `crowned` arm is INTERNAL — it is NOT
+// in PublicFrameLevel, so it is absent from PostCard's public prop and NO general caller
+// (wall, permalink, any future surface) can express it. The ONLY producer of a crowned
+// frame is CrownedPostCard, composed from the same shell below; the ONLY caller of that is
+// RiteHero, and there is one hero. So "two gilt on one page" is not a convention DOM-checks
+// catch after the fact — it is UNREPRESENTABLE: the type that would name the second gilt
+// does not exist in any public surface. The `crowned` arm carries its mark, so the grand
+// frame's tone IS the crown's (gilt only when gold); the wall's loudest-now wears `votive`
+// (heat, never gold). [LAW:types-are-the-program] the discriminator is the program.
+type FrameLevel =
   | { kind: "crowned"; mark: CrownMark }
   | { kind: "votive" }
   | { kind: "study" }
   | { kind: "standalone" }
 
-// [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
-// shape that the feed reader and the permalink reader both produce — plus the
-// frame LEVEL its container assigns. The list-position `rank` field that lives
-// on FeedItem is deliberately NOT in this prop type: PostCard renders the same
-// way whether it appears in a ranked list or as a permalink, so it has no
-// business reading rank. The frame level is the one presentation variable a
-// container gets to set; everything else is the renderable itself.
-export function PostCard({
+// [LAW:types-are-the-program] The frame levels a GENERAL caller may set — the full set
+// minus the canonization frame. PostCard's public prop is this; the gilt `crowned` level
+// cannot be named through it, which is what makes the single-enforcer lock structural.
+export type PublicFrameLevel = Exclude<FrameLevel, { kind: "crowned" }>
+
+// [LAW:single-enforcer] The public card a general container hangs — it can set any
+// PUBLIC frame level (votive/study/standalone) but not the gilt `crowned` frame, which
+// is absent from its prop type. The list-position `rank` field that lives on FeedItem is
+// deliberately NOT in this prop type: PostCard renders the same way whether it appears in
+// a ranked list or as a permalink, so it has no business reading rank.
+export function PostCard(props: RenderablePost & { frame: PublicFrameLevel }) {
+  return <PostCardImpl {...props} />
+}
+
+// [LAW:single-enforcer][the gilt-scarcity lock] The ONE producer of a gilt-framed card.
+// It is the only code that can build the `crowned` level (it lives where the internal
+// FrameLevel is in scope), so the canonization frame cannot originate anywhere else.
+// RiteHero is its only caller, and there is one hero — so the gilt appears at most once
+// per page by construction, not by convention. Visually identical to PostCard: the same
+// shell, the same gilt-around-the-relic + placard/seal below — only the frame the shell
+// hands its content differs, and that difference is the crown's whole point.
+export function CrownedPostCard({ mark, ...rp }: RenderablePost & { mark: CrownMark }) {
+  return <PostCardImpl {...rp} frame={{ kind: "crowned", mark }} />
+}
+
+// [LAW:types-are-the-program] The shared shell. Consumes a RenderablePost — the shape the
+// feed reader and the permalink reader both produce — plus the internal frame LEVEL. The
+// two public entries above are its only callers; the frame level is the one presentation
+// variable they set, everything else is the renderable itself.
+function PostCardImpl({
   post,
   score,
   myVote,

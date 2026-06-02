@@ -991,13 +991,19 @@ export async function getFeed(
 // The shared selectFeedRows helper guarantees the same aggregates the feed
 // uses — score, commentCount, myVote — so a future change to any aggregate
 // applies to both views by construction.
+//
+// [LAW:dataflow-not-control-flow] `id` is PostId | null: an absent id (the home hero when
+// no crown has settled) is a VALUE, not a reason to skip the call. A null id becomes an
+// empty candidate set that flows through the same query — no rows match, the existing
+// empty-result arm yields null. The caller stays uniform (always calls this); the null
+// decides the outcome, never a caller-side guard around the await.
 export async function getFeedItemById(
   env: Env,
-  id: PostId,
+  id: PostId | null,
   voterId?: string,
 ): Promise<RenderablePost | null> {
   const database = db(env)
-  const { query } = selectFeedRows(database, [id], voterId)
+  const { query } = selectFeedRows(database, id === null ? [] : [id], voterId)
 
   const rows = await query.limit(1)
   if (rows.length === 0) return null

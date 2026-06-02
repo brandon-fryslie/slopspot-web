@@ -48,19 +48,22 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     countSlops(env),
     latestCrownedPostId(env),
   ])
-  const heroPost = heroId === null ? null : await getFeedItemById(env, heroId, voterId)
+  // [LAW:dataflow-not-control-flow] getFeedItemById takes the id | null and yields the post
+  // | null — the null flows THROUGH (an absent crown is an empty candidate set, no rows), so
+  // the call is uniform, not gated behind a ternary that skips it.
+  const heroPost = await getFeedItemById(env, heroId, voterId)
   // [LAW:dataflow-not-control-flow] The hero exists iff a crowned post resolves WITH its
-  // crown — the value, never a flag. The narrowing makes "a hero with no mark" absent here,
-  // so RiteHero never defends an impossible state.
+  // crown. This narrows the optional crowning to the required shape RiteHero consumes — it
+  // PRODUCES the typed value (CrownedRenderable | null), it does not skip an operation.
   const hero: CrownedRenderable | null =
     heroPost !== null && heroPost.crowning !== undefined
       ? { ...heroPost, crowning: heroPost.crowning }
       : null
   // [LAW:one-source-of-truth] The hero is hung above the wall; the wall is everything else.
   // A post is one relic — showing the crown as both the gold hero AND a wall tile would be
-  // two of the same. The hero's id is removed so the loudest-now focal is the loudest that
-  // ISN'T already the standing crown.
-  const wallItems = hero === null ? items : items.filter((i) => i.post.id !== hero.post.id)
+  // two of the same. One uniform predicate drops the hero's id (matching nothing when there
+  // is no hero), so the filter runs the same way whether or not a crown reigns.
+  const wallItems = items.filter((i) => i.post.id !== hero?.post.id)
 
   const serialized = serializeSortMode(sort)
   const headers: HeadersInit | undefined =
@@ -118,11 +121,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       </div>
       {/* the city visibly peopled + the relentless productivity, made visible. */}
       <CastAtWork events={pulse} slopCount={slopCount} />
-      {/* [LAW:dataflow-not-control-flow] The hero hangs iff a crown resolved — its presence
-          is the discriminator, never an isCrowned flag. The gold Saint (or the day's rite,
-          in its mark) above; the votive loudest-now leads the wall below. Two kinds of
-          glory, never two gilt. */}
-      {hero !== null && <RiteHero hero={hero} />}
+      {/* [LAW:dataflow-not-control-flow] RiteHero is rendered UNCONDITIONALLY; the hero
+          VALUE (a crowned relic or null) decides whether anything appears — the presence of
+          the crown is the discriminator, handled inside RiteHero, never a caller-side guard.
+          The gold Saint (or the day's rite, in its mark) above; the votive loudest-now leads
+          the wall below. Two kinds of glory, never two gilt. */}
+      <RiteHero hero={hero} />
       {/* [LAW:dataflow-not-control-flow] Presence of slop decides what shows: a full
           wall, or the Proprietor's honest quiet. The empty copy speaks only when the
           room is truly bare — no wall AND no standing crown — so a lone crowned relic

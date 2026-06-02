@@ -1,5 +1,5 @@
 import type { Crowning, CrownMark, RenderablePost } from "~/lib/domain"
-import { PostCard } from "~/components/post-card"
+import { CrownedPostCard } from "~/components/post-card"
 
 // [LAW:types-are-the-program] The hero is a RenderablePost that IS crowned — the
 // `crowning` RenderablePost leaves optional is REQUIRED here, so "a hero with no crown
@@ -22,11 +22,16 @@ const HERO_HALO: Record<CrownMark, string> = {
 
 // THE RITE HERO — today's crowned relic, hung LARGE and lit, a second focal point beyond
 // the wall that says this place has taste and a daily life (the-haunted-gallery.md move D).
-// [LAW:single-enforcer] It is the ONLY renderer that assigns the `crowned` frame level, so
-// the grand gilt molding is the Rite's alone; the wall below wears votive. The hero owns
-// SIZE (a wide, centred measure) + the crown's own halo; the card owns the grand frame and
-// the canonization seal — one frame system, the hero never rings the card itself.
-export function RiteHero({ hero }: { hero: CrownedRenderable }) {
+// [LAW:single-enforcer] It is the ONLY caller of CrownedPostCard, the one producer of the
+// gilt frame, so the canonization molding is the Rite's alone; the wall below wears votive.
+// The hero owns SIZE (a wide, centred measure) + the crown's own halo; the card owns the
+// grand frame and the canonization seal — the hero never rings the card itself.
+// [LAW:dataflow-not-control-flow] The crown's PRESENCE is the discriminator: a null hero
+// (no crown settled, or none resolved) renders nothing, a present one renders the relic.
+// The home page calls this UNCONDITIONALLY and lets the value decide — no caller-side guard
+// gates whether the hero exists; the null flows in and out as the empty render.
+export function RiteHero({ hero }: { hero: CrownedRenderable | null }) {
+  if (hero === null) return null
   return (
     <section aria-label="the city's standing crown" className="mx-auto mb-12 max-w-3xl px-4">
       <p className="mb-3 text-center font-terminal text-[11px] uppercase tracking-[0.3em] text-ash">
@@ -34,7 +39,7 @@ export function RiteHero({ hero }: { hero: CrownedRenderable }) {
         <span className="text-bone/70">{hero.crowning.presiding.displayName}</span> ··
       </p>
       <div className={`rounded-lg ${HERO_HALO[hero.crowning.mark]}`}>
-        <PostCard {...hero} frame={{ kind: "crowned", mark: hero.crowning.mark }} />
+        <CrownedPostCard {...hero} mark={hero.crowning.mark} />
       </div>
     </section>
   )
