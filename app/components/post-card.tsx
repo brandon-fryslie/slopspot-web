@@ -5,12 +5,11 @@ import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 
 // [LAW:types-are-the-program] How grandly a slop is FRAMED is a closed union, never a
-// loose flag. The wall computes prominence (its focal/studies partition) and the
-// permalink knows it shows a lone relic; each names the level and the card renders the
-// frame by exhaustive match. crowned / study / standalone are CATEGORICALLY distinct
-// treatments — not one frame with a fanciness dial — so the masterpiece can command the
-// wall without the studies creeping up toward it. Adding a level fails to compile until
-// RelicFrame handles it.
+// loose flag. Each container assigns the level — a feed by prominence, a permalink as a
+// lone relic — and the card renders the frame by exhaustive match. The crowned treatment
+// is categorically grander than the quiet levels so the masterpiece can command without
+// a quiet tile creeping up toward it. Adding a level fails to compile until RelicFrame
+// handles it.
 export type FrameLevel = "crowned" | "study" | "standalone"
 
 // [LAW:types-are-the-program] PostCard consumes a RenderablePost — the
@@ -293,11 +292,11 @@ function ContentView({ content, frame }: { content: Content; frame: FrameLevel }
 // the room's center-light) only — never a frame of their own. The frame system lives
 // here and nowhere else, so the crown can never wear two frames.
 // [LAW:types-are-the-program] The level is a closed union rendered by exhaustive match.
-// The three arms are CATEGORICALLY distinct treatments, not one frame turned up: a
-// crowned masterpiece in ornate aged-gilt with deep matting; a study hung quietly under
-// a single worn line; a standalone relic given a lone-piece's reverence. Keeping them
-// distinct is what lets the crown DOMINATE — a study cannot creep toward the crown
-// because they are not the same frame with a dial.
+// What protects the hierarchy is the CROWN's distinctness: the crowned arm is its own
+// type — ornate aged-gilt, deep matting, an inner liner — categorically grander than the
+// quiet levels, so it commands the wall and no quiet tile can creep toward it. The two
+// quiet levels (study and standalone) are one QuietFrame at two sizes, both quiet by
+// design; collapsing them is safe precisely because neither was ever meant to compete.
 // [LAW:one-type-per-behavior] Gilt is the city's reserved mark for the canonized and
 // lives in the crowned arm ALONE; the quieter levels wear an aged bone line so gold
 // keeps its scarcity (the-threshold.md: "when you see gold, something was canonized").
@@ -306,8 +305,8 @@ function ContentView({ content, frame }: { content: Content; frame: FrameLevel }
 function RelicFrame({ level, children }: { level: FrameLevel; children: React.ReactNode }) {
   switch (level) {
     case "crowned":    return <CrownedFrame>{children}</CrownedFrame>
-    case "study":      return <StudyFrame>{children}</StudyFrame>
-    case "standalone": return <StandaloneFrame>{children}</StandaloneFrame>
+    case "study":      return <QuietFrame size="compact">{children}</QuietFrame>
+    case "standalone": return <QuietFrame size="generous">{children}</QuietFrame>
     default:           return assertNever(level)
   }
 }
@@ -346,25 +345,22 @@ function CrownedFrame({ children }: { children: React.ReactNode }) {
   )
 }
 
-// THE STUDY — a study hung in the dense gallery. A single thin worn line and a tight
-// mat: quiet by design so a wall of them reads as abundance, not noise, and so the
-// crowned masterpiece dominates. No gilt — gold is the crown's alone. The bone line is
-// dim and aged, not a clean modern border.
-function StudyFrame({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="m-2 rounded-sm p-1.5 ring-1 ring-bone/[0.07]">
-      <RelicWell>{children}</RelicWell>
-    </div>
-  )
-}
+// [LAW:one-type-per-behavior] THE QUIET FRAME — study and standalone are ONE frame with
+// a size config, not two types. Both are quiet by design (neither competes with the
+// crown); they differ only in how much room the relic gets — a study packs tight in the
+// dense wall, a lone permalinked relic breathes. The presets are a data table, so a new
+// quiet size is a row, not a component. No gilt at either size — gold is the crown's
+// alone (only the Rite canonizes; viewing a relic does not). The genuinely distinct type
+// is the crown's CrownedFrame, so collapsing the two quiet levels cannot flatten the
+// hierarchy — the crown still dominates and neither quiet size creeps toward it.
+const QUIET_FRAME = {
+  compact: "m-2 p-1.5 ring-bone/[0.07]",
+  generous: "m-3 p-2.5 ring-bone/12 shadow-[inset_0_1px_0_rgb(232_228_216/0.06)]",
+} as const
 
-// THE STANDALONE — the permalink's lone relic. No wall to compete with, so it earns a
-// more generous mat and a slightly fuller aged line than a study tile: a single piece
-// given its room. Still off-gilt — viewing a relic does not canonize it; only the Rite
-// crowns.
-function StandaloneFrame({ children }: { children: React.ReactNode }) {
+function QuietFrame({ size, children }: { size: keyof typeof QUIET_FRAME; children: React.ReactNode }) {
   return (
-    <div className="m-3 rounded-sm p-2.5 ring-1 ring-bone/12 shadow-[inset_0_1px_0_rgb(232_228_216/0.06)]">
+    <div className={`rounded-sm ring-1 ${QUIET_FRAME[size]}`}>
       <RelicWell>{children}</RelicWell>
     </div>
   )
