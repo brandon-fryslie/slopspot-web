@@ -43,6 +43,8 @@ describe('recordCrowning — one ceremony per day, idempotent', () => {
     })
     expect(first.recorded).toBe(true)
 
+    // A re-fire records nothing new and returns the crown that IS there (its stored
+    // decree + post), not a fresh re-election.
     const second = await recordCrowning(env, {
       postId: post,
       riteDay: '2026-05-17',
@@ -50,7 +52,10 @@ describe('recordCrowning — one ceremony per day, idempotent', () => {
       presiding: AgentId('agent:test-host'),
       decree: DECREE,
     })
-    expect(second).toEqual({ recorded: false, reason: 'already_crowned_today' })
+    expect(second).toEqual({
+      recorded: false,
+      existing: { postId: post, lens: 'saint', decree: DECREE },
+    })
 
     const rows = await db(env).select().from(crowns)
     expect(rows).toHaveLength(1)

@@ -16,6 +16,8 @@
 // SHAPES live in `MetricLabels`. Both are derived from the same union, so
 // adding a metric in one place forces the other to catch up at compile time.
 
+import type { RiteLens } from '~/lib/domain'
+
 // The puller (homelab-side) parses log lines that start with `[metric]`. Changing
 // this prefix without coordinating with the puller will drop metrics silently.
 const LOG_PREFIX = '[metric]' as const
@@ -78,8 +80,10 @@ export type MetricLabels = {
   // (the Unmoved Day — nobody cleared the bar, the crown stayed in the drawer), or
   // `already-crowned` (a re-fire found the day already settled — idempotent no-op).
   // The lens label makes per-lens crown cadence queryable across the liturgical week.
+  // [LAW:types-are-the-program] lens is the closed RiteLens union, not an open string,
+  // so a typo'd `lens: 'saints'` is a compile error like every other metric label.
   'slopspot.rite.outcome': {
-    lens: string
+    lens: RiteLens
     outcome: 'crowned' | 'unmoved' | 'already-crowned'
   }
 }

@@ -11,7 +11,7 @@
 // saint; the Unmoved Day is a real handled outcome, not a skipped branch.
 
 import { getPersonaByHandle } from '~/agents/persona'
-import { gatherCandidates, recordCrowning } from '~/db/crowns'
+import { crowningForDay, gatherCandidates, recordCrowning } from '~/db/crowns'
 import { getPostById } from '~/db/feed'
 import type { PostId } from '~/lib/domain'
 import { emit } from '~/observability/metrics'
@@ -64,8 +64,20 @@ async function proprietorRef(env: Env): Promise<PersonaRef> {
 export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteResult> {
   const def = riteForDay(new Date(scheduledTimeMs).getUTCDay())
   const riteDay = utcRiteDay(scheduledTimeMs)
-  const speaker = await proprietorRef(env)
 
+  // [LAW:dataflow-not-control-flow] The day is settled or it isn't — a real data
+  // state. A settled day returns its ACTUAL recorded crown (stored decree, recorded
+  // post) without re-electing or re-voicing: a re-fire must not crown a different
+  // winner because votes shifted, and a future LLM decree must not pay to speak again
+  // over a day already pronounced. [LAW:no-silent-fallbacks] the crown that exists is
+  // the truth, not a fresh re-election.
+  const settled = await crowningForDay(env, riteDay)
+  if (settled !== null) {
+    emit('slopspot.rite.outcome', { lens: settled.lens, outcome: 'already-crowned' }, 1)
+    return { kind: 'crowned', postId: settled.postId, lens: settled.lens, decree: settled.decree, recorded: false }
+  }
+
+  const speaker = await proprietorRef(env)
   const candidates = await gatherCandidates(env)
   const election = elect(def.pole, candidates, CROWN_INTENSITY_THRESHOLD)
 
@@ -102,10 +114,20 @@ export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteRe
     decree,
   })
 
-  emit(
-    'slopspot.rite.outcome',
-    { lens: def.lens, outcome: result.recorded ? 'crowned' : 'already-crowned' },
-    1,
-  )
-  return { kind: 'crowned', postId: election.postId, lens: def.lens, decree, recorded: result.recorded }
+  // [LAW:no-silent-fallbacks] If a concurrent run recorded the day between the
+  // settled-check and this insert, recordCrowning hands back the crown that IS there;
+  // report THAT (its stored decree + post), never the re-election we just discarded.
+  if (!result.recorded) {
+    emit('slopspot.rite.outcome', { lens: result.existing.lens, outcome: 'already-crowned' }, 1)
+    return {
+      kind: 'crowned',
+      postId: result.existing.postId,
+      lens: result.existing.lens,
+      decree: result.existing.decree,
+      recorded: false,
+    }
+  }
+
+  emit('slopspot.rite.outcome', { lens: def.lens, outcome: 'crowned' }, 1)
+  return { kind: 'crowned', postId: election.postId, lens: def.lens, decree, recorded: true }
 }
