@@ -2,18 +2,24 @@ import type { FeedItem } from "~/lib/domain"
 import { PostCard } from "~/components/post-card"
 
 // [LAW:dataflow-not-control-flow] Tile prominence is a FOLD over standing, never a
-// mode. The feed arrives already ranked by the read enforcer (feed.ts), so a slop's
-// position IS its standing in the current ordering. The wall partitions that ranking
-// into the crowned head — the single most-blessed slop, hung large and gilt as the
-// focal relic — and the body, packed tight as surrounding studies. A pure partition
-// by position: the data decides which slop is big; this layout toggles no "featured"
-// flag. The empty feed folds to {focal: null, studies: []}, so the wall renders
-// nothing rather than special-casing emptiness — the page owns the "nobody's here" copy.
-type WallLayout = { focal: FeedItem | null; studies: FeedItem[] }
+// mode. The feed arrives already ranked upstream, so a slop's position IS its
+// standing in the current ordering. The wall partitions that ranking into the
+// crowned head — the single most-blessed slop, hung large and gilt as the focal
+// relic — and the body, packed tight as surrounding studies. The data decides which
+// slop is big; this layout toggles no "featured" flag.
+//
+// [LAW:types-are-the-program] The two arms below are the ONLY states the partition
+// can produce: an empty feed (no relic, no studies) or a crowned wall (a relic with
+// its studies). A focal-less wall that still holds studies is unrepresentable — so
+// the relic branch reads its focal as present, with no guard defending an impossible
+// state.
+type WallLayout =
+  | { focal: null; studies: readonly [] }
+  | { focal: FeedItem; studies: FeedItem[] }
 
 function partitionWall(items: FeedItem[]): WallLayout {
-  const [focal = null, ...studies] = items
-  return { focal, studies }
+  const [focal, ...studies] = items
+  return focal === undefined ? { focal: null, studies: [] } : { focal, studies }
 }
 
 // THE WALL — kill the void. The feed stops being a phone-width column in a black
@@ -26,27 +32,28 @@ function partitionWall(items: FeedItem[]): WallLayout {
 // gaps — a grid would align every row to its tallest cell and re-open the dead space
 // the void is made of. Cards flow into balanced columns; the gallery packs itself.
 //
-// The card bones and the feed data are untouched: a FeedItem IS a PostCard's prop
-// shape, spread across the boundary as one value. New renderable fields reach the
-// card without editing the wall.
+// [LAW:locality-or-seam] The wall is a layout seam only — it forwards each renderable
+// to the card as one opaque value, so a change to what a card shows touches the card
+// alone and never the wall.
 export function Wall({ items }: { items: FeedItem[] }) {
-  const { focal, studies } = partitionWall(items)
+  const layout = partitionWall(items)
+  // [LAW:types-are-the-program] The empty arm is a narrowed branch, not a sentinel
+  // check: an empty feed has no wall to hang, and the page owns the "nobody's here"
+  // copy. Past this line the focal is typed present.
+  if (layout.focal === null) return null
+  const { focal, studies } = layout
   return (
     <ul className="columns-1 gap-4 sm:columns-2 lg:columns-3 2xl:columns-4">
-      {focal !== null && (
-        // The crowned relic — hung large across the full wall, lit in gilt. Size AND
-        // gold together read "most blessed" by data alone: the gilt token is the
-        // city's reserved mark for the crowned (the-threshold.md). The studies pack
-        // beneath it; the relic gets the room's center light.
-        <li key={focal.post.id} className="mb-4 block [column-span:all]">
-          <div className="mx-auto max-w-3xl rounded-lg ring-1 ring-gilt/45 shadow-[0_0_44px_-10px_rgb(202_164_74/0.4)]">
-            <PostCard {...focal} />
-          </div>
-        </li>
-      )}
+      {/* The crowned relic — hung large across the full wall, lit in gilt. Size AND
+          gold together read "most blessed" by data alone: gilt is the city's reserved
+          mark for the crowned. The studies pack beneath it; the relic gets the room's
+          center light. */}
+      <li key={focal.post.id} className="mb-4 block [column-span:all]">
+        <div className="mx-auto max-w-3xl rounded-lg ring-1 ring-gilt/45 shadow-[0_0_44px_-10px_rgb(202_164_74/0.4)]">
+          <PostCard {...focal} />
+        </div>
+      </li>
       {studies.map((item) => (
-        // break-inside-avoid keeps a card whole within its column — a slop never
-        // splits across the gutter.
         <li key={item.post.id} className="mb-4 block break-inside-avoid">
           <PostCard {...item} />
         </li>
