@@ -36,6 +36,13 @@ const voterConfigSchema = z
     // Worker). The voter does not consume it, but .strict() would reject the key
     // migration 0023 writes onto the critic configs — so it is admitted here.
     creed: z.string().optional(),
+    // The citizen's self-portrait reference (a Worker-only Cast datum, migration
+    // 0025+). The voter does not consume it, but .strict() would reject the key on
+    // a critic the portrait pass touches (the Gremlin's 'refused' lands on a VOTER
+    // config) — the same cross-service break the creed admit above prevents.
+    // z.unknown so it tolerates the string forms ('declined'/'refused') AND the
+    // rendered object the makers' configs carry.
+    portrait: z.unknown().optional(),
   })
   .strict()
   .refine((d) => d.downvoteThreshold < d.upvoteThreshold, {
