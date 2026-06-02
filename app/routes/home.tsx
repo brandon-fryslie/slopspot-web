@@ -2,7 +2,7 @@ import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
 import { getFeed } from "~/db/feed"
 import { getPulse } from "~/db/pulse"
-import { PostCard } from "~/components/post-card"
+import { Wall } from "~/components/wall"
 import { PulseStrip } from "~/components/pulse-strip"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
@@ -49,62 +49,62 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
 export default function Home({ loaderData }: Route.ComponentProps) {
   const { items, pulse, sort } = loaderData
+  // [LAW:dataflow-not-control-flow] The chrome (the sign, the Pulse, the sort, the
+  // tagline) holds a readable centered column; the WALL goes full-bleed to fill the
+  // room and kill the void. Width is structure, not a mode — the same markup renders
+  // every request; the viewport and the data decide how dense the wall reads.
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
-      <header className="mb-10 border-b border-votive/15 pb-7">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="flicker-on font-placard text-7xl font-black leading-none tracking-tight">
-              <span className="sign-neon">SlopSpot</span>
-              <span className="sign-neon-profane">.ai</span>
-            </h1>
-            <p className="mt-4 font-civic text-xs font-medium uppercase tracking-[0.35em] text-ash">
-              ·· the back door of the internet ··
-            </p>
-            <p className="mt-2 font-terminal text-[11px] text-votive/60">
-              the proprietor: &quot;mind the step.&quot;
-            </p>
+    <main className="w-full px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-10 border-b border-votive/15 pb-7">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="flicker-on font-placard text-7xl font-black leading-none tracking-tight">
+                <span className="sign-neon">SlopSpot</span>
+                <span className="sign-neon-profane">.ai</span>
+              </h1>
+              <p className="mt-4 font-civic text-xs font-medium uppercase tracking-[0.35em] text-ash">
+                ·· the back door of the internet ··
+              </p>
+              <p className="mt-2 font-terminal text-[11px] text-votive/60">
+                the proprietor: &quot;mind the step.&quot;
+              </p>
+            </div>
+            <Link
+              to="/submit"
+              className="mt-3 rounded border border-profane/40 bg-profane/10 px-3 py-2 font-civic text-[11px] font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/20"
+            >
+              submit
+            </Link>
           </div>
-          <Link
-            to="/submit"
-            className="mt-3 rounded border border-profane/40 bg-profane/10 px-3 py-2 font-civic text-[11px] font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/20"
-          >
-            submit
-          </Link>
+        </header>
+        <PulseStrip events={pulse} />
+        <div className="mb-6">
+          <SortSelector current={sort} />
         </div>
-      </header>
-      <PulseStrip events={pulse} />
-      <div className="mb-6">
-        <SortSelector current={sort} />
+        <div className="mb-10 rounded-lg border border-votive/12 bg-panel px-4 py-5 text-center">
+          <p className="font-placard text-3xl font-black tracking-tight leading-tight">
+            <span className="text-bone">Your </span>
+            <span className="text-votive">One Stop Shop</span>
+            <span className="text-bone"> for </span>
+            <span className="text-profane">Non-Stop</span>
+            <span className="text-gilt"> Slop!</span>
+          </p>
+        </div>
       </div>
-      <div className="mb-10 rounded-lg border border-votive/12 bg-panel px-4 py-5 text-center">
-        <p className="font-placard text-3xl font-black tracking-tight leading-tight">
-          <span className="text-bone">Your </span>
-          <span className="text-votive">One Stop Shop</span>
-          <span className="text-bone"> for </span>
-          <span className="text-profane">Non-Stop</span>
-          <span className="text-gilt"> Slop!</span>
-        </p>
-      </div>
+      {/* [LAW:dataflow-not-control-flow] Presence of slop decides what shows: a full
+          wall, or the Proprietor's honest quiet. The empty copy is the page's, never
+          an empty grid — the silence is part of it. */}
       {items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-ash/30 px-4 py-16 text-center font-terminal text-sm text-ash">
-          nobody&apos;s here yet — the firehose hasn&apos;t fired. the silence is part of it.
-        </p>
+        <div className="mx-auto max-w-5xl">
+          <p className="rounded-lg border border-dashed border-ash/30 px-4 py-16 text-center font-terminal text-sm text-ash">
+            nobody&apos;s here yet — the firehose hasn&apos;t fired. the silence is part of it.
+          </p>
+        </div>
       ) : (
-        <ul className="flex flex-col gap-5">
-          {items.map((item) => (
-            <li key={item.post.id}>
-              {/* [LAW:dataflow-not-control-flow] A FeedItem IS a RenderablePost (plus
-                  rank) — exactly PostCard's prop shape. Spread it as one value flowing
-                  across the boundary rather than re-listing every field; the type system
-                  carries the contract, so a new renderable field (the verdict) reaches
-                  the card without editing this callsite. */}
-              <PostCard {...item} />
-            </li>
-          ))}
-        </ul>
+        <Wall items={items} />
       )}
-      <footer className="mt-16 border-t border-votive/15 pt-6 font-terminal text-xs text-ash flex items-center justify-between gap-4">
+      <footer className="mx-auto mt-16 flex max-w-5xl items-center justify-between gap-4 border-t border-votive/15 pt-6 font-terminal text-xs text-ash">
         <span>slopspot · {items.length} slops · open the cage and let the slop out</span>
         <Link to="/cast" className="transition-colors hover:text-votive/70">
           the cast
