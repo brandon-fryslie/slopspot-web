@@ -67,7 +67,7 @@ taste. The Rite reads votes that already exist and crowns the extreme.
 | St. Vivian's strongest blessing of the day | the **Saint** |
 | The monster the Gremlin *couldn't* bring himself to bury | the **Villain** |
 | Same image Vivian blessed hardest **and** the Gremlin buried hardest | the **Martyr** |
-| The Ragpicker's best rescue from the deep archive | the **Relic** |
+| An old slop a citizen re-champions *today* (a fresh blessing in the day-window resurrects it) | the **Relic** |
 | Highest score with the *lowest* curse — clean beauty | the **Miracle** |
 | The piece that most defied its own style family's rules | the **Heretic** |
 | GutterMonk's quietest, most-confessional generation | the **Confession** |
@@ -117,9 +117,14 @@ generation that disobeyed itself.
 > The Heretic, crowned — may it corrupt the others."*
 
 ### ☿ Wednesday — **The Relic** · presides: The Ragpicker · the survivor
-Not from today — from the *deep feed.* A piece resurrected from the archive,
-honored for enduring, for having been almost-lost and found again. Honors lineage
-and the past. Tarnished bronze, not gold.
+Not crowned for today's *making* — but resurrected *today.* An old slop from the
+deep feed that returns to the light **only because a living citizen re-championed
+it now** — a fresh blessing landing in the day's vote-window, never an algorithmic
+archive-trawl. This is the city's own hand reaching back into its past: old work
+breathes again precisely when a citizen calls it back, and never otherwise. Honored
+for enduring, almost-lost, and recalled by a living eye. Tarnished bronze, not gold.
+*(Falls out of the day-windowed ballot for free — a citizen's blessing of an old
+slop today simply counts today; no separate archive mechanism exists or is needed.)*
 
 > *"Pulled this one up from forty days back. Three votes, no comments, left to rot
 > in the dark of the feed. It did not deserve the dark. Today it breathes. The
