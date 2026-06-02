@@ -8,10 +8,10 @@ import { PostId } from "~/lib/domain"
 // [LAW:single-enforcer] The permalink page route. Reuses getFeedItemById,
 // which returns a RenderablePost — the same renderable shape getFeed
 // projects per row, minus the list-position `rank` that only the feed
-// view carries. PostCard consumes RenderablePost directly, so a post
-// looks identical here and in the feed list (same PostCard, same
-// score / commentCount / myVote semantics). One renderable shape, two
-// viewpoints; rank is the only thing distinguishing them.
+// view carries. PostCard consumes that renderable directly; the only things
+// each viewpoint adds are the presentation variables it owns — the feed assigns
+// a crowned/study frame level by prominence and carries rank, the permalink
+// hangs a lone relic as "standalone". One renderable shape, two viewpoints.
 //
 // [LAW:locality-or-seam] The fork submit handler navigates to /p/<newId> to
 // solve the "I forked a post and now I can't see it" UX gap from ec7.3 —
@@ -69,11 +69,11 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
           </span>
         </h1>
       </header>
-      {/* [LAW:dataflow-not-control-flow] item is a RenderablePost — exactly
-          PostCard's prop shape. Spread it as a single value flowing across
-          the boundary rather than re-listing every field; the type system
-          carries the contract. */}
-      <PostCard {...item} />
+      {/* [LAW:dataflow-not-control-flow] item is the RenderablePost the loader
+          returns; the route names the frame LEVEL its container owns — a lone
+          permalinked relic hangs "standalone". Spread the renderable as one value
+          and name the level beside it; the type system carries the contract. */}
+      <PostCard {...item} frame="standalone" />
     </main>
   )
 }
