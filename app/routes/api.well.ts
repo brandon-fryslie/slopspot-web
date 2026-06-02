@@ -111,7 +111,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       context.cloudflare.env,
       seated,
       Date.now(),
-      { wish: parsed.wish, wisher: { kind: "anon", label: authorLabel(voter.voterId) } },
+      { kind: "wish", wish: parsed.wish, wisher: { kind: "anon", label: authorLabel(voter.voterId) } },
     )
 
     // [LAW:dataflow-not-control-flow] The box's response is the polymorphic

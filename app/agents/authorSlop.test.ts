@@ -70,6 +70,7 @@ afterEach(() => {
 describe('authorSlop — the wish path (the Well)', () => {
   it('authors as the seated persona, with the wisher modifier, the wish, and a signed remark', async () => {
     await authorSlop(env, persona, 12345, {
+      kind: 'wish',
       wish: 'a lighthouse at the end of the world',
       wisher,
     })
@@ -105,6 +106,7 @@ describe('authorSlop — the wish path (the Well)', () => {
     // On the fallback path (no API key) the wish is omitted from the prompt entirely,
     // so a unique token from the wish cannot appear in the provider-native params.
     await authorSlop(env, persona, 1, {
+      kind: 'wish',
       wish: 'ZZZ_UNIQUE_WISH_TOKEN_ZZZ',
       wisher,
     })
