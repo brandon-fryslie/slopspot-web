@@ -119,7 +119,7 @@ export async function runPortraitPass(env: Env, nowMs: number): Promise<void> {
   const targets = selectPortraitTargets(await listAllPersonas(env), nowMs)
   if (targets.length === 0) return
 
-  const budget = await checkBudget(env, undefined, nowMs)
+  const budget = await checkBudget(env)
   if (!budget.withinBudget) {
     console.log('portrait.pass: over budget; skipping', {
       spentUsd: budget.spentUsd,

@@ -23,6 +23,8 @@ function FrameInner({ portrait, displayName }: { portrait: PortraitState; displa
         <img
           src={portrait.url}
           alt={`${displayName} — a self-portrait`}
+          loading="lazy"
+          decoding="async"
           className="h-full w-full object-cover"
         />
       )
