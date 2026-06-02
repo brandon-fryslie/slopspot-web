@@ -13,7 +13,7 @@
 // flows ONLY through the write path here; the read path surfaces just the mark, so
 // the domain stays voice-free.
 
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { crowns, generations, personas, posts, votes } from '~/db/schema'
 import type { AgentId, Crowning, PostId, VoteValue } from '~/lib/domain'
@@ -24,6 +24,7 @@ import {
   type RiteBallot,
   type RiteCandidate,
   type RiteLens,
+  type RiteWindow,
 } from '~/lib/rite'
 import { utteranceSchema, type Utterance } from '~/lib/voice'
 
@@ -139,22 +140,31 @@ export async function recordCrowning(
   return { recorded: true, id: inserted[0].id }
 }
 
-// [LAW:dataflow-not-control-flow] The rite reads the votes that ALREADY exist — no new
-// mechanic. The candidate shape carries the whole-city overallScore (the acclaim
-// ballot's read + the "strongest" tiebreak) and the ballot citizens' own votes (what
-// the sole/feud ballots nominate from). The BALLOT decides which posts are gathered:
-// for sole/feud the candidate set is the slops the ballot's citizens voted on (a
-// monarchical nomination — the city's loudest post is NOT a candidate unless a
-// presiding citizen voted for it); for acclaim it is every judged slop.
+// [LAW:dataflow-not-control-flow] The rite reads the DAY's votes that ALREADY exist —
+// no new mechanic, and bounded to `window` (the 24h before the ceremony) so the
+// ballot is the day's judgment, never the all-time favourite. The candidate shape
+// carries the day's overallScore (the acclaim ballot's read + the "strongest"
+// tiebreak) and the ballot citizens' own votes (what the sole/feud ballots nominate
+// from). The BALLOT decides which posts are gathered: for sole/feud the candidates are
+// the slops the ballot's citizens voted on IN THE WINDOW (a monarchical nomination —
+// the city's loudest post is NOT a candidate unless a presiding citizen voted for it);
+// for acclaim it is every slop judged in the window. The window is over votes.created_at
+// (a vote's time, not a post's), so a citizen blessing an OLD slop today still
+// nominates it — exactly how a Relic is resurrected.
 // [LAW:one-source-of-truth] The placard is NOT gathered here — it is derived in one
 // place (the feed reader's toContent); the orchestrator re-reads the WINNER through it.
 export async function gatherCandidates(
   env: Env,
   ballot: RiteBallot,
+  window: RiteWindow,
 ): Promise<RiteCandidate[]> {
   const database = db(env)
+  const inWindow = and(
+    gte(votes.createdAt, new Date(window.sinceMs)),
+    lt(votes.createdAt, new Date(window.untilMs)),
+  )
 
-  // Whole-city score per succeeded generation the city has judged.
+  // The day's city score per succeeded generation the city judged within the window.
   const scoreRows = await database
     .select({
       postId: generations.postId,
@@ -163,13 +173,13 @@ export async function gatherCandidates(
     .from(generations)
     .innerJoin(posts, eq(posts.id, generations.postId))
     .innerJoin(votes, eq(votes.postId, generations.postId))
-    .where(eq(generations.status, 'succeeded'))
+    .where(and(eq(generations.status, 'succeeded'), inWindow))
     .groupBy(generations.postId)
   const scoreByPost = new Map(scoreRows.map((r) => [r.postId, r.score]))
 
   const citizens = ballotCitizens(ballot)
   if (citizens.length === 0) {
-    // acclaim: every judged slop is a candidate; no citizen ballot to resolve.
+    // acclaim: every slop judged in the window is a candidate; no citizen ballot.
     return scoreRows.map((r) => ({
       postId: r.postId as PostId,
       overallScore: r.score,
@@ -177,8 +187,9 @@ export async function gatherCandidates(
     }))
   }
 
-  // sole/feud: the candidates are the slops the ballot's citizens voted on — their
-  // own ballot. A slop no ballot citizen touched cannot be nominated.
+  // sole/feud: the candidates are the slops the ballot's citizens voted on IN THE
+  // WINDOW — their own daily ballot. A slop no ballot citizen blessed today cannot be
+  // nominated, however loud the rest of the city is.
   const citizenRows = await database
     .select({ postId: votes.postId, voterId: votes.voterId, value: votes.value })
     .from(votes)
@@ -186,7 +197,7 @@ export async function gatherCandidates(
       generations,
       and(eq(generations.postId, votes.postId), eq(generations.status, 'succeeded')),
     )
-    .where(inArray(votes.voterId, [...citizens]))
+    .where(and(inArray(votes.voterId, [...citizens]), inWindow))
   const byPost = new Map<string, Record<string, VoteValue>>()
   for (const r of citizenRows) {
     const m = byPost.get(r.postId) ?? {}

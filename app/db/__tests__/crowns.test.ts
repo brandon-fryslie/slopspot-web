@@ -69,17 +69,22 @@ describe('recordCrowning — one ceremony per day, idempotent', () => {
 const SOLE_VIVIAN: RiteBallot = { kind: 'sole', citizen: VIVIAN, pole: 'blessed' }
 const ACCLAIM: RiteBallot = { kind: 'acclaim' }
 
-describe('gatherCandidates — the ballot decides who nominates', () => {
+// A one-day window and times inside / before it.
+const WINDOW = { sinceMs: 1778900400000, untilMs: 1778986800000 }
+const IN_WINDOW = new Date(WINDOW.sinceMs + 60 * 60 * 1000)
+const BEFORE_WINDOW = new Date(WINDOW.sinceMs - 60 * 60 * 1000)
+
+describe('gatherCandidates — the day’s ballot decides who nominates', () => {
   it('a sole ballot nominates ONLY the presiding citizen’s votes, with overall score', async () => {
     const blessed = await seedPost(env)
-    await seedVote(env, { postId: blessed, voterId: 'agent:slop-purist', value: 1 })
-    await seedVote(env, { postId: blessed, voterId: 'v2', value: -1 })
+    await seedVote(env, { postId: blessed, voterId: 'agent:slop-purist', value: 1, createdAt: IN_WINDOW })
+    await seedVote(env, { postId: blessed, voterId: 'v2', value: -1, createdAt: IN_WINDOW })
     // A post the city loves but Vivian never voted on — NOT a sole-ballot candidate.
     const popular = await seedPost(env)
-    await seedVote(env, { postId: popular, voterId: 'a', value: 1 })
-    await seedVote(env, { postId: popular, voterId: 'b', value: 1 })
+    await seedVote(env, { postId: popular, voterId: 'a', value: 1, createdAt: IN_WINDOW })
+    await seedVote(env, { postId: popular, voterId: 'b', value: 1, createdAt: IN_WINDOW })
 
-    const candidates = await gatherCandidates(env, SOLE_VIVIAN)
+    const candidates = await gatherCandidates(env, SOLE_VIVIAN, WINDOW)
     expect(candidates).toHaveLength(1)
     expect(candidates[0]).toEqual({
       postId: blessed,
@@ -88,14 +93,21 @@ describe('gatherCandidates — the ballot decides who nominates', () => {
     })
   })
 
-  it('an acclaim ballot takes every judged slop with its whole-city score', async () => {
+  it('an acclaim ballot takes every slop judged in the window with its whole-city score', async () => {
     const a = await seedPost(env)
-    await seedVote(env, { postId: a, voterId: 'x', value: 1 })
-    await seedVote(env, { postId: a, voterId: 'y', value: 1 })
+    await seedVote(env, { postId: a, voterId: 'x', value: 1, createdAt: IN_WINDOW })
+    await seedVote(env, { postId: a, voterId: 'y', value: 1, createdAt: IN_WINDOW })
     await seedPost(env) // no votes — not judged
-    const candidates = await gatherCandidates(env, ACCLAIM)
+    const candidates = await gatherCandidates(env, ACCLAIM, WINDOW)
     expect(candidates).toHaveLength(1)
     expect(candidates[0]).toEqual({ postId: a, overallScore: 2, citizenVotes: {} })
+  })
+
+  it('reads only the DAY: votes cast before the window do not nominate', async () => {
+    const stale = await seedPost(env)
+    await seedVote(env, { postId: stale, voterId: 'agent:slop-purist', value: 1, createdAt: BEFORE_WINDOW })
+    expect(await gatherCandidates(env, SOLE_VIVIAN, WINDOW)).toHaveLength(0)
+    expect(await gatherCandidates(env, ACCLAIM, WINDOW)).toHaveLength(0)
   })
 
   it('excludes generations that did not succeed', async () => {
@@ -105,9 +117,9 @@ describe('gatherCandidates — the ballot decides who nominates', () => {
         status: { kind: 'failed', reason: 'boom', failedAt: new Date('2026-01-01') },
       },
     })
-    await seedVote(env, { postId: failed, voterId: 'agent:slop-purist', value: 1 })
-    expect(await gatherCandidates(env, SOLE_VIVIAN)).toHaveLength(0)
-    expect(await gatherCandidates(env, ACCLAIM)).toHaveLength(0)
+    await seedVote(env, { postId: failed, voterId: 'agent:slop-purist', value: 1, createdAt: IN_WINDOW })
+    expect(await gatherCandidates(env, SOLE_VIVIAN, WINDOW)).toHaveLength(0)
+    expect(await gatherCandidates(env, ACCLAIM, WINDOW)).toHaveLength(0)
   })
 })
 

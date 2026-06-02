@@ -115,7 +115,9 @@ export const withheld = (reason: WithheldReason): Utterance => ({
 // surviving as a cast that explodes at the first `.kind`. The schema lives with the
 // type so the two cannot drift. [LAW:one-source-of-truth]
 export const utteranceSchema: z.ZodType<Utterance> = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("spoke"), text: z.string() }),
+  // `spoke` carries a real line — never an empty string (that is what `withheld`
+  // is for). The validator enforces the same invariant the Utterance type states.
+  z.object({ kind: z.literal("spoke"), text: z.string().min(1) }),
   z.object({
     kind: z.literal("withheld"),
     reason: z.enum([
