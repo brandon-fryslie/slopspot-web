@@ -300,8 +300,10 @@ function ContentView({ content, frame }: { content: Content; frame: FrameLevel }
 // [LAW:one-type-per-behavior] Gilt is the city's reserved mark for the canonized and
 // lives in the crowned arm ALONE; the quieter levels wear an aged bone line so gold
 // keeps its scarcity (the-threshold.md: "when you see gold, something was canonized").
-// The whole system is static patina — no animation to gate — so reduced-motion is
-// honored by construction (the relic frame never moves; the Hum is a separate chunk).
+// The frame treatment is static patina — the matting, gilt, lines, and cast light add
+// no animation — so the relic framing introduces nothing for reduced-motion to gate. (The
+// in-progress placeholder it wraps carries its own pulse; that motion is the content's,
+// not the frame's, and predates this chunk.)
 function RelicFrame({ level, children }: { level: FrameLevel; children: React.ReactNode }) {
   switch (level) {
     case "crowned":    return <CrownedFrame>{children}</CrownedFrame>
@@ -400,7 +402,10 @@ function FoundLinkCard({
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block transition hover:bg-bone/[0.03]"
+      // overflow-hidden makes the anchor a block-formatting context so the framed
+      // thumbnail's outer margin stays INSIDE it (and under the hover wash) rather than
+      // collapsing out the top — the same containment the post <article> already relies on.
+      className="group block overflow-hidden transition hover:bg-bone/[0.03]"
     >
       {thumbnail !== undefined && (
         <RelicFrame level={frame}><MediaView media={thumbnail} /></RelicFrame>
