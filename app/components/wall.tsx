@@ -44,18 +44,20 @@ export function Wall({ items }: { items: FeedItem[] }) {
   const { focal, studies } = layout
   return (
     <ul className="columns-1 gap-4 sm:columns-2 lg:columns-3 2xl:columns-4">
-      {/* The crowned relic — hung large across the full wall, lit in gilt. Size AND
-          gold together read "most blessed" by data alone: gilt is the city's reserved
-          mark for the crowned. The studies pack beneath it; the relic gets the room's
-          center light. */}
+      {/* The crowned relic — the wall gives it two of its three marks of dominance:
+          SIZE (full-wall column-span + the wide measure) and the room's CENTER-LIGHT
+          (the gilt glow it sits in). The third mark — the grand aged-gilt FRAME — is the
+          card's, summoned by frame="crowned". [LAW:single-enforcer] framing is the card's
+          alone; the wall must not ring the focal itself or the crown wears two frames.
+          [LAW:one-source-of-truth] the wall owns layout + light; the card owns the frame. */}
       <li key={focal.post.id} className="mb-4 block [column-span:all]">
-        <div className="mx-auto max-w-3xl rounded-lg ring-1 ring-gilt/45 shadow-[0_0_44px_-10px_rgb(202_164_74/0.4)]">
-          <PostCard {...focal} />
+        <div className="mx-auto max-w-3xl rounded-lg shadow-[0_0_44px_-10px_rgb(202_164_74/0.4)]">
+          <PostCard {...focal} frame="crowned" />
         </div>
       </li>
       {studies.map((item) => (
         <li key={item.post.id} className="mb-4 block break-inside-avoid">
-          <PostCard {...item} />
+          <PostCard {...item} frame="study" />
         </li>
       ))}
     </ul>
