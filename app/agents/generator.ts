@@ -28,6 +28,7 @@ import { recordRemark } from '~/db/remark'
 import { pickPersona, type Persona } from '~/agents/persona'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
 import { composePrompt, type ComposerOccasion } from '~/firehose/composer'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { utter } from '~/lib/voice'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import { getProvider } from '~/providers'
@@ -216,12 +217,21 @@ export async function authorSlop(
   const post = await createPost(
     {
       kind: 'generation',
-      providerId: recipe.providerId,
+      // [LAW:types-are-the-program] The chooser's recipe fields ARE the genome's genes; the
+      // composed prompt is its utterance. A firehose fire SPONTANEOUSLY seeds a new bloodline,
+      // so its lineage is `founder`. Traits start neutral — the firehose seeds no drift; that
+      // arrives with breeding (L2) and selection (L3).
+      genes: {
+        species: recipe.styleFamily,
+        form: recipe.subject,
+        frame: recipe.aspectRatio,
+        medium: recipe.providerId,
+      },
+      utterance: prompt,
+      traits: NEUTRAL_TRAITS,
+      lineage: { kind: 'founder' },
       params,
       title,
-      styleFamily: recipe.styleFamily,
-      subject: recipe.subject,
-      aspectRatio: recipe.aspectRatio,
       origin,
       // The wish persists as provenance (foundation.3/.4) beside the machine prompt
       // — the gap between them is the Well's art. Absent for the firehose AND the

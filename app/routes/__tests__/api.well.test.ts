@@ -144,7 +144,7 @@ describe('POST /api/well - a wish becomes a slop', () => {
 
     expect(post.content.kind).toBe('generation')
     if (post.content.kind !== 'generation') throw new Error('expected a generation')
-    expect(post.content.recipe.wish).toBe('a lighthouse at the end of the world')
+    expect(post.content.render.wish).toBe('a lighthouse at the end of the world')
 
     // The signed remark (foundation.7) is persisted once, as a voice-layer Utterance.
     const [genRow] = await db(env)

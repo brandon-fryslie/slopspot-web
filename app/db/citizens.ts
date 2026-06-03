@@ -434,7 +434,11 @@ async function makerHighlights(env: Env, agentId: string): Promise<MakerHighligh
       id: posts.id,
       status: generations.status,
       score: sql<number>`coalesce((select sum(sv.value) from votes sv where sv.post_id = ${posts.id}), 0)`,
-      children: sql<number>`(select count(*) from generations gc where gc.parent_post_id = ${posts.id})`,
+      // [LAW:one-source-of-truth] Descendant count is read from the lineage DAG (the edge
+      // table), the one home of heredity — a child is any genome with an edge pointing here.
+      // This counts both single and bred children (each bred child contributes one edge per
+      // parent), which is the honest "most-bred" signal.
+      children: sql<number>`(select count(*) from lineage_edges le where le.parent_genome_id = ${posts.id})`,
     })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))

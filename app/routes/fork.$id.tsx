@@ -31,26 +31,18 @@ import { breedPauseHeadline, forkPause, type BreedPause } from "~/lib/breed-fail
 // upload posts can never produce a fork-button click; the 400 here defends
 // direct-URL access.
 
-// Each provider's paramsSchema has `prompt: string` — the canonical "what to
-// generate" field. The form lets the user edit this; other provider-specific
-// tunables (steps / negativePrompt / seed / styleType) are re-derived from
-// the recipe in the action via defaultParamsForRecipe, mirroring the firehose
-// chooser's translation. `.trim()` mirrors the body schema's trim so a parent
-// stored with incidental whitespace doesn't pre-fill an effectively-empty
-// prompt. PROMPT_MAX is imported from `~/lib/fork-bounds`, the shared client/
-// server-safe module that holds the union ceiling — wide enough to accept any
-// parent's stored prompt; the per-provider tighter bound (provider.promptMaxLength)
-// drives the form's maxLength + counter.
-const promptedParamsSchema = z
-  .object({ prompt: z.string().trim().min(1).max(PROMPT_MAX) })
-  .passthrough()
+// The form pre-fills the parent genome's UTTERANCE (a first-class field) and lets the user
+// edit it; other provider-specific tunables (steps / negativePrompt / seed / styleType) are
+// re-derived in the action via defaultParamsForRecipe, mirroring the firehose chooser's
+// translation. PROMPT_MAX (from `~/lib/fork-bounds`, the shared client/server-safe module) is
+// the union ceiling — wide enough for any parent's utterance; the per-provider tighter bound
+// (provider.promptMaxLength) drives the form's maxLength + counter.
 
-// [LAW:one-source-of-truth] The response contract from /api/fork/:id, pinned
-// here at module scope (same pattern as promptedParamsSchema above) — defined
-// once per file load, not re-instantiated on every form submit. The schema
-// asserts only what the redirect consumes (`id`); the producer emits a wider
-// envelope (`{ id, parentId }`), and pinning fields the client doesn't read
-// would assert a contract the consumer doesn't enforce.
+// [LAW:one-source-of-truth] The response contract from /api/fork/:id, pinned here at module
+// scope — defined once per file load, not re-instantiated on every form submit. The schema
+// asserts only what the redirect consumes (`id`); the producer emits a wider envelope
+// (`{ id, parentId }`), and pinning fields the client doesn't read would assert a contract the
+// consumer doesn't enforce.
 const forkResponseSchema = z.object({ id: z.string().min(1) })
 
 // [LAW:one-source-of-truth] REWRITE_DELIMITER is shared with api.rewrite-prompt.ts
@@ -108,12 +100,10 @@ export async function loader({
     throw new Response("only generation posts are forkable", { status: 400 })
   }
 
-  // The recipe's params is `unknown` at the domain boundary; every provider's
-  // paramsSchema requires `prompt: string`, so a passthrough parse extracts
-  // it without coupling to any single provider's full shape. A row whose
-  // stored params has no prompt fails loud here — that would be a createPost
-  // invariant violation, not a normal-path case.
-  const prompted = promptedParamsSchema.parse(parent.content.recipe.params)
+  // [LAW:one-source-of-truth] The prompt the form pre-fills is the genome's UTTERANCE — a
+  // first-class heritable field now, no longer dug out of the provider-shaped params. The
+  // genes carry the rest of the recipe affordances; medium is the provider gene.
+  const genome = parent.content.genome
 
   // [LAW:single-enforcer] realProviders filters by env so mocks never appear
   // in the prod selector. If the parent's provider isn't in the available list
@@ -121,17 +111,14 @@ export async function loader({
   // we append it as a disabled entry so the select renders a visible default
   // rather than blank. On submit the action returns 404 for deregistered and
   // 422 for env-filtered — both cases are handled there.
-  // [LAW:types-are-the-program] Extract the recipe into a local so TypeScript
-  // preserves the post-narrowing type inside lambda callbacks below.
-  const recipe = parent.content.recipe
   const available = realProviders(context.cloudflare.env)
   const providers: Array<{ id: string; displayName: string; disabled?: boolean }> = available.map(
     (p) => ({ id: p.id, displayName: p.displayName }),
   )
-  if (!providers.some((p) => p.id === recipe.providerId)) {
+  if (!providers.some((p) => p.id === genome.genes.medium)) {
     providers.push({
-      id: recipe.providerId,
-      displayName: `${recipe.providerId} (unavailable)`,
+      id: genome.genes.medium,
+      displayName: `${genome.genes.medium} (unavailable)`,
       disabled: true,
     })
   }
@@ -142,19 +129,19 @@ export async function loader({
   return {
     parentId: parent.id,
     parentShortId: parent.id.slice(0, 8),
-    providerId: recipe.providerId,
+    providerId: genome.genes.medium,
     providers,
     promptMaxPerProvider,
-    prompt: prompted.prompt,
-    styleFamily: recipe.styleFamily,
-    aspectRatio: recipe.aspectRatio,
-    subject: recipe.subject,
+    prompt: genome.utterance,
+    styleFamily: genome.genes.species,
+    aspectRatio: genome.genes.frame,
+    subject: genome.genes.form,
     // [LAW:one-source-of-truth] renderTemplate is the shared filler that
     // resolves `{slot}` placeholders into vocab values and normalizes a/an
     // articles. Using it here means the "subject" affordance shows what the
     // user is actually forking ("a marmoset performing an act of embarrassed")
     // rather than the raw template ("an {animal} performing an act of {emotion}").
-    subjectPhrase: renderTemplate(recipe.subject),
+    subjectPhrase: renderTemplate(genome.genes.form),
   }
 }
 
