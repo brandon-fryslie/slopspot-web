@@ -1,8 +1,16 @@
 # The Genome — Layer 1 Proposal (recipe → Genome)
 
-> **Status: PROPOSAL.** For architecture-gate (orchestrator) + meaning-read (CD) **before**
-> any migration or consumer code is touched. Ticket `slopspot-genome-9zt.1`. Supersedes the
+> **Status: ARCHITECTURE-GATE APPROVED.** Decisions A/B/D/E locked (see §7). The sole
+> remaining gate is CD's meaning-read + ruling on the trait axes (Decision C); build begins on
+> CD's read + the orchestrator's lock-go. Ticket `slopspot-genome-9zt.1`. Supersedes the
 > *surface* of `the-breeding-room.md`; realizes the *type* of `the-genome.md`.
+>
+> **Gate outcome (locked):** A — GenomeId is a distinct brand (zero storage cost). B — build the
+> `lineage_edges` table now (DAG-native source of truth; riding `parent_post_id` is the
+> mid-stream-reshape shim, since it cannot hold `bred`'s two parents); the `Lineage` union is the
+> read-model assembled from edge count (0→founder, 1→single, 2→bred), arity asserted fail-loud.
+> D — group `params`/`providerVersion`/`wish` under `render`. E — keep `params_json` as
+> provenance in L1; derive-at-render is a later layer, not L1. C — open, CD's call.
 >
 > The method is the laws: **the types are the program.** Get the Genome type to the strongest
 > true theorem and the migration + every consumer become residue forced by `tsc -b`. This doc
@@ -246,28 +254,26 @@ that L1's type is right — the next disparate requirement is absorbed by compos
 
 ---
 
-## 7. Decisions for your + CD's gate
+## 7. Decisions — gate outcome
 
-- **A. `GenomeId` distinct brand vs. alias `PostId`.** *Recommend distinct brand* (value =
-  post_id; zero new storage). It honors the genome/phenotype split and the System III seam at
-  no cost. The only "cost" is a one-line brand. Confirm.
-- **B. Lineage storage: `lineage_edges(child_genome_id, parent_genome_id)` table now, vs. ride
-  `parent_post_id` and defer.** *Lean edge-table-in-L1* (DAG-native: 0/1/2 edges =
-  founder/single/bred; backfill one edge per `parent_post_id`; L4's descendant/dynasty/distance
-  folds are recursive CTEs over it; L2's bred is two inserts; "no shim"). *Cheaper alternative:*
-  keep `parent_post_id`, read founder/single from it, let L2 introduce bred storage — but that
-  is a mid-stream storage reshape (the thing "no shim" warns against). **This is the main call.**
-- **C. TraitVector axes + range.** Proposed 4 axes (austerity/curse/density/paletteBias), each
-  `[0,1]`, neutral `0.5`. CD owns whether these are the right four *meanings* (they steer the
-  composer in L2). Easy to add a 5th later (it's data), but the initial set should read true.
-- **D. `render` grouping vs. flat siblings.** Proposed grouping `params`+`providerVersion`(+`wish`)
-  under `render`. Alternative: leave them flat siblings of `genome` (smaller diff to consumers).
-  Grouping is the honest "this is the phenotype instruction, not the code" line; flat is less
-  churn. Minor.
-- **E. Keep storing `params` vs. derive-at-render.** Proposed: keep `params_json` as render
-  provenance (carries the seed), with `utterance` canonical. Dropping stored params (full
-  derive) is a cleaner one-source-of-truth end state but a deeper change — flag for a later
-  layer, not L1.
+- **A. `GenomeId` distinct brand vs. alias `PostId`. → LOCKED: distinct brand.** Value =
+  post_id; zero new storage; honors the genome/phenotype split and the System III seam.
+- **B. Lineage storage. → LOCKED: `lineage_edges(child_genome_id, parent_genome_id)` table now.**
+  0/1/2 edges = founder/single/bred; backfill one edge per `parent_post_id`. The DAG-native
+  source of truth: L2's `bred` is two inserts, L4's descendant/dynasty/distance folds are
+  recursive CTEs over it. Riding `parent_post_id` + deferring was rejected as the
+  mid-stream-reshape shim the no-shim steer forbids (`parent_post_id` cannot hold `bred`'s two
+  parents). The `Lineage` union is the **read-model assembled from edge count**; an arity outside
+  {0,1,2} fails loud at the boundary (the `requiredSibling`/`assertNever` discipline).
+- **C. TraitVector axes + range. → OPEN (CD's call).** Proposed 4 axes
+  (austerity/curse/density/paletteBias), each `[0,1]`, neutral `0.5`. CD owns whether these are
+  the right *meanings* (they steer the composer in L2). Adding a 5th later is data, not a
+  reshape — but the initial set should read true to the soul.
+- **D. `render` grouping vs. flat siblings. → LOCKED: group** `params`/`providerVersion`/`wish`
+  under `render` — the honest "phenotype instruction, not heritable code" line.
+- **E. Keep storing `params` vs. derive-at-render. → LOCKED: keep `params_json` as provenance**
+  in L1 (`utterance` canonical; `params.prompt` the synchronized render-copy). Full
+  derive-at-render is a later layer, not L1.
 
 ---
 
