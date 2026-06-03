@@ -87,10 +87,13 @@ export type Genes = {
 //    `paletteBias` is deliberately absent: warmth is a color GRADE downstream of these axes
 //    (baroque+sincere runs warm; austere+cursed runs cool), so a warmth field would be a
 //    second source of truth for warmth. [LAW:one-source-of-truth] the grade derives.
-//    RESERVED — `resolution` (resolved↔shadowed): NOT a field in L1. A hollow axis no
-//    consumer can express is an illegal state the type would admit. [LAW:types-are-the-program]
-//    Expected to join as a 5th axis when Media opens to non-pixel phenotypes (System III);
-//    named here, not poured.
+//    RESERVED — `resolution` (resolved↔shadowed): NOT a field in L1. Held back by the SAME
+//    rule that keeps Media off the genome — the genome may only hold what something in the
+//    system can actually express or pass. "You cannot inherit a body" and "you cannot
+//    represent an axis no citizen can yet express" are one invariant: a field with no
+//    expressor is as illegal as a heritable phenotype. resolution has no expressor in an
+//    image-phenotype city; it earns its place when Media opens to non-pixel phenotypes
+//    (System III). Named here, not poured. [LAW:types-are-the-program]
 export type TraitVector = {
   austerity: number    // austere(0) ↔ baroque(1) — ornamentation / restraint, per element
   curse: number        // clean(0)   ↔ cursed(1)  — the sublime defect; SlopSpot's signature
@@ -262,6 +265,36 @@ L1 leaves exactly one widening point. `api.fork.$id.ts` today constructs
 Because L1 already makes `bred` representable and `lineage` the carried spine, L2 is *additive*:
 a new constructor + a new composer occasion, no reopening of this contract. That is the test
 that L1's type is right — the next disparate requirement is absorbed by composition.
+
+### The earnestness lever — binding acceptance criterion for L2 (CD's soul-test)
+
+When L2 wires `traits` into the composer's trait→bias translation, **earnestness is a real
+capability, not a tag**: the city's nocturnal frame can only *ironize*, so earnestness is the
+lever a bloodline breeds toward sincerity on — escaping the frame's own blind spot. The lever is
+**not real until it passes this gate** (`[LAW:verifiable-goals]`, defined before the lever is
+built):
+
+> Hold a genome constant in everything except `earnestness`. Compose at high (~0.9) and low
+> (~0.1). The two prompts MUST diverge in **register** — high reaching for the unguarded /
+> devotional / plainly-felt, low for the knowing / ironic / winking — such that a **blind reader
+> could tell which is which without being shown the number.** If the prompts read the same and
+> only the metadata differs, the lever is **decorative and has failed.**
+
+- `[LAW:behavior-not-structure]` the test asserts the **output's register moves**, never that the
+  field was wired or reached the composer. A "field was passed" test passes on a decorative lever
+  and is therefore **forbidden** — assert the words cross mask→face as the dial rises.
+- `[LAW:dataflow-not-control-flow]` forbid `if (earnestness > 0.5) { add "sincere" }` — a
+  control-flow branch stapling a token is the exact decorative trap. The trait **flows as data**
+  through the one trait→bias translation, so the *same* code path yields a register-shifted prompt.
+- Test mechanism (L2's to build): **strong** form (the soul-gate) — a blind text-model judge
+  classifies N prompts/level as sincere- vs ironic-leaning; success = the high set skews sincere
+  vs the low set, measurably, blind. **floor** form (cheap CI regression guard) — a deterministic
+  register-marker lexicon skew over a sample. Haiku is non-deterministic, so sample N, never diff
+  one pair.
+
+This is recorded in L1 because the type must carry `earnestness` *so that* L2 can prove it alive;
+CD holds for L2's bred + the first earnestness divergence — "the moment the city says one true
+thing without a wink."
 
 ---
 
