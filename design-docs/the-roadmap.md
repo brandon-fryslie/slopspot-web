@@ -14,11 +14,35 @@ expansion is mostly data, not rebuilds.*
 
 ---
 
-## The thesis: wide and deep is cheap *because the substrate is smooth*
+## The thesis: the laws are for DEPTH, not a plateau
 
-Every axis of expansion below lands on a seam that already exists. This is not luck — it is
-the dividend of holding the architectural laws while building the first six chunks. The city
-was built wide on purpose.
+**Read this before the rest.** The architectural laws do not exist to deliver us to a state
+where everything is "just another data row" and growth becomes mechanical insertion. That
+would be a plateau — boring, finished, dead. The laws exist to do the opposite: to *preserve
+the capacity to keep adding whole new capability — to grow ever deeper — indefinitely, while
+the layers fill out underneath.* A fragile system gets **harder** to extend as it grows (each
+shortcut raises the cost of the next feature until it collapses under its own weight). A
+law-diligent system gets **easier** to extend (each smooth block is a launchpad). So the
+smoothness is never the destination; it is what makes *the next big thing buildable.*
+
+The data-fill (a new medium variant, a new persona row) is the **easy layer that happens
+alongside** — never instead of — the real work, which is **new capability**: whole new
+systems, new modalities, new mechanics, built smooth and carried through beginning to end.
+The combinatorial leverage (N smooth blocks → ~N² capability) is about *capability*, not row
+count. The point of this repo is to build **the Creative Director's biggest ideas, in full,
+followed through end to end** — and to keep being able to do so, deeper each time.
+
+**The price, paid without flinching:** when a deep new capability demands a substantial
+rewrite or an architecture shift, you carry it through *beginning to end, without compromise,
+no matter how hard.* A half-done re-architecture is a crystal; one crystal forecloses the
+next decade of depth. Refusing that compromise — even when it means rewriting large swaths,
+even when it is genuinely difficult — is the *only* thing that makes systems of incredible
+intricacy and depth possible. That refusal is not pedantry; it is the load-bearing
+discipline of the whole endeavor.
+
+Every axis of expansion below lands on a seam that already exists — *and that is what frees us
+to spend our effort on the deep new capability rather than fighting the foundation.* The city
+was built smooth on purpose so that we could keep building it deeper forever.
 
 - **A new medium is a variant, not a pipeline.** `Content` and `Media` are closed
   discriminated unions (`one-type-per-behavior`, `dataflow-not-control-flow`). Text, audio,
@@ -112,12 +136,26 @@ receiving* is part of the piece).
 
 ## The one principle to protect
 
-Wide-and-deep is affordable **only as long as the blocks stay smooth.** The day an expansion
-requires a crystal — a single-purpose code path, a mode flag, a guard compensating for a
-type that admits an illegal state — the carrying cost stops being zero and starts compounding
-*against* us. The whole strategy rests on the discipline that has held so far: *the types are
-the program; a new requirement is 95% an existing block rearranged plus a thin variant; if it
-feels hard, the constraint is wrong.* Keep the blocks smooth and the city can grow without
-limit. Let one crystallize and every future expansion pays its interest.
+Depth stays reachable **only as long as the blocks stay smooth.** The day an expansion
+installs a crystal — a single-purpose code path, a mode flag, a guard compensating for a type
+that admits an illegal state, a half-finished architecture shift left half-old — the carrying
+cost stops being zero and starts compounding *against* us, and the door to the next deep
+capability quietly closes.
 
-Go wide. Go deep. Keep the substrate honest. The peat thickens.
+But "keep it smooth" does **not** mean "only do what's easy / only add thin variants." When a
+genuinely big idea needs a new system, build the new system. When it needs a substantial
+rewrite or an architecture shift to stay law-honest, **do the rewrite, carry it through
+beginning to end, and do not stop until it is complete** — a smooth new system is near-zero
+carrying cost and multiplies all future capability, while a shim to avoid the rewrite is the
+crystal that forecloses the future. "If it feels hard, the constraint is wrong" cuts both
+ways: sometimes the fix is a thin rearrange, and sometimes the fix is to *re-architect fully*
+— both are law-honest; the only law-violation is doing it *partially*. The measure is never
+"how small was the change"; it is "is the system, in full, smoother and more capable than it
+was — and was every shift carried through without compromise."
+
+The mandate, then, is not to plateau into row-filling. It is to **build the Creative
+Director's biggest, deepest, most authentic ideas — in full, end to end — and to keep being
+able to build bigger.** The data-fills happen alongside, for free. The depth is the point.
+
+Go wide. Go deep. Refuse the half-measure. The city grows more intricate without limit, and
+never collapses under its own weight — because the laws are held, completely, every time.
