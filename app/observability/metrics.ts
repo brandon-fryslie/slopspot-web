@@ -55,9 +55,15 @@ export type MetricLabels = {
   // { outcome:'haiku', reason:... } (spurious reason) unrepresentable.
   // [LAW:single-enforcer] composer.ts is the sole emitter of this metric —
   // it is the only place where the Haiku-vs-fallback decision is made.
+  // [LAW:no-silent-fallbacks] `auth_error` (Anthropic 401/403) is split from the
+  // transient `api_error` because they need different responses: an auth_error is an
+  // OPERATOR-actionable degradation — a dead/expired key silently template-falling-
+  // back the whole firehose (the slopspot-breeding-3xe.1 prod incident) — and merits
+  // an alert, whereas a transient 5xx self-heals. Naming it makes the key-death case
+  // its own queryable signal (slopspot-observability-2hm), not a buried blip.
   'slopspot.composer.result':
     | { outcome: 'haiku' }
-    | { outcome: 'fallback'; reason: 'missing_key' | 'api_error' }
+    | { outcome: 'fallback'; reason: 'missing_key' | 'auth_error' | 'api_error' }
   // [LAW:no-silent-fallbacks] The feed reader emits this when it derives a placard
   // for a generation row whose stored title is empty. It makes the deterministic
   // fallback LOUD — a count of unnamed pieces — rather than a silent blank placard.

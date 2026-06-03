@@ -13,6 +13,7 @@ import {
 } from "~/lib/domain"
 import { ASPECT_RATIOS, STYLE_FAMILIES, STYLE_FAMILY_PROMPT_SEEDS, renderTemplate } from "~/lib/variety"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
+import { breedPauseHeadline, forkPause, type BreedPause } from "~/lib/breed-failure"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
 // submit-side action lives at /api/fork/:id (a resource route), matching the
@@ -56,6 +57,19 @@ const forkResponseSchema = z.object({ id: z.string().min(1) })
 // via ~/lib/rewrite-delim. The trailing \n is the parsing contract: the LLM
 // emits the token on its own line, so the stream always contains DELIMITER + \n.
 const REWRITE_DELIM = REWRITE_DELIMITER + "\n"
+
+// [LAW:types-are-the-program] Carries a BreedPause through the throw so the single
+// catch sets the visitor-facing pause from DATA, never by string-matching an error
+// message. A throw that is NOT this — an unexpected JS error — is the `unknown` pause,
+// and its detail goes to the console; the visitor only ever sees breedPauseHeadline.
+// [LAW:no-silent-fallbacks] every failure that constructs one of these also logs the
+// raw status/detail to the console before throwing, so the failure stays loud for
+// diagnosis while the human hears the breeding room's voice.
+class BreedPauseError extends Error {
+  constructor(readonly pause: BreedPause) {
+    super(pause.reason)
+  }
+}
 
 // [LAW:types-are-the-program] The loader's output is the form's exact pre-fill
 // shape — one closed type, no nullables. If a row drifts (parent not found,
@@ -162,7 +176,11 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(loaderData.aspectRatio)
   const [phase, setPhase] = useState<Phase>("editing")
   const [thinkingText, setThinkingText] = useState("")
-  const [error, setError] = useState<string | null>(null)
+  // [LAW:types-are-the-program] The error state is a BreedPause, not a string —
+  // there is no field on this type that can hold a raw HTTP status or body, so the
+  // old `rewrite failed: 502 {…}` leak is unrepresentable. The visitor only ever
+  // sees breedPauseHeadline(pause).
+  const [pause, setPause] = useState<BreedPause | null>(null)
   const promptMax = loaderData.promptMaxPerProvider[providerId] ?? PROMPT_MAX
   // [LAW:single-enforcer] Synchronous re-entrancy guard, same shape as
   // VoteControls + CommentSection. `setPhase('rewriting')` is queued for the
@@ -184,16 +202,16 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
     e.preventDefault()
     if (inFlight.current) return
     const seed = prompt.trim()
-    if (seed.length === 0) {
-      setError("prompt cannot be empty")
-      return
-    }
+    // [LAW:single-enforcer] The submit button is disabled while the prompt is empty;
+    // that disabled state is the one gate on "nothing to breed from," so this is a
+    // bare re-entrancy/Enter-key guard, not a second validation path with its own copy.
+    if (seed.length === 0) return
     inFlight.current = true
     const abort = new AbortController()
     abortRef.current = abort
     setPhase("rewriting")
     setThinkingText("")
-    setError(null)
+    setPause(null)
 
     try {
       // Phase 1: stream the LLM rewrite.
@@ -205,8 +223,13 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       })
 
       if (!rewriteRes.ok || !rewriteRes.body) {
+        // [LAW:no-silent-fallbacks] Loud for diagnosis, quiet for the visitor: the
+        // raw status + body go to the console; the human hears the breeding room's
+        // voice. Any rewrite-phase failure means the same thing — the muse is
+        // unreachable — so the exact status steers the log, never the headline.
         const detail = await rewriteRes.text().catch(() => "")
-        throw new Error(`rewrite failed: ${rewriteRes.status} ${detail}`.trim())
+        console.error("breed: rewrite phase failed", rewriteRes.status, detail)
+        throw new BreedPauseError({ reason: "muse-unreachable" })
       }
 
       const reader = rewriteRes.body.getReader()
@@ -255,7 +278,8 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       } } finally { reader.releaseLock() }
 
       if (!delimFound) {
-        throw new Error(`rewrite stream ended without ${REWRITE_DELIMITER} delimiter`)
+        console.error(`breed: rewrite stream ended without ${REWRITE_DELIMITER} delimiter`)
+        throw new BreedPauseError({ reason: "muse-empty" })
       }
 
       // Trim and cap to the provider's promptMax — the LLM may write more than
@@ -263,7 +287,8 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       // constraint the textarea maxLength enforces during manual editing.
       const submittablePrompt = rewrittenPrompt.trim().slice(0, promptMax)
       if (!submittablePrompt) {
-        throw new Error("rewrite produced an empty prompt")
+        console.error("breed: rewrite produced an empty prompt")
+        throw new BreedPauseError({ reason: "muse-empty" })
       }
       // Sync textarea to submittablePrompt so the displayed text matches what
       // gets submitted — if the fork fails and the phase returns to editing,
@@ -285,8 +310,12 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         signal: abort.signal,
       })
       if (!res.ok) {
+        // [LAW:no-silent-fallbacks] Raw status + body to the console; the visitor
+        // hears the voice. forkPause maps the status to a reason from data — 429 (the
+        // daily budget cap) is voiced distinctly; any other failure is the quiet pause.
         const detail = await res.text().catch(() => "")
-        throw new Error(`fork failed: ${res.status} ${detail}`.trim())
+        console.error("breed: fork phase failed", res.status, detail)
+        throw new BreedPauseError(forkPause(res.status))
       }
       // [LAW:single-enforcer] Navigate to the new post's permalink, not to
       // home. The feed orders by (score DESC, createdAt DESC), so a fresh
@@ -297,10 +326,18 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       const { id: newPostId } = forkResponseSchema.parse(await res.json())
       navigate(`/p/${newPostId}`)
     } catch (err) {
-      if (!abort.signal.aborted) {
-        setError(err instanceof Error ? err.message : String(err))
-        setPhase("editing")
+      // An aborted request is an unmount/navigation, not a failure to voice.
+      if (abort.signal.aborted) return
+      // [LAW:types-are-the-program] The pause is read from the thrown value's data; an
+      // unexpected throw (not a BreedPauseError) is the `unknown` pause and its detail
+      // is logged here, never shown — the visitor only ever sees breedPauseHeadline.
+      if (err instanceof BreedPauseError) {
+        setPause(err.pause)
+      } else {
+        console.error("breed: unexpected failure", err)
+        setPause({ reason: "unknown" })
       }
+      setPhase("editing")
     } finally {
       inFlight.current = false
     }
@@ -429,9 +466,9 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           </button>
         </div>
 
-        {error !== null && (
+        {pause !== null && (
           <p className="rounded border border-rose-400/30 bg-rose-400/5 px-3 py-2 font-mono text-[11px] text-rose-300/90">
-            {error}
+            {breedPauseHeadline(pause)}
           </p>
         )}
       </form>

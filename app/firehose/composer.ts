@@ -22,6 +22,17 @@ import {
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const REQUEST_TIMEOUT_MS = 15_000
+
+// [LAW:types-are-the-program] Carry the upstream status ON the thrown value so the
+// catch classifies the fallback reason from DATA, not by re-parsing a formatted
+// message string. A 401/403 (auth — the key is dead/expired) is operator-actionable
+// and distinct from a transient 5xx or a network throw; the discriminator must travel
+// to the place that decides the metric reason, not be reconstructed there.
+class AnthropicHttpError extends Error {
+  constructor(readonly status: number, body: string) {
+    super(`Anthropic ${status}: ${body}`)
+  }
+}
 // Room for the prompt plus the short title and the JSON envelope around both.
 const MAX_TOKENS = 400
 
@@ -217,7 +228,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
 
     if (!resp.ok) {
       const body = await resp.text()
-      throw new Error(`Anthropic ${resp.status}: ${body}`)
+      throw new AnthropicHttpError(resp.status, body)
     }
 
     type AnthropicMessage = { content: Array<{ type: string; text?: string }> }
@@ -252,12 +263,22 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     emit('slopspot.composer.result', { outcome: 'haiku' }, 1)
     return { prompt: capPrompt(composed.prompt), title: capPlacard(composed.title) }
   } catch (err) {
+    // [LAW:no-silent-fallbacks][LAW:dataflow-not-control-flow] The status carried on
+    // the thrown value selects the reason — a dead/expired key (401/403) is the loud,
+    // operator-actionable `auth_error`; everything else (transient 5xx, timeout,
+    // network throw, malformed JSON) is the self-healing `api_error`. The fallback
+    // itself is unchanged: composition still degrades to the recipe-only pair.
+    const reason =
+      err instanceof AnthropicHttpError && (err.status === 401 || err.status === 403)
+        ? 'auth_error'
+        : 'api_error'
     console.error('composer: Haiku call failed; using recipe fallback (prompt + title)', {
       styleFamily,
       subjectTemplate: subject.subjectTemplate,
+      reason,
       err,
     })
-    emit('slopspot.composer.result', { outcome: 'fallback', reason: 'api_error' }, 1)
+    emit('slopspot.composer.result', { outcome: 'fallback', reason }, 1)
     return fallback
   } finally {
     clearTimeout(timeoutId)
