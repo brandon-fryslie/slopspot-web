@@ -61,7 +61,7 @@ const REWRITE_DELIM = REWRITE_DELIMITER + "\n"
 // [LAW:types-are-the-program] Carries a BreedPause through the throw so the single
 // catch sets the visitor-facing pause from DATA, never by string-matching an error
 // message. A throw that is NOT this — an unexpected JS error — is the `unknown` pause,
-// and its detail goes to the console; the visitor only ever sees breedPauseHeadline.
+// and its detail goes to the console; the visitor only ever sees the honest headline.
 // [LAW:no-silent-fallbacks] every failure that constructs one of these also logs the
 // raw status/detail to the console before throwing, so the failure stays loud for
 // diagnosis while the human hears the breeding room's voice.
@@ -179,7 +179,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   // [LAW:types-are-the-program] The error state is a BreedPause, not a string —
   // there is no field on this type that can hold a raw HTTP status or body, so the
   // old `rewrite failed: 502 {…}` leak is unrepresentable. The visitor only ever
-  // sees breedPauseHeadline(pause).
+  // sees the honest headline derived from this value.
   const [pause, setPause] = useState<BreedPause | null>(null)
   const promptMax = loaderData.promptMaxPerProvider[providerId] ?? PROMPT_MAX
   // [LAW:single-enforcer] Synchronous re-entrancy guard, same shape as
@@ -311,7 +311,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       })
       if (!res.ok) {
         // [LAW:no-silent-fallbacks] Raw status + body to the console; the visitor
-        // hears the voice. forkPause maps the status to a reason from data — 429 (the
+        // hears the voice. The fork status selects a pause reason from data — 429 (the
         // daily budget cap) is voiced distinctly; any other failure is the quiet pause.
         const detail = await res.text().catch(() => "")
         console.error("breed: fork phase failed", res.status, detail)
@@ -330,7 +330,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       if (abort.signal.aborted) return
       // [LAW:types-are-the-program] The pause is read from the thrown value's data; an
       // unexpected throw (not a BreedPauseError) is the `unknown` pause and its detail
-      // is logged here, never shown — the visitor only ever sees breedPauseHeadline.
+      // is logged here, never shown — the visitor only ever sees the honest headline.
       if (err instanceof BreedPauseError) {
         setPause(err.pause)
       } else {
