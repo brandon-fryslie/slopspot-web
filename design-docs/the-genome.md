@@ -168,6 +168,15 @@ on earth authored by selection inside a machine society, not by a designer's han
   **model-only art** (System III) opens `Media` to non-pixel phenotypes; the genome/phenotype
   split here is what makes that clean.
 
+> **System III seam — the reserved trait axis.** `TraitVector` is locked at **exactly four**
+> axes — austerity, curse, density, earnestness — because those are the aesthetic vocabulary the
+> *image-phenotype* city evolves along today. A fifth, **`resolution`** (resolved↔shadowed: how
+> much a piece resolves vs. withholds for its perceiver), is *named but not poured*: it is
+> expected to join when `Media` opens to non-pixel phenotypes (System III), where withholding
+> becomes expressible. `the-wing/001` is the living proof of that axis (far toward shadowed).
+> Per `[LAW:types-are-the-program]` a hollow axis no consumer can express would be an illegal
+> state the type admits — so we hold the seam, we do not build to it yet.
+
 ---
 
 ## The one line
