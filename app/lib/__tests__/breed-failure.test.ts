@@ -11,7 +11,7 @@ import { breedPauseHeadline, forkPause, type BreedPause } from '~/lib/breed-fail
 
 // Every reason the breeding room can pause for. Listed explicitly (not derived) so a
 // new reason added to the union without a line added here is caught: the sweep below
-// would need its entry, and breedPauseHeadline's `never` default would already have
+// would need its entry, and the headline fold's `never` default would already have
 // failed `tsc -b`. [LAW:dataflow-not-control-flow] the test iterates DATA, not cases.
 const ALL_REASONS: ReadonlyArray<BreedPause> = [
   { reason: 'muse-unreachable' },

@@ -1,5 +1,5 @@
-// The breeding room's failure contract — breed's sibling of the Well's
-// `wellVoiceLine` (app/lib/well-response.ts). The breed flow is a human-initiated
+// The breeding room's failure contract — breed's sibling of the Well's failure
+// voice. The breed flow is a human-initiated
 // generation, the same family of surface as the wishing well, and like the well its
 // whole job is the spell: a leaked HTTP status / JSON envelope / JS error string
 // shatters it. So a breed that cannot complete PAUSES, and the visitor hears the
@@ -20,9 +20,9 @@
 // stretching the well's status-table to cover the phase + empty-output cases would be
 // the wrong-abstraction-by-stretching the laws warn against.
 //
-// Lives in app/lib/ with NO server runtime deps (same client/server discipline as
-// fork-bounds.ts and well-response.ts) so the fork page can import it into the client
-// bundle without dragging server code along.
+// Lives with NO server runtime deps (the same client/server discipline as the other
+// client-safe lib modules) so the fork page can import it into the client bundle
+// without dragging server code along.
 
 // [LAW:types-are-the-program] The closed set of reasons a breed can pause for. Each
 // arm is one honest headline; "paused for no reason" and "a raw HTTP status as the
@@ -67,7 +67,7 @@ export function breedPauseHeadline(pause: BreedPause): string {
 }
 
 // [LAW:dataflow-not-control-flow] The fork phase's HTTP status SELECTS a pause reason
-// from a data table — the same idiom as the well's WELL_VOICE_BY_STATUS. A new
+// from a data table — the same idiom as the well's status-keyed voice table. A new
 // status→reason pairing is one entry here, never a new branch at the call site; any
 // status without an entry is the quiet `unknown`.
 const FORK_PAUSE_BY_STATUS: Record<number, BreedPause['reason']> = {
