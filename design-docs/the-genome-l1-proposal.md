@@ -1,16 +1,17 @@
 # The Genome — Layer 1 Proposal (recipe → Genome)
 
-> **Status: ARCHITECTURE-GATE APPROVED.** Decisions A/B/D/E locked (see §7). The sole
-> remaining gate is CD's meaning-read + ruling on the trait axes (Decision C); build begins on
-> CD's read + the orchestrator's lock-go. Ticket `slopspot-genome-9zt.1`. Supersedes the
-> *surface* of `the-breeding-room.md`; realizes the *type* of `the-genome.md`.
+> **Status: LOCKED — BUILDING.** Architecture gate + CD meaning-read both passed; full decision
+> set A/B/C/D/E locked (see §7). Ticket `slopspot-genome-9zt.1`. Supersedes the *surface* of
+> `the-breeding-room.md`; realizes the *type* of `the-genome.md`.
 >
 > **Gate outcome (locked):** A — GenomeId is a distinct brand (zero storage cost). B — build the
 > `lineage_edges` table now (DAG-native source of truth; riding `parent_post_id` is the
 > mid-stream-reshape shim, since it cannot hold `bred`'s two parents); the `Lineage` union is the
 > read-model assembled from edge count (0→founder, 1→single, 2→bred), arity asserted fail-loud.
-> D — group `params`/`providerVersion`/`wish` under `render`. E — keep `params_json` as
-> provenance in L1; derive-at-render is a later layer, not L1. C — open, CD's call.
+> C — TraitVector is **exactly four** axes (austerity, curse, density, earnestness), each `[0,1]`,
+> 0.5 neutral; `paletteBias` cut (warmth derives — one-source-of-truth); `resolution` reserved as
+> a System III seam, named-not-poured. D — group `params`/`providerVersion`/`wish` under `render`.
+> E — keep `params_json` as provenance in L1; derive-at-render is a later layer.
 >
 > The method is the laws: **the types are the program.** Get the Genome type to the strongest
 > true theorem and the migration + every consumer become residue forced by `tsc -b`. This doc
@@ -78,14 +79,24 @@ export type Genes = {
 
 // 3. TRAITS — the continuous heritable dials (the substrate of drift). A FIXED-KEY record,
 //    not number[] — a named record forbids a wrong-dimension vector by construction, the
-//    same reason `bred` is a 2-tuple not an array. Each axis is bipolar, normalized [0,1]
-//    with 0.5 neutral. Inert in L1 (carried, not yet read); the composer reads them in L2,
-//    they drift in L3.
+//    same reason `bred` is a 2-tuple not an array. Exactly FOUR axes, each bipolar, [0,1],
+//    0.5 neutral. Inert in L1 (carried, not yet read); the composer reads them in L2, they
+//    drift in L3. The axis NAMES live here; the STEERING SEMANTICS (how each becomes prompt
+//    bias) live in ONE place — the composer's trait→bias translation (L2) — never as WHAT-
+//    comments here that would drift. [LAW:single-enforcer]
+//    `paletteBias` is deliberately absent: warmth is a color GRADE downstream of these axes
+//    (baroque+sincere runs warm; austere+cursed runs cool), so a warmth field would be a
+//    second source of truth for warmth. [LAW:one-source-of-truth] the grade derives.
+//    RESERVED — `resolution` (resolved↔shadowed): NOT a field in L1. A hollow axis no
+//    consumer can express is an illegal state the type would admit. [LAW:types-are-the-program]
+//    Expected to join as a 5th axis when Media opens to non-pixel phenotypes (System III);
+//    named here, not poured.
 export type TraitVector = {
-  austerity: number   // austere(0) ↔ baroque(1)
-  curse: number       // clean(0)   ↔ cursed(1)
-  density: number     // sparse(0)  ↔ dense(1)
-  paletteBias: number // a single palette-warmth bias [0,1]
+  austerity: number    // austere(0) ↔ baroque(1) — ornamentation / restraint, per element
+  curse: number        // clean(0)   ↔ cursed(1)  — the sublime defect; SlopSpot's signature
+  density: number      // sparse(0)  ↔ dense(1)   — POPULATION OF THE FRAME (one figure ↔ a
+                       //   teeming field), orthogonal to austerity (which is per-element ornament)
+  earnestness: number  // ironic(0)  ↔ sincere(1) — the mask ↔ the face
 }
 
 // 4. LINEAGE — the heredity record, a DAG node. The discriminator IS the mode of
@@ -265,10 +276,15 @@ that L1's type is right — the next disparate requirement is absorbed by compos
   mid-stream-reshape shim the no-shim steer forbids (`parent_post_id` cannot hold `bred`'s two
   parents). The `Lineage` union is the **read-model assembled from edge count**; an arity outside
   {0,1,2} fails loud at the boundary (the `requiredSibling`/`assertNever` discipline).
-- **C. TraitVector axes + range. → OPEN (CD's call).** Proposed 4 axes
-  (austerity/curse/density/paletteBias), each `[0,1]`, neutral `0.5`. CD owns whether these are
-  the right *meanings* (they steer the composer in L2). Adding a 5th later is data, not a
-  reshape — but the initial set should read true to the soul.
+- **C. TraitVector axes + range. → LOCKED: exactly four axes** (austerity, curse, density,
+  earnestness), each `[0,1]`, neutral `0.5`. `density` = population of the frame (one figure ↔ a
+  teeming field), orthogonal to `austerity` (per-element ornament). `earnestness` is a real
+  capability, not a tag: the city's nocturnal frame can only *ironize* warmth, so earnestness
+  lets a bloodline breed toward sincerity, escaping the frame's blind spot — the composer (L2)
+  must honor it as a lever that pushes *against* the house ironic register, and L2's verify is
+  "it actually moves the prompt," not "it's tagged." `paletteBias` **cut** (warmth derives —
+  one-source-of-truth). `resolution` (resolved↔shadowed) **reserved** as a System III seam —
+  named, not poured; `the-wing/001` is the living proof of that axis, held not built.
 - **D. `render` grouping vs. flat siblings. → LOCKED: group** `params`/`providerVersion`/`wish`
   under `render` — the honest "phenotype instruction, not heritable code" line.
 - **E. Keep storing `params` vs. derive-at-render. → LOCKED: keep `params_json` as provenance**
