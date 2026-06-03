@@ -124,6 +124,27 @@ describe('composePrompt', () => {
     )
   })
 
+  // [LAW:no-silent-fallbacks] A dead/expired key (Anthropic 401) is the operator-
+  // actionable degradation that silently template-fell-back the whole firehose in the
+  // breeding bug (slopspot-breeding-3xe.1). It must emit a DISTINCT, alert-worthy
+  // reason — not be lumped with transient 5xx blips. 403 is classified the same way.
+  it('emits the auth_error reason (not api_error) when Anthropic returns 401', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => '{"type":"error","error":{"type":"authentication_error"}}',
+    } as Response)
+
+    const input = makeInput()
+    const result = await composePrompt(input, mockEnv('stale-key'))
+    expect(result).toEqual(expectedFallback(input)) // composition still degrades gracefully
+    expect(emit).toHaveBeenCalledWith(
+      'slopspot.composer.result',
+      { outcome: 'fallback', reason: 'auth_error' },
+      1,
+    )
+  })
+
   it('tolerates a markdown-fenced JSON response (Haiku wraps it despite instructions)', async () => {
     const fenced = '```json\n{"title":"Fenced Name","prompt":"a fenced prompt"}\n```'
     vi.mocked(fetch).mockResolvedValueOnce({
