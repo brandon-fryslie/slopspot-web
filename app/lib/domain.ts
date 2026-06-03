@@ -16,12 +16,18 @@ export type UserId = Branded<string, 'UserId'>
 export type AgentId = Branded<string, 'AgentId'>
 export type ProviderId = Branded<string, 'ProviderId'>
 export type CommentId = Branded<string, 'CommentId'>
+// [LAW:types-are-the-program] A GenomeId is NOT a PostId. The genome (heritable code) and the
+// phenotype (the post + its rendered Media) are distinct concepts — the split System III opens
+// for non-pixel art. In L1 a genome maps 1:1 to its generation post, so a GenomeId's VALUE is
+// the post's id; the distinct BRAND keeps the two from being conflated in code.
+export type GenomeId = Branded<string, 'GenomeId'>
 
 export const PostId = (s: string): PostId => s as PostId
 export const UserId = (s: string): UserId => s as UserId
 export const AgentId = (s: string): AgentId => s as AgentId
 export const ProviderId = (s: string): ProviderId => s as ProviderId
 export const CommentId = (s: string): CommentId => s as CommentId
+export const GenomeId = (s: string): GenomeId => s as GenomeId
 
 // [LAW:one-source-of-truth] Media is reused as both `generation.output` and `upload.asset`.
 // One type, two contexts — adding `audio` is a single-line change visible everywhere.
@@ -31,41 +37,80 @@ export type Media =
   | { kind: 'text'; body: string }
   | { kind: 'audio'; url: string; durationMs: number }
 
-// [LAW:types-are-the-program] A Generation is a recipe. Three categories of
-// field:
-//
-//   1. Provider-specific (`params: unknown`): the plugin owns this schema and
-//      validates at its trust boundary. `providerVersion` pins the schema so
-//      old posts remain interpretable when a provider revises their API.
-//   2. Canonical-across-providers (`aspectRatio`, `styleFamily`, `subject`):
-//      these are part of the variety taxonomy, not provider input. Lifted out
-//      of `params` (where `aspectRatio` previously lived for fal-flux) so a
-//      single canonical representation flows across all providers. Each
-//      provider translates `aspectRatio` to its native shape at its own
-//      boundary. [LAW:single-enforcer]
-//   3. Lineage (`parentId?`): set on forks, undefined otherwise.
-//   4. Provenance (`wish?`): the human WISH that occasioned a Well-born slop —
-//      their words, NEVER a generation input. It is a sibling of `params`, not
-//      inside it, so the only thing that crosses to the image provider is
-//      `params` + `aspectRatio`; the wish cannot ride along by construction.
-//      Absent for non-Well genesis (firehose, fork, direct API).
-//      [LAW:one-source-of-truth] reconciled with the human wisher on the
-//      origin: the origin records *who* wished, this records *what* was wished —
-//      the gap between this and the machine-authored prompt in `params` is the
-//      Well's entire art, so both halves persist forever.
-//
-// `styleFamily`/`aspectRatio`/`subject` are required (not optional) — every
-// Content.kind === 'generation' row carries them by construction. User uploads
-// use the upload Content variant which doesn't carry a recipe at all, so the
-// "what about non-generations" question doesn't apply here.
-export type Generation = {
-  providerId: ProviderId
+// [LAW:types-are-the-program] A slop is a PHENOTYPE rendered from a heritable GENOME. The
+// Genome is the old flat recipe re-seen as heritable code (design-docs/the-genome.md +
+// the-genome-l1-proposal.md). It is exactly four things and the image is NOT one of them — the
+// phenotype is rendered FROM the genome and is never part of it (you cannot inherit a body).
+
+// [LAW:types-are-the-program] GENES — the discrete categorical heredity, inherited as whole
+// alleles, crossed over per-gene at breeding (L2). These ARE the old recipe fields, re-seen as
+// genes; each canonical (not provider input) — the provider translates `frame` to its native
+// shape at its own boundary. [LAW:single-enforcer]
+export type Genes = {
+  species: StyleFamily // the deepest gene; crossing it makes a hybrid
+  form: RecipeSubject // the body plan: subject template + filled slots
+  frame: AspectRatio
+  medium: ProviderId // [RECONCILE C] the author-citizen's medium
+}
+
+// [LAW:types-are-the-program] TRAITS — the continuous heritable dials (the substrate of drift).
+// A FIXED-KEY record, not number[] — a named record forbids a wrong-dimension vector by
+// construction (the same reason `bred` below is a 2-tuple). Exactly four axes, each bipolar,
+// [0,1], 0.5 neutral. Inert in L1 (carried, not yet read); the composer reads them in L2, they
+// drift in L3. The axis NAMES live here; the STEERING SEMANTICS (density = population of the
+// frame, not ornament; earnestness must push AGAINST the house ironic register) live in ONE
+// place — the composer's trait→bias translation (L2) — never as WHAT-comments here that would
+// drift. [LAW:single-enforcer]
+// `paletteBias` is deliberately absent: warmth is a colour GRADE downstream of these axes
+// (baroque+sincere runs warm), so a warmth field would be a second source of truth for warmth.
+// [LAW:one-source-of-truth]
+// RESERVED — `resolution` (resolved↔shadowed): NOT a field in L1. Held back by the SAME rule
+// that keeps Media off the Genome — the genome may only hold what something in the system can
+// actually express or pass. A field with no expressor is as illegal as a heritable phenotype;
+// resolution earns its place when Media opens to non-pixel phenotypes (System III). Named, not
+// poured. [LAW:types-are-the-program]
+export type TraitVector = {
+  austerity: number // austere(0) ↔ baroque(1)
+  curse: number // clean(0) ↔ cursed(1)
+  density: number // sparse(0) ↔ dense(1) — population of the frame
+  earnestness: number // ironic(0) ↔ sincere(1)
+}
+
+// [LAW:types-are-the-program] LINEAGE — the heredity record, a DAG node. The discriminator IS
+// the mode of reproduction: founder = SPONTANEOUS (the firehose seeds a fresh genome from the
+// primordial pool), single = ASEXUAL (one parent, mutated — the classic fork / firehose-fresh-
+// from-a-seed), bred = SEXUAL (two parents, crossover — L2). `bred` is a 2-TUPLE, so "a bred
+// child has exactly two parents" holds by construction; illegal arities (0/1/3+ parents on a
+// cross) are unrepresentable. Assembled at the read boundary from the lineage_edges edge COUNT.
+export type Lineage =
+  | { kind: 'founder' }
+  | { kind: 'single'; parent: GenomeId }
+  | { kind: 'bred'; parents: readonly [GenomeId, GenomeId] }
+
+// [LAW:types-are-the-program] The heritable genome — exactly genes + utterance + traits +
+// lineage. NO Media/params/providerVersion/wish: those are the render event + provenance
+// (GenerationRender), not heritable code. The UTTERANCE is the soft tissue — the composed
+// prompt, heritable by blend+drift (L2), promoted here from inside `params`. `id` makes the
+// genome a complete DAG node (its value is the post id in L1).
+export type Genome = {
+  id: GenomeId
+  genes: Genes
+  utterance: string
+  traits: TraitVector
+  lineage: Lineage
+}
+
+// [LAW:types-are-the-program] How a phenotype was RENDERED from a genome, plus provenance —
+// NOT heritable. `params` is the provider-native config, derived from genome+seed and stored as
+// provenance of what was actually sent (it carries the seed; full derive-at-render is a later
+// layer). `providerVersion` pins the provider schema at render time so old posts stay
+// interpretable. `wish` is the human WISH that occasioned a Well-born genome's utterance — the
+// origin records *who* wished, this records *what* was wished; the gap between the wish and the
+// machine-authored utterance is the Well's whole art. Absent for non-Well genesis. Never
+// heritable: a bred child has no wish. [LAW:one-source-of-truth]
+export type GenerationRender = {
   providerVersion: string
   params: unknown
-  styleFamily: StyleFamily
-  aspectRatio: AspectRatio
-  subject: RecipeSubject
-  parentId?: PostId
   wish?: string
 }
 
@@ -88,15 +133,20 @@ export type GenerationStatus =
 // semantics differ — augmenting 'upload' with a url would collapse two
 // behaviors that need to render differently.
 // [LAW:types-are-the-program] `title` is the placard — the citizen's name for the
-// PIECE, not the recipe. It lives on the Content variant, a sibling of `recipe`
-// and `status`, because a recipe is forkable and re-runnable: breed a post and the
-// recipe is inherited but the offspring is a new piece that earns its own name. A
-// title on the recipe would lie the moment anyone forks. Required and non-empty by
+// PIECE, not the genome. It lives on the Content variant, a sibling of `genome`,
+// `render`, and `status`, because a genome is heritable and re-runnable: breed a slop and
+// the genome is inherited but the offspring is a new piece that earns its own name. A
+// title on the genome would lie the moment anyone breeds. Required and non-empty by
 // construction — the read boundary (feed.ts toContent) derives a deterministic
 // fallback for legacy rows, so no generation is ever nameless. Symmetric with the
 // `found` variant's `title`: both name the piece.
+//
+// [LAW:types-are-the-program] The generation arm carries three honest concerns: the heritable
+// `genome`, how this instance was rendered + its provenance (`render`), and the async lifecycle
+// (`status`). The phenotype (status.succeeded.output: Media) is rendered FROM the genome and is
+// never part of it.
 export type Content =
-  | { kind: 'generation'; title: string; recipe: Generation; status: GenerationStatus }
+  | { kind: 'generation'; title: string; genome: Genome; render: GenerationRender; status: GenerationStatus }
   | { kind: 'upload'; asset: Media }
   | { kind: 'found'; url: string; title: string; description?: string; thumbnail?: Media }
 

@@ -25,6 +25,7 @@ import {
   comments,
   found,
   generations,
+  lineageEdges,
   personas,
   posts,
   uploads,
@@ -35,6 +36,7 @@ import {
   type DbUpload,
 } from '~/db/schema'
 import {
+  GenomeId,
   PostId,
   ProviderId,
   type Actor,
@@ -43,6 +45,7 @@ import {
   type FeedItem,
   type GenerationStatus,
   type HumanModifier,
+  type Lineage,
   type Media,
   type Origin,
   type PersonaActor,
@@ -52,6 +55,7 @@ import {
   type VerdictDisposition,
   type VoteValue,
 } from '~/lib/domain'
+import { traitVectorSchema } from '~/lib/traits'
 import { authorLabel } from '~/lib/author-label'
 import { crowningsForPosts } from '~/db/crowns'
 import { emit } from '~/observability/metrics'
@@ -217,13 +221,56 @@ function titleOrFallback(stored: string, subject: RecipeSubject, postId: string)
   return derived
 }
 
+// [LAW:types-are-the-program] The lineage read-model: a child's parent genome ids → the closed
+// Lineage union, by COUNT. The lineage_edges table is the source of truth; this is where its
+// arity invariant {0,1,2} is enforced — a stored count outside that range is a corrupted DAG
+// and fails loud at the boundary, never laundered. [LAW:no-silent-fallbacks]
+function toLineage(parents: readonly GenomeId[], postId: string): Lineage {
+  switch (parents.length) {
+    case 0:
+      return { kind: 'founder' }
+    case 1:
+      return { kind: 'single', parent: parents[0]! }
+    case 2:
+      return { kind: 'bred', parents: [parents[0]!, parents[1]!] }
+    default:
+      throw new Error(
+        `lineage for post ${postId} has ${parents.length} parent edges; expected 0, 1, or 2`,
+      )
+  }
+}
+
+// [LAW:single-enforcer] The one read of the lineage DAG: fetch every child→parent edge for a
+// set of child genome (post) ids in one query, grouped into a map. Edges are 0..2 per child, so
+// they cannot ride the one-row-per-post feed join without multiplying rows — they are resolved
+// separately and merged in JS, the same shape verdicts/crownings take. Empty input → empty map.
+async function lineageParentsByChild(
+  database: ReturnType<typeof db>,
+  childIds: readonly string[],
+): Promise<Map<string, GenomeId[]>> {
+  const map = new Map<string, GenomeId[]>()
+  if (childIds.length === 0) return map
+  const rows = await database
+    .select({ child: lineageEdges.childGenomeId, parent: lineageEdges.parentGenomeId })
+    .from(lineageEdges)
+    .where(inArray(lineageEdges.childGenomeId, [...childIds]))
+  for (const r of rows) {
+    const list = map.get(r.child) ?? []
+    list.push(GenomeId(r.parent))
+    map.set(r.child, list)
+  }
+  return map
+}
+
 // [LAW:types-are-the-program] Closed union → exhaustive switch on the storage
 // discriminator. Adding a new variant to posts.contentKind upstream forces
 // this switch to grow before it compiles, matching the [LAW:single-enforcer]
 // shape: one place reads each arm. The default branch's assertNever doubles
 // as the runtime fail-loud for a contentKind no CHECK should have admitted.
 // [LAW:no-silent-fallbacks]
-function toContent(row: FeedRow): Content {
+// `parents` is this post's lineage edges (empty for non-generation posts and founders); only
+// the generation arm consumes it, via toLineage.
+function toContent(row: FeedRow, parents: readonly GenomeId[]): Content {
   switch (row.post.contentKind) {
     case 'upload': {
       absent(row.generation, `generations row for upload post ${row.post.id}`)
@@ -260,6 +307,11 @@ function toContent(row: FeedRow): Content {
       const styleFamily = styleFamilySchema.parse(g.styleFamily)
       const aspectRatio = aspectRatioSchema.parse(g.aspectRatio)
       const subject = toRecipeSubject(g.subjectTemplate, g.slotsJson, g.postId)
+      // traits_json at the trust boundary: the four-axis shape fails loud on a malformed
+      // or wrong-keyed value, like the variety parses. [LAW:no-silent-fallbacks]
+      const traits = traitVectorSchema.parse(
+        parseJson<unknown>(g.traitsJson, `traits_json for post ${g.postId}`),
+      )
       return {
         kind: 'generation',
         // [LAW:no-silent-fallbacks] An empty stored title triggers the deterministic
@@ -267,18 +319,29 @@ function toContent(row: FeedRow): Content {
         // surfaces here too). The domain never sees an empty title, and the unnamed
         // count is a LOUD metric + a post-id'd warn, not a silent blank placard.
         title: titleOrFallback(g.title, subject, g.postId),
-        recipe: {
-          providerId: ProviderId(g.providerId),
+        // [LAW:types-are-the-program] The heritable genome, reassembled from columns + the
+        // lineage edges. genome.id IS the post id (the 1:1 in L1). lineage is the read-model
+        // from edge COUNT (toLineage), arity asserted fail-loud.
+        genome: {
+          id: GenomeId(g.postId),
+          genes: {
+            species: styleFamily,
+            form: subject,
+            frame: aspectRatio,
+            medium: ProviderId(g.providerId),
+          },
+          utterance: g.utterance,
+          traits,
+          lineage: toLineage(parents, g.postId),
+        },
+        // How this phenotype was rendered + provenance — not heritable.
+        render: {
           providerVersion: g.providerVersion,
           params: parseJson<unknown>(g.paramsJson, `params_json for post ${g.postId}`),
-          styleFamily,
-          aspectRatio,
-          subject,
-          parentId: g.parentPostId === null ? undefined : PostId(g.parentPostId),
           // The wish is genuinely optional (only Well-born generations have one),
           // so a NULL column is a legal absence, not a violated invariant — map it
           // to undefined rather than failing loud. [LAW:no-defensive-null-guards]
-          wish: g.wish ?? undefined,
+          ...(g.wish !== null ? { wish: g.wish } : {}),
         },
         status: toStatus(g),
       }
@@ -494,7 +557,7 @@ function collectAgentIds(posts: readonly Post[]): string[] {
   return [...ids]
 }
 
-function toPost(row: FeedRow): Post {
+function toPost(row: FeedRow, parents: readonly GenomeId[]): Post {
   return {
     id: PostId(row.post.id),
     createdAt: row.post.createdAt,
@@ -503,7 +566,7 @@ function toPost(row: FeedRow): Post {
       parseJson<unknown>(row.post.originJson, `origin_json for post ${row.post.id}`),
       row.post.id,
     ),
-    content: toContent(row),
+    content: toContent(row, parents),
   }
 }
 
@@ -697,8 +760,9 @@ type FeedRowWithAggregates = {
 function rowToRenderablePost(
   row: FeedRowWithAggregates,
   viewerId: string | undefined,
+  parents: readonly GenomeId[],
 ): RenderablePost {
-  const post = toPost(row)
+  const post = toPost(row, parents)
   return {
     post,
     score: row.score,
@@ -814,7 +878,15 @@ export async function getFeed(
       }),
     )
 
-  const renderables = rows.map((row) => rowToRenderablePost(row, voterId))
+  // The lineage edges for the visible set, resolved in one query before mapping (toContent
+  // assembles each genome's lineage from its parents). [LAW:single-enforcer]
+  const parentsByChild = await lineageParentsByChild(
+    database,
+    rows.map((row) => row.post.id),
+  )
+  const renderables = rows.map((row) =>
+    rowToRenderablePost(row, voterId, parentsByChild.get(row.post.id) ?? []),
+  )
   // Two independent post-CTE resolutions over the same visible set: persona faces
   // (by agentId) and critic verdicts (by postId). Neither depends on the other, so
   // they run concurrently — one round-trip's latency, not two.
@@ -868,7 +940,8 @@ export async function getFeedItemById(
   const rows = await query.limit(1)
   if (rows.length === 0) return null
 
-  const renderable = rowToRenderablePost(rows[0], voterId)
+  const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
+  const renderable = rowToRenderablePost(rows[0], voterId, parentsByChild.get(rows[0].post.id) ?? [])
   const agentIds = collectAgentIds([renderable.post])
   const [refs, verdicts, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
@@ -917,5 +990,6 @@ export async function getPostById(env: Env, id: PostId): Promise<Post | null> {
     .limit(1)
 
   if (rows.length === 0) return null
-  return toPost(rows[0])
+  const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
+  return toPost(rows[0], parentsByChild.get(rows[0].post.id) ?? [])
 }

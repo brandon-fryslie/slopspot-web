@@ -12,7 +12,7 @@
 // hermetic tests.
 
 import { db } from '~/db/client'
-import { comments, found, generations, posts, uploads, votes } from '~/db/schema'
+import { comments, found, generations, lineageEdges, posts, uploads, votes } from '~/db/schema'
 import {
   AgentId,
   PostId,
@@ -21,8 +21,10 @@ import {
   type Origin,
   type RecipeSubject,
   type StyleFamily,
+  type TraitVector,
   type VoteValue,
 } from '~/lib/domain'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 import type { AspectRatio } from '~/lib/variety'
 
 const DEFAULT_IMAGE: Media = {
@@ -60,6 +62,12 @@ export type SeedGenerationOpts = {
   providerId?: string
   providerVersion?: string
   params?: unknown
+  // The composed prompt (the genome's utterance). Defaults to the default params prompt.
+  utterance?: string
+  // The continuous heritable dials. Defaults to the neutral vector.
+  traits?: TraitVector
+  // A single (asexual) parent — seeds one lineage_edges row (child→parent). Omit for a
+  // founder. Bred (two parents) is L2; tests that need it can seed two edges directly.
   parentId?: PostId
   // The placard NAME. Defaults to a non-empty seeded placard so feed reads see a
   // real title; pass '' explicitly to seed a legacy row and exercise the read
@@ -215,7 +223,8 @@ export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostI
           providerVersion: content.providerVersion ?? '1.0',
           paramsJson: JSON.stringify(content.params ?? { prompt: 'a test prompt' }),
           title: content.title ?? 'A Seeded Placard',
-          parentPostId: content.parentId ?? null,
+          utterance: content.utterance ?? 'a test prompt',
+          traitsJson: JSON.stringify(content.traits ?? NEUTRAL_TRAITS),
           styleFamily: content.styleFamily ?? 'photoreal',
           subjectTemplate: subject.subjectTemplate,
           slotsJson: JSON.stringify(subject.slots),
@@ -223,6 +232,15 @@ export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostI
           wish: content.wish ?? null,
           ...statusColumns(status),
         }),
+        // A seeded single parent becomes one lineage edge; a founder seeds none. The list
+        // is the data, so the founder case contributes no statement. [LAW:dataflow-not-control-flow]
+        ...(content.parentId !== undefined
+          ? [
+              database
+                .insert(lineageEdges)
+                .values({ childGenomeId: id, parentGenomeId: content.parentId }),
+            ]
+          : []),
       ])
       return PostId(id)
     }

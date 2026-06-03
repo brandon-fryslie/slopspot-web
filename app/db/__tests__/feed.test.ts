@@ -452,17 +452,21 @@ describe('app/db/feed.ts - getFeed', () => {
       if (!item || item.post.content.kind !== 'generation') {
         throw new Error('expected child generation in feed')
       }
-      const recipe = item.post.content.recipe
-      expect(recipe.providerId).toBe(ProviderId('replicate-ideogram'))
-      expect(recipe.providerVersion).toBe('2.0')
-      expect(recipe.styleFamily).toBe('cyberpunk-neon')
-      expect(recipe.aspectRatio).toBe('16:9')
-      expect(recipe.subject).toEqual({
+      const { genome, render } = item.post.content
+      // The four genes (the old recipe fields, re-seen as heritable alleles).
+      expect(genome.genes.medium).toBe(ProviderId('replicate-ideogram'))
+      expect(genome.genes.species).toBe('cyberpunk-neon')
+      expect(genome.genes.frame).toBe('16:9')
+      expect(genome.genes.form).toEqual({
         subjectTemplate: 'T01',
         slots: { animal: 'iguana', profession: 'notary' },
       })
-      expect(recipe.params).toEqual({ prompt: 'an iguana notary', seed: 42 })
-      expect(recipe.parentId).toBe(parent)
+      // The render record (not heritable).
+      expect(render.providerVersion).toBe('2.0')
+      expect(render.params).toEqual({ prompt: 'an iguana notary', seed: 42 })
+      // [LAW:types-are-the-program] The single parent edge reads back as a `single`
+      // (asexual) lineage — the read-model assembled from edge count.
+      expect(genome.lineage).toEqual({ kind: 'single', parent })
     })
   })
 
@@ -688,7 +692,7 @@ describe('app/db/feed.ts - getPostById', () => {
     expect(result).not.toBeNull()
     expect(result!.id).toBe(id)
     if (result!.content.kind !== 'generation') throw new Error('expected generation')
-    expect(result!.content.recipe.subject).toEqual({
+    expect(result!.content.genome.genes.form).toEqual({
       subjectTemplate: 'T01',
       slots: { animal: 'iguana', profession: 'notary' },
     })
@@ -739,7 +743,7 @@ describe('app/db/feed.ts - getPostById', () => {
     if (!result || result.content.kind !== 'generation') {
       throw new Error('expected generation')
     }
-    expect(result.content.recipe.wish).toBe(wish)
+    expect(result.content.render.wish).toBe(wish)
   })
 
   it('reconstructs a wishless generation with recipe.wish undefined (NULL column)', async () => {
@@ -754,7 +758,7 @@ describe('app/db/feed.ts - getPostById', () => {
     }
     // [LAW:no-defensive-null-guards] absence is undefined (a legal optional),
     // not null smuggled through — the field is genuinely absent.
-    expect(result.content.recipe.wish).toBeUndefined()
+    expect(result.content.render.wish).toBeUndefined()
   })
 
   // The placard NAME round-trips through a real D1 read: createPost writes the
@@ -773,7 +777,7 @@ describe('app/db/feed.ts - getPostById', () => {
     }
     expect(result.content.title).toBe(title)
     // The title is the piece's name, a field distinct from the raw prompt.
-    const prompt = (result.content.recipe.params as { prompt: string }).prompt
+    const prompt = (result.content.render.params as { prompt: string }).prompt
     expect(result.content.title).not.toBe(prompt)
   })
 

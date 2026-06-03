@@ -8,6 +8,7 @@ import { verifyChallenge, ChallengeConfigError } from "~/lib/challenge"
 import { outcomeToResponse } from "~/lib/challenge-outcome"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { checkBudget } from "~/firehose/budget"
+import { NEUTRAL_TRAITS } from "~/lib/traits"
 import {
   aspectRatioSchema,
   fallbackTitle,
@@ -100,16 +101,25 @@ export async function action({ request, context }: Route.ActionArgs) {
     const post = await createPost(
       {
         kind: 'generation',
-        providerId: ProviderId(parsed.providerId),
+        // [LAW:types-are-the-program] The agent API SPONTANEOUSLY generates — no parent — so
+        // its lineage is `founder`. The body's variety fields are the genes; the prompt the
+        // agent submitted (also the challenge proof) is the utterance. Traits start neutral
+        // (the direct API seeds no drift; that arrives with breeding + selection).
+        genes: {
+          species: parsed.styleFamily,
+          form: parsed.subject,
+          frame: parsed.aspectRatio,
+          medium: ProviderId(parsed.providerId),
+        },
+        utterance: parsed.params.prompt,
+        traits: NEUTRAL_TRAITS,
+        lineage: { kind: 'founder' },
         params: parsed.params,
         // [LAW:one-source-of-truth] The direct-API path has no Haiku naming step
         // (the agent supplies params, not a recipe to compose). It names the piece
         // with the deterministic placard — the same derivation the composer's
         // fallback and the read boundary use, so no path emits a nameless slop.
         title: fallbackTitle(parsed.subject),
-        styleFamily: parsed.styleFamily,
-        subject: parsed.subject,
-        aspectRatio: parsed.aspectRatio,
         origin,
       },
       { env: context.cloudflare.env },
