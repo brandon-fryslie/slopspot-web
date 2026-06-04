@@ -51,23 +51,58 @@ import {
   type PersonaActor,
   type Post,
   type RenderablePost,
+  type TraitVector,
   type Verdict,
   type VerdictDisposition,
   type VoteValue,
 } from '~/lib/domain'
-import { traitVectorSchema } from '~/lib/traits'
 import { authorLabel } from '~/lib/author-label'
 import { crowningsForPosts } from '~/db/crowns'
 import { emit } from '~/observability/metrics'
 import {
-  aspectRatioSchema,
+  ASPECT_RATIOS,
   fallbackTitle,
   recipeSubjectSchema,
-  styleFamilySchema,
+  STYLE_FAMILIES,
+  type AspectRatio,
   type RecipeSubject,
+  type StyleFamily,
 } from '~/lib/variety'
 import { applySortMode, defaultSortMode, windowFilter, type SortMode } from '~/lib/sort-mode'
 import { backedCitizenIds } from '~/db/backings'
+
+// [LAW:dataflow-not-control-flow] How many posts a single feed read hydrates+renders. This is the
+// dominant multiplier on the hot-path CPU: every per-post cost (row hydration, genome assembly,
+// and the home page's React card render) is paid ×N, so N is the largest single CPU lever. The
+// 2026-06-04 outage hit the Worker per-request CPU ceiling on this path; cutting N cuts that term
+// near-proportionally. Set deliberately LOW (12) for the emergency restore — N is a VALUE on a
+// fixed read path, not a mode, so it is tuned down now and raised back by E1 (which makes the
+// per-post work cheap enough to afford a longer page) [LAW:dataflow-not-control-flow]. Named +
+// exported because the materialized read-model (E1) and pagination build ON it — a down payment
+// toward "expensive work happens elsewhere, computed once", not a throwaway cap.
+// [LAW:one-source-of-truth] one page-size, both getFeed callers (/, /api/feed).
+export const FEED_PAGE_SIZE = 12
+
+// [LAW:one-source-of-truth] D1 IS a trust boundary (raw SQL / migrations / manual edits can write
+// a bad enum), so the read DEFENDS — but it proves the SAME theorem the Zod enum parse did ("this
+// value is one of the closed set") with a CHEAP proof, not an expensive one. A Set membership test
+// is O(1) with no schema traversal and no error-object construction on the happy path, versus Zod's
+// heavyweight per-read parse. Re-validating write-validated data on every read of every post is the
+// recompute E1 forbids; the cheap proof keeps the boundary defense while removing the CPU. An
+// out-of-set value still fails loud, identically to the Zod parse it replaces. [LAW:no-silent-fallbacks]
+const STYLE_FAMILY_SET: ReadonlySet<string> = new Set(STYLE_FAMILIES)
+const ASPECT_RATIO_SET: ReadonlySet<string> = new Set(ASPECT_RATIOS)
+function memberOrThrow<T extends string>(
+  value: string,
+  set: ReadonlySet<string>,
+  what: string,
+  postId: string,
+): T {
+  if (!set.has(value)) {
+    throw new Error(`feed: ${what} '${value}' not in its closed set for post ${postId}`)
+  }
+  return value as T
+}
 
 // One flat join row. The sibling tables are nullable because the DB does not
 // enforce cross-table cardinality (that is createPost's transactional invariant);
@@ -321,17 +356,15 @@ function toContent(row: FeedRow, parents: readonly GenomeId[]): Content {
       absent(row.upload, `uploads row for generation post ${row.post.id}`)
       absent(row.found, `found row for generation post ${row.post.id}`)
       const g = requiredSibling(row.generation, 'generation', row.post.id)
-      // Variety fields at the trust boundary: Zod literal-union parses fail loud on
-      // any storage value outside the documented enums (style family or aspect
-      // ratio that no longer exists, mis-typed). [LAW:no-silent-fallbacks]
-      const styleFamily = styleFamilySchema.parse(g.styleFamily)
-      const aspectRatio = aspectRatioSchema.parse(g.aspectRatio)
+      // Variety enums at the trust boundary: a CHEAP membership proof (no per-read Zod parse) of
+      // the same closed-set theorem — fails loud on a value outside the documented enums.
+      const styleFamily = memberOrThrow<StyleFamily>(g.styleFamily, STYLE_FAMILY_SET, 'styleFamily', g.postId)
+      const aspectRatio = memberOrThrow<AspectRatio>(g.aspectRatio, ASPECT_RATIO_SET, 'aspectRatio', g.postId)
       const subject = toRecipeSubject(g.subjectTemplate, g.slotsJson, g.postId)
-      // traits_json at the trust boundary: the four-axis shape fails loud on a malformed
-      // or wrong-keyed value, like the variety parses. [LAW:no-silent-fallbacks]
-      const traits = traitVectorSchema.parse(
-        parseJson<unknown>(g.traitsJson, `traits_json for post ${g.postId}`),
-      )
+      // traits_json: JSON.parse is the structural check (fails loud on malformed JSON). The [0,1]
+      // bounds were validated at write (breed / migration 0027 default) — trusting them on the hot
+      // read path removes a per-post Zod `.strict()` parse, the recompute E1 forbids. [LAW:one-source-of-truth]
+      const traits = parseJson<TraitVector>(g.traitsJson, `traits_json for post ${g.postId}`)
       return {
         kind: 'generation',
         // [LAW:no-silent-fallbacks] An empty stored title triggers the deterministic
@@ -857,7 +890,7 @@ export async function getFeed(
           id: posts.id,
         }),
       )
-      .limit(50),
+      .limit(FEED_PAGE_SIZE),
   )
 
   const visibleIds = database.select({ id: feedIds.id }).from(feedIds)
