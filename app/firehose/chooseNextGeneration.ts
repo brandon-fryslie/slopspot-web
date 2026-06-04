@@ -28,6 +28,7 @@ import {
   type StyleFamily,
 } from '~/lib/variety'
 import type { RecentRecipe } from '~/db/recent'
+import { fnv1a32, unitFloat } from '~/lib/hash'
 import type { GenerationProvider } from '~/providers/types'
 
 // [LAW:types-are-the-program] Inputs the chooser needs are exactly three:
@@ -90,23 +91,16 @@ const R5_DOWNWEIGHT = 0.3
 const R6_WINDOW = 20
 const R6_DOWNWEIGHT = 0.5
 
-// FNV-1a 32-bit over a kind-tagged string form of the seed. The kind tag means
-// the same scheduledTime samples independently across style/subject/aspect/
-// provider/slot dimensions — fnv1a32('style:t') and fnv1a32('aspect:t') are
-// uncorrelated, so a fire's choice along one axis doesn't constrain another.
-function fnv1a32(input: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
-}
-
 // [LAW:types-are-the-program] Weighted picker. `items` and `weights` align by
 // index; total weight must be positive. The seed+kind tag → a uniform float in
 // [0, total) which selects an index via cumulative sum. Determinism: same
 // (items, weights, seed, kind) → same result, every time.
+//
+// [LAW:one-source-of-truth] The key is `${seed}:${kind}` — seed FIRST, discriminator LAST.
+// The prior `${kind}:${seed}` form put two dimensions' divergence before a shared `:${seed}`
+// suffix, which FNV-1a re-correlates (proven in breed.ts at ~4.8σ) — a live variety-taxonomy
+// defect a since-removed comment actively denied. Seed-first means style/aspect/subject diverge
+// in the trailing bytes and the avalanche separates them, so the dimensions sample independently.
 //
 // A zero total is a configuration bug — the candidate pool has been emptied by
 // over-aggressive rejection rules. Fail loud rather than silently fall back.
@@ -126,7 +120,7 @@ function pickWeighted<T>(
   if (!(total > 0)) {
     throw new Error(`pickWeighted: total weight not positive (kind=${kind}, total=${total})`)
   }
-  const r = (fnv1a32(`${kind}:${seed}`) / 0x100000000) * total
+  const r = unitFloat(`${seed}:${kind}`) * total
   let acc = 0
   for (let i = 0; i < items.length; i++) {
     acc += weights[i]!
@@ -281,7 +275,7 @@ export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
 
   // Separate seed-kind tag for params so a future provider that varies params
   // by entropy can sample independently of the style/aspect/subject draws.
-  const paramsSeed = fnv1a32(`params:${scheduledTimeMs}`)
+  const paramsSeed = fnv1a32(`${scheduledTimeMs}:params`)
 
   return {
     providerId: provider.id,

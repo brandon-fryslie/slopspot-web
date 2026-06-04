@@ -7,6 +7,7 @@
 // is a misconfigured row, surfaced immediately.
 
 import type { Persona } from '~/agents/persona'
+import { unitFloat } from '~/lib/hash'
 
 export type SchedulerConfig = {
   expectedDailyFires: number
@@ -76,10 +77,13 @@ export function shouldFireNow(
   }
 
   // Fire probability per tick = expectedDailyFires / TICKS_PER_DAY.
-  // Hash seed: agentId + ISO timestamp so same tick always picks same decision.
+  // [LAW:one-source-of-truth] Key is `${timeISO}:${agentId}` — seed (the tick) FIRST, the per-agent
+  // discriminator LAST. The prior `${agentId}:${timeISO}` form put agentId before a shared
+  // `:${timeISO}` suffix, so two agents at the same tick re-correlate their fire decisions via
+  // FNV-1a (the defect proven in breed.ts) — agents must decide independently. unitFloat maps the
+  // hash onto [0,1) (no bare /0x100000000 magic).
   const probability = expectedDailyFires / TICKS_PER_DAY
-  const hash = fnv1a32(`${agentId}:${scheduledTime.toISOString()}`)
-  const bucket = hash / 0x100000000
+  const bucket = unitFloat(`${scheduledTime.toISOString()}:${agentId}`)
   return bucket < probability
 }
 
@@ -89,16 +93,4 @@ export function personasDueNow(personas: Persona[], scheduledTime: Date): Person
     const config = parseSchedulerConfig(p.config)
     return shouldFireNow(p.agentId, config, scheduledTime)
   })
-}
-
-// [LAW:one-source-of-truth] FNV-1a hash — same implementation as persona.ts
-// and chooseNextGeneration.ts. Not extracted to a shared util to avoid coupling
-// three independently-pure modules over a 7-line function.
-function fnv1a32(input: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
 }
