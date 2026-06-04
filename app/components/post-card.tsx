@@ -81,6 +81,11 @@ export function PostCard({
         {post.content.kind === "generation" && (
           <>
             <ForkLink postId={post.id} />
+            {/* [LAW:no-mode-explosion] Breeding (two-parent, sexual) is a distinct ACT from forking
+                (one-parent, asexual), so a distinct doorway → its own room, never a flag on fork.
+                Gated on a SUCCEEDED render: you carry a FINISHED slop into the breeding room (the
+                one you loved), so the affordance only appears once there is a phenotype to cross. */}
+            {post.content.status.kind === "succeeded" && <BreedLink postId={post.id} />}
             <StatusBadge status={post.content.status} />
             {/* [LAW:dataflow-not-control-flow] The lineage badge renders for any non-founder
                 genome — single (one parent) or bred (two, L2). The reproduction mode IS the
@@ -779,13 +784,30 @@ function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRe
 // is not a one-click action), so an <a> with a meaningful href is the right
 // affordance — middle-click opens the form in a new tab, no JS needed for
 // discoverability.
+// [LAW:one-type-per-behavior] Fork is the SINGLE (asexual) act — one parent, mutated. It is named
+// honestly as Fork now that Breed is its own two-parent surface (the old "Breed This" label on this
+// single-parent link contradicted the reproduction-mode split the genome makes load-bearing).
 function ForkLink({ postId }: { postId: string }) {
   return (
     <a
       href={`/fork/${postId}`}
-      className="rounded border border-profane/50 bg-profane/15 px-3 py-1 font-civic text-[11px] font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/25"
+      className="rounded border border-profane/40 bg-profane/10 px-3 py-1 font-civic text-[11px] font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/20"
     >
-      <span aria-hidden>⑂ </span>Breed This
+      <span aria-hidden>⑂ </span>Fork
+    </a>
+  )
+}
+
+// [LAW:single-enforcer] The Breed doorway — the loud cross-verb — only exists in PostCard. It
+// carries THIS slop into the Breeding Room as parent A (the one loved first); the room is where the
+// breeder finds mate B and witnesses the cross. An <a> for the same discoverability reasons as Fork.
+function BreedLink({ postId }: { postId: string }) {
+  return (
+    <a
+      href={`/breed/${postId}`}
+      className="rounded border border-profane/60 bg-profane/20 px-3 py-1 font-civic text-[11px] font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/30"
+    >
+      <span aria-hidden>✕ </span>Breed
     </a>
   )
 }
