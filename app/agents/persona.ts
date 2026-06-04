@@ -145,7 +145,10 @@ export async function pickPersona(
 ): Promise<Persona | null> {
   const pool = await listPersonas(env, role)
   if (pool.length === 0) return null
-  const idx = fnv1a32(`persona:${role}:${scheduledTimeMs}`) % pool.length
+  // [LAW:one-source-of-truth] Seed FIRST, discriminator LAST — `${scheduledTimeMs}:persona:${role}`,
+  // the canonical key shape (a role before a shared `:${time}` suffix would re-correlate roles via
+  // FNV-1a, the defect proven in breed.ts).
+  const idx = fnv1a32(`${scheduledTimeMs}:persona:${role}`) % pool.length
   return pool[idx]
 }
 

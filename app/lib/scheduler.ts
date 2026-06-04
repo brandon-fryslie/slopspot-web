@@ -7,7 +7,7 @@
 // is a misconfigured row, surfaced immediately.
 
 import type { Persona } from '~/agents/persona'
-import { fnv1a32 } from '~/lib/hash'
+import { unitFloat } from '~/lib/hash'
 
 export type SchedulerConfig = {
   expectedDailyFires: number
@@ -77,10 +77,13 @@ export function shouldFireNow(
   }
 
   // Fire probability per tick = expectedDailyFires / TICKS_PER_DAY.
-  // Hash seed: agentId + ISO timestamp so same tick always picks same decision.
+  // [LAW:one-source-of-truth] Key is `${timeISO}:${agentId}` — seed (the tick) FIRST, the per-agent
+  // discriminator LAST. The prior `${agentId}:${timeISO}` form put agentId before a shared
+  // `:${timeISO}` suffix, so two agents at the same tick re-correlate their fire decisions via
+  // FNV-1a (the defect proven in breed.ts) — agents must decide independently. unitFloat maps the
+  // hash onto [0,1) (no bare /0x100000000 magic).
   const probability = expectedDailyFires / TICKS_PER_DAY
-  const hash = fnv1a32(`${agentId}:${scheduledTime.toISOString()}`)
-  const bucket = hash / 0x100000000
+  const bucket = unitFloat(`${scheduledTime.toISOString()}:${agentId}`)
   return bucket < probability
 }
 

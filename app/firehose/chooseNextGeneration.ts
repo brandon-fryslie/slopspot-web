@@ -96,13 +96,11 @@ const R6_DOWNWEIGHT = 0.5
 // [0, total) which selects an index via cumulative sum. Determinism: same
 // (items, weights, seed, kind) → same result, every time.
 //
-// [LAW:comments-explain-why-only] The prior comment here CLAIMED style/aspect draws
-// were uncorrelated — and they are NOT: the `${kind}:${seed}` key puts kind first and
-// the seed last, so two dimensions share the `:${seed}` trailing bytes and FNV-1a
-// re-correlates them (the same shape proven in breed.ts at ~4.8σ). That false claim
-// hid a live variety-taxonomy defect. The fix — a canonical seed-first key the API
-// enforces, so cross-dimension decorrelation holds by construction — lands with the
-// hash.ts hardening; until then this picker carries a known dimension correlation.
+// [LAW:one-source-of-truth] The key is `${seed}:${kind}` — seed FIRST, discriminator LAST.
+// The prior `${kind}:${seed}` form put two dimensions' divergence before a shared `:${seed}`
+// suffix, which FNV-1a re-correlates (proven in breed.ts at ~4.8σ) — a live variety-taxonomy
+// defect a since-removed comment actively denied. Seed-first means style/aspect/subject diverge
+// in the trailing bytes and the avalanche separates them, so the dimensions sample independently.
 //
 // A zero total is a configuration bug — the candidate pool has been emptied by
 // over-aggressive rejection rules. Fail loud rather than silently fall back.
@@ -122,7 +120,7 @@ function pickWeighted<T>(
   if (!(total > 0)) {
     throw new Error(`pickWeighted: total weight not positive (kind=${kind}, total=${total})`)
   }
-  const r = unitFloat(`${kind}:${seed}`) * total
+  const r = unitFloat(`${seed}:${kind}`) * total
   let acc = 0
   for (let i = 0; i < items.length; i++) {
     acc += weights[i]!
@@ -277,7 +275,7 @@ export function chooseNextGeneration(input: ChooserInput): ChooserOutput {
 
   // Separate seed-kind tag for params so a future provider that varies params
   // by entropy can sample independently of the style/aspect/subject draws.
-  const paramsSeed = fnv1a32(`params:${scheduledTimeMs}`)
+  const paramsSeed = fnv1a32(`${scheduledTimeMs}:params`)
 
   return {
     providerId: provider.id,
