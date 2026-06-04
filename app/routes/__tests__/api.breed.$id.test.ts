@@ -7,8 +7,17 @@
 // The full 3-step assembly (breed → composePrompt → createPost bred 2-edge) is verified behaviorally
 // against local dev (it needs D1 + a provider render), the same way the fork action's success path is.
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { action } from "../api.breed.$id"
+
+// [LAW:behavior-not-structure] The two parent-validity guards (6.1's coverage gap) are hermetic by
+// mocking the ONE read the action makes before any provider/composer/D1-write work — getPostById.
+// A null parent → 404; a non-generation parent (no genome to cross) → 400. The heavier paths (422
+// mock-in-prod, 201 + bred-2-edge) stay live-verified — they need provider/createPost mocks fork
+// itself never built. The first four guards below short-circuit before getPostById, so this mock
+// leaves them untouched.
+vi.mock("~/db/feed", () => ({ getPostById: vi.fn() }))
+import { getPostById } from "~/db/feed"
 
 // The action only reaches context.cloudflare.env AFTER these guards, so a never-touched stub is
 // honest here — a test that supplied a real env would imply these paths read it, which they do not.
@@ -50,5 +59,27 @@ describe("api.breed.$id — trust boundary", () => {
     expect(res.status).toBe(400)
     const json = (await res.json()) as { error: string }
     expect(json.error).toMatch(/itself/i)
+  })
+
+  it("returns 404 when a parent is not found", async () => {
+    vi.mocked(getPostById).mockResolvedValueOnce(null)
+    const res = await run(post("a", { mateId: "b" }), "a")
+    expect(res.status).toBe(404)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toMatch(/not found/i)
+  })
+
+  it("returns 400 when a parent is not a generation (no genome to cross)", async () => {
+    // An upload carries no recipe — unbreedable. The action checks content.kind before any genome
+    // read, so a minimal upload-shaped post is enough to exercise the guard.
+    vi.mocked(getPostById).mockResolvedValueOnce({
+      id: "a",
+      content: { kind: "upload", asset: { kind: "image", url: "/media/x", w: 1, h: 1 } },
+      origin: { kind: "uploaded", by: { kind: "anon", label: "anon-x" } },
+    } as unknown as NonNullable<Awaited<ReturnType<typeof getPostById>>>)
+    const res = await run(post("a", { mateId: "b" }), "a")
+    expect(res.status).toBe(400)
+    const json = (await res.json()) as { error: string }
+    expect(json.error).toMatch(/generation/i)
   })
 })
