@@ -5,6 +5,7 @@
 // must wait out its window. This is the type made unrepresentable-when-violated.
 
 import { describe, expect, it } from 'vitest'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { selectPortraitTargets, PORTRAIT_DRIFT_MS } from '~/agents/portrait'
 import type { Persona } from '~/agents/persona'
 import { AgentId } from '~/lib/domain'
@@ -24,6 +25,7 @@ function persona(over: {
     personaPrompt: '',
     modelId: 'claude-haiku-4-5',
     config: over.config,
+    traits: NEUTRAL_TRAITS,
   }
 }
 

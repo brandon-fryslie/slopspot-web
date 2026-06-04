@@ -15,7 +15,8 @@
 import { asc, eq } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
-import { AgentId } from '~/lib/domain'
+import { AgentId, type TraitVector } from '~/lib/domain'
+import { traitVectorSchema } from '~/lib/traits'
 import { seedHash } from '~/lib/hash'
 
 export type PersonaRole = 'voter' | 'discoverer' | 'generator' | 'host'
@@ -66,6 +67,10 @@ export type Persona = {
   personaPrompt: string
   modelId: string
   config: Record<string, unknown>
+  // [LAW:one-source-of-truth] The citizen's ONE sensibility vector (personas.traits) — the SAME
+  // TraitVector that governs image composition, read by the voice layer via lib/register for speech
+  // register. Parsed at this boundary; not a config_json key (it is a typed column with its own parser).
+  traits: TraitVector
 }
 
 // [LAW:one-source-of-truth] The ONE resolver for a citizen's public creed — the
@@ -160,6 +165,13 @@ function rowToPersona(row: DbPersona): Persona {
       `persona ${row.agentId}: config_json is malformed JSON — fix the row in D1`,
     )
   }
+  // [LAW:no-silent-fallbacks] The traits column is a trust boundary (raw SQL / migration could write a
+  // bad vector), so re-validate the four [0,1] axes here — a malformed traits_json fails loud, never a
+  // laundered wrong-shape register. Mirrors the genome's traits_json read.
+  const parsedTraits = traitVectorSchema.safeParse(JSON.parse(row.traitsJson))
+  if (!parsedTraits.success) {
+    throw new Error(`persona ${row.agentId}: traits_json failed validation — ${parsedTraits.error.message}`)
+  }
   return {
     agentId: AgentId(row.agentId),
     handle: row.handle,
@@ -168,7 +180,16 @@ function rowToPersona(row: DbPersona): Persona {
     personaPrompt: row.personaPrompt,
     modelId: row.modelId,
     config,
+    traits: parsedTraits.data,
   }
+}
+
+// [LAW:single-enforcer] Resolve a citizen by its internal agentId — the verdict path (the vote
+// boundary) needs the speaker's identity + register to compose its utterance. Returns null on miss: a
+// human voter (anon-cookie id, no persona row) is not a citizen and has no voice, so it utters nothing.
+export async function getPersona(env: Env, agentId: string): Promise<Persona | null> {
+  const rows = await db(env).select().from(personas).where(eq(personas.agentId, agentId)).limit(1)
+  return rows.length === 0 ? null : rowToPersona(rows[0])
 }
 
 // [LAW:single-enforcer] Resolve a citizen by its canonical URL key. The /cast

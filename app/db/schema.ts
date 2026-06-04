@@ -63,6 +63,14 @@ export const personas = sqliteTable(
     personaPrompt: text('persona_prompt').notNull(),
     modelId: text('model_id').notNull(),
     configJson: text('config_json').notNull(),
+    // [LAW:one-source-of-truth] The citizen's ONE sensibility vector (a TraitVector — same shape as
+    // the genome's, app/lib/traits.ts). The voice layer reads it via lib/register's `traitBias` for
+    // speech register; the genome/generate path (slopspot-genome) reads the SAME column for image
+    // composition. NOT a voice-only tone field — one vector, two consumers. DEFAULT neutral is
+    // migration scaffolding (0030); the seed assigns the cast's documented earnestness.
+    traitsJson: text('traits_json')
+      .notNull()
+      .default('{"austerity":0.5,"curse":0.5,"density":0.5,"earnestness":0.5}'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (t) => [
@@ -412,6 +420,59 @@ export const crowns = sqliteTable(
   ],
 )
 
+// [LAW:one-source-of-truth][LAW:locality-or-seam] Utterances: the FIRST-CLASS ADDRESSABLE RECORD of
+// every in-character thing a citizen says (slopspot-voice-w2v.1). An Utterance (app/lib/voice.ts) used
+// to be a transient utter() return inlined on the act it narrated; the Voice epic needs it addressable
+// so .2 (Feud Engine) RELATES records by an edge over this table and .5 lists a citizen's record —
+// neither can reshape .1. Keyed by (speaker, target, occasion, created_at) per the locked spec.
+//
+// [LAW:types-are-the-program] The columns mirror the Utterance union (voice.ts utteranceSchema): `kind`
+// is the discriminator; `spoke` carries `text`, `withheld` carries `withheldReason` — the CHECK makes
+// the cross-arm illegal states (both, neither, a withheld with text) unrepresentable, the same shape as
+// generations_status_shape. `occasion` is the closed catalog (verdict implemented; reserved arms listed
+// so a later child adds one as data). targetPostId is nullable for post-less occasions (eulogy/chrome).
+export const utterances = sqliteTable(
+  'utterances',
+  {
+    id: text('id').primaryKey(),
+    // The citizen who spoke — an AgentId. The voice's sole source.
+    speaker: text('speaker').notNull(),
+    occasion: text('occasion', {
+      enum: ['caption', 'verdict', 'remark', 'decree', 'chrome', 'reply', 'comment', 'eulogy', 'birth'],
+    }).notNull(),
+    // The slop spoken about. Nullable: occasions with no post target (eulogy, chrome) carry none.
+    targetPostId: text('target_post_id').references(() => posts.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['spoke', 'withheld'] }).notNull(),
+    // Present iff kind='spoke' (CHECK). The in-character line, ready to render.
+    text: text('text'),
+    // Present iff kind='withheld' (CHECK). Why the citizen said nothing — a characterful chosen
+    // silence or the non-characterful machine `unavailable`.
+    withheldReason: text('withheld_reason', {
+      enum: ['characteristic-silence', 'indifferent', 'beneath-comment', 'unavailable'],
+    }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    // Co-presence + per-slop read (the verdict lines on one slop).
+    index('utterances_target_created_idx').on(t.targetPostId, t.createdAt),
+    // Per-citizen ledger (.5 Living Cast Pages; .2 relating a speaker's record).
+    index('utterances_speaker_created_idx').on(t.speaker, t.createdAt),
+    // [LAW:one-source-of-truth] One current utterance per citizen, per slop, per occasion — a re-vote
+    // upserts the latest verdict (matching the votes upsert model). NULL targetPostId rows are distinct
+    // under the unique index, so post-less occasions never collide.
+    uniqueIndex('utterances_speaker_target_occasion_unique').on(t.speaker, t.targetPostId, t.occasion),
+    check(
+      'utterances_shape',
+      // [LAW:one-source-of-truth] Byte-for-byte the CHECK drizzle/0031 applied — the withheld arm pins
+      // the reason to the closed enum too, so this schema source and the migration cannot drift (a bare
+      // `enum` on the column is type-level only and emits no SQL CHECK).
+      sql`(${t.kind} = 'spoke' AND ${t.text} IS NOT NULL AND ${t.withheldReason} IS NULL)
+        OR (${t.kind} = 'withheld' AND ${t.withheldReason} IS NOT NULL AND ${t.text} IS NULL
+          AND ${t.withheldReason} IN ('characteristic-silence', 'indifferent', 'beneath-comment', 'unavailable'))`,
+    ),
+  ],
+)
+
 // Comments: flat thread per post. v1 is anonymous-only; author_id is the same
 // opaque voter cookie UUID the votes table uses. No FK to users (mirroring
 // votes) so a future auth surface can move user/agent ids into the same column
@@ -499,3 +560,5 @@ export type DbBacking = typeof backings.$inferSelect
 export type NewDbBacking = typeof backings.$inferInsert
 export type DbCrown = typeof crowns.$inferSelect
 export type NewDbCrown = typeof crowns.$inferInsert
+export type DbUtterance = typeof utterances.$inferSelect
+export type NewDbUtterance = typeof utterances.$inferInsert

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { selectSeat, type Wish } from './seating'
 import type { Persona } from './persona'
 import { AgentId } from '~/lib/domain'
@@ -11,6 +12,7 @@ const citizen = (id: string): Persona => ({
   personaPrompt: '',
   modelId: 'claude-haiku-4-5',
   config: {},
+  traits: NEUTRAL_TRAITS,
 })
 
 const WISH: Wish = { text: 'make me a dragon' }
