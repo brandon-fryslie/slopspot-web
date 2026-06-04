@@ -7,6 +7,7 @@
 // is a misconfigured row, surfaced immediately.
 
 import type { Persona } from '~/agents/persona'
+import { fnv1a32 } from '~/lib/hash'
 
 export type SchedulerConfig = {
   expectedDailyFires: number
@@ -89,16 +90,4 @@ export function personasDueNow(personas: Persona[], scheduledTime: Date): Person
     const config = parseSchedulerConfig(p.config)
     return shouldFireNow(p.agentId, config, scheduledTime)
   })
-}
-
-// [LAW:one-source-of-truth] FNV-1a hash — same implementation as persona.ts
-// and chooseNextGeneration.ts. Not extracted to a shared util to avoid coupling
-// three independently-pure modules over a 7-line function.
-function fnv1a32(input: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
 }

@@ -16,6 +16,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
 import { AgentId } from '~/lib/domain'
+import { fnv1a32 } from '~/lib/hash'
 
 export type PersonaRole = 'voter' | 'discoverer' | 'generator' | 'host'
 
@@ -196,17 +197,4 @@ export async function updatePersonaConfig(
     .update(personas)
     .set({ configJson: JSON.stringify(config) })
     .where(eq(personas.agentId, agentId))
-}
-
-// [LAW:one-source-of-truth] FNV-1a hash — same implementation as the firehose
-// chooser. Duplicated here (not shared) because both modules are independently
-// pure with no common dep; extracting to a shared util would create coupling
-// for a 7-line function.
-function fnv1a32(input: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
 }
