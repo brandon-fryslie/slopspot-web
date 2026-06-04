@@ -61,25 +61,16 @@ const LOG10_E = 0.4342944819032518
 // vote velocity as traffic grows, the same way DECAY_CONSTANT will be.
 export const BACKING_WEIGHT = 10
 
-// Context the caller supplies: the expressions that differ across call sites.
-// `score` differs between the CTE inner query (rankScore subquery) and the outer query
-// (feedIds.score projection). `affinity` is the per-post backing-lens term (0 for every
-// post when the viewer backs no one). `createdAt` and `id` are always from posts but the
-// caller's query context determines which binding is in scope.
-// [LAW:one-source-of-truth] Callers do not hand-code ORDER BY expressions; every
-// mode's expression lives in this function's switch.
-type SortCtx = { score: SQLWrapper; affinity: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
-
-// [LAW:dataflow-not-control-flow] The quality axis every score-ranked mode orders by:
-// the post's real score, biased by the viewer's backing lens. `affinity` is a VALUE
-// that is 0 for every post when the viewer backs no one (the affinity aggregate
-// degrades to no rows by data), so this expression equals `score` exactly in the
-// unbacked case — the normal feed, with no branch. Both 'top' and 'hot' route their
-// score through here so the lens lands in one place; 'new' has no quality axis and
-// ignores it (strict chronology), the same way 'new' ignores score.
-function effectiveScore(ctx: SortCtx): SQL {
-  return sql`(${ctx.score} + ${BACKING_WEIGHT} * ${ctx.affinity})`
-}
+// [LAW:dataflow-not-control-flow] Context the caller supplies. `score` is THE sort-score
+// EXPRESSION the mode ranks by — and the whole backed-vs-unbacked variance lives in WHICH
+// expression the caller flows through this field, never in a branch inside applySortMode/
+// cursorFilter. The caller (getFeedPage) sets it to the BARE `posts.score` column for the unbacked
+// common path — so the `(score, created_at, id)` index SEEKS the keyset instead of SCANning an
+// expression — and to `(posts.score + BACKING_WEIGHT*affinity)` for the rare backed path (a scan is
+// acceptable there). [LAW:one-source-of-truth] applySortMode's ORDER BY and cursorFilter's keyset
+// both consume THIS one field unconditionally, so the ORDER BY and the WHERE can never disagree
+// (disagreement is the skip/dupe bug) AND the unbacked path stays index-served.
+type SortCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
 
 function assertNever(discriminant: never): never {
   throw new Error(`sort-mode: unhandled discriminant ${String(discriminant)}`)
@@ -99,7 +90,7 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
         case 'all':
         case 'day':
         case 'week':
-          return [desc(effectiveScore(ctx)), desc(ctx.createdAt), desc(ctx.id)]
+          return [desc(ctx.score), desc(ctx.createdAt), desc(ctx.id)]
         default:
           return assertNever(sort.window)
       }
@@ -110,10 +101,10 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
       //   log10(max(|score|,1)) * sign(score) + (createdAt_s - REFERENCE_EPOCH) / DECAY_S
       // D1 has no log10; log(x) is ln(x), so log10(x) = log(x) * LOG10_E.
       // createdAt is stored as Unix ms (timestamp_ms mode) — divide by 1000 for seconds.
-      // The score term is the backing-lens-biased effectiveScore: a backed citizen's
-      // opinion enters the hotness exactly as extra votes would, so the lens and vote
-      // velocity share one quality axis rather than competing as two ORDER BY terms.
-      const s = effectiveScore(ctx)
+      // The score term is ctx.score — the sort-score expression the caller chose (bare posts.score
+      // unbacked, lens-weighted backed), so a backed citizen's opinion enters the hotness exactly
+      // as extra votes would, in the same one expression the keyset uses.
+      const s = ctx.score
       const hotnessExpr = sql<number>`
         ${LOG10_E} * log(max(abs(${s}), 1)) * sign(${s})
         + (${ctx.createdAt} / 1000 - ${HOTNESS_REFERENCE_EPOCH}) / ${HOTNESS_DECAY_S}`
@@ -124,23 +115,24 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
   }
 }
 
-// [LAW:one-source-of-truth] The keyset predicate is the lexicographic "strictly after" of the SAME
-// tuple applySortMode orders by — defined HERE, as its sibling, reusing the SAME effectiveScore, so
-// the ORDER BY and the cursor WHERE can never disagree (a disagreement is exactly the skip/dupe bug
-// that breaks pagination). Every ORDER BY arm is DESC, so "the row strictly after the cursor" is
-// "the tuple LESS THAN the cursor tuple," expanded lexicographically with the tie-breakers so no row
-// is skipped or repeated at a value boundary.
+// [LAW:one-source-of-truth] The keyset predicate. For `top`/`new` it is the lexicographic "strictly
+// after" of the SAME tuple applySortMode orders by, consuming the SAME ctx.score, so the ORDER BY
+// and the cursor WHERE cannot disagree (a disagreement IS the skip/dupe bug). For `hot` the ORDER
+// BY's primary key is the computed hotness, which no index can serve — so hot deliberately keysets
+// the STABLE created_at axis (the §4 slab approximation), with the hotness re-sort happening within
+// the over-fetched slab in getFeedPage, NOT in this predicate. Every arm is DESC, so "strictly
+// after" is "tuple < cursor tuple", expanded with tie-breakers so no row is skipped/repeated at a
+// value boundary.
 //
 // `cursor.m` IS the discriminator — the caller has already enforced `cursor.m === sort.mode` (a
 // mismatch decodes to page 1, no cursor, no call here), so this reads the cursor's own variant. For
-// `top` the key is (effectiveScore, createdAt, id); for `new`/`hot` it is (createdAt, id) — `hot`
-// keysets on the stable created_at axis within its window, the hotness re-sort happening within the
-// over-fetched slab (not in this predicate). The window cutoff is a SEPARATE WHERE (windowFilter),
-// ANDed in by the caller. [LAW:types-are-the-program] exhaustive over the cursor union.
+// `top` the key is (ctx.score, createdAt, id); for `new`/`hot` it is (createdAt, id). The window
+// cutoff is a SEPARATE WHERE (windowFilter), ANDed in by the caller. [LAW:types-are-the-program]
+// exhaustive over the cursor union.
 export function cursorFilter(cursor: CursorPayload, ctx: SortCtx): SQL {
   switch (cursor.m) {
     case 'top': {
-      const s = effectiveScore(ctx)
+      const s = ctx.score
       return sql`(${s} < ${cursor.s}) OR (${s} = ${cursor.s} AND ${ctx.createdAt} < ${cursor.t}) OR (${s} = ${cursor.s} AND ${ctx.createdAt} = ${cursor.t} AND ${ctx.id} < ${cursor.id})`
     }
     case 'new':
