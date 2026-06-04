@@ -11,7 +11,7 @@ import { env } from 'cloudflare:test'
 import { runRite } from '~/agents/rite'
 import { crowns } from '~/db/schema'
 import { db } from '~/db/client'
-import { getFeed } from '~/db/feed'
+import { getFeedPage } from '~/db/feed'
 import { seedPost, seedVote } from '../../db/__tests__/helpers'
 
 // 3am UTC on a Sunday → The Sainting (St. Vivian's ballot, agent:slop-purist).
@@ -45,7 +45,7 @@ describe('runRite — the city crowns its own (monarchically, daily)', () => {
     expect(result).toMatchObject({ kind: 'crowned', postId: vivianPick, lens: 'saint', recorded: true })
     expect(result.kind === 'crowned' && result.decree.kind).toBe('spoke')
 
-    const feed = await getFeed(env)
+    const feed = (await getFeedPage(env, {})).items
     expect(feed.find((f) => f.post.id === vivianPick)?.crowning).toMatchObject({ lens: 'saint', mark: 'gold' })
     expect(feed.find((f) => f.post.id === crowdFavourite)?.crowning).toBeUndefined()
   })
@@ -113,7 +113,7 @@ describe('runRite — the city crowns its own (monarchically, daily)', () => {
     const result = await runRite(env, MONDAY_3AM)
     expect(result).toMatchObject({ kind: 'crowned', postId: monster, lens: 'villain' })
 
-    const feed = await getFeed(env)
+    const feed = (await getFeedPage(env, {})).items
     expect(feed.find((f) => f.post.id === monster)?.crowning?.mark).toBe('magenta')
   })
 })

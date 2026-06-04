@@ -10,13 +10,14 @@ import { sql } from 'drizzle-orm'
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import {
-  BACKING_WEIGHT,
   HOT_WINDOW_MS,
   HOTNESS_DECAY_S,
   HOTNESS_REFERENCE_EPOCH,
   TOP_WINDOW_MS,
   applySortMode,
+  cursorFromRow,
   defaultSortMode,
+  keysetOrderBy,
   parseSortMode,
   serializeSortMode,
   sortModeLabel,
@@ -27,9 +28,11 @@ import {
 } from '~/lib/sort-mode'
 
 const dialect = new SQLiteSyncDialect({ casing: 'snake_case' })
+// [LAW:dataflow-not-control-flow] ctx.score IS the sort-score expression (here the bare "score"
+// column, as getFeedPage flows it). SortCtx no longer carries `affinity` — the backed lens that
+// would weight this expression is the follow-up roll-call-47p.7, not a field every ctx must carry.
 const mockCtx = {
   score: sql`"score"`,
-  affinity: sql`"affinity"`,
   createdAt: sql`"created_at"`,
   id: sql`"id"`,
 }
@@ -177,16 +180,17 @@ describe('app/lib/sort-mode.ts', () => {
       expect(dialect.sqlToQuery(exprs[1]).sql).toBe('"id" desc')
     })
 
-    it('all top windows emit effectiveScore DESC, createdAt DESC, id DESC (window is a WHERE concern)', () => {
+    it('all top windows emit score DESC, createdAt DESC, id DESC (window is a WHERE concern)', () => {
       for (const window of ['all', 'day', 'week'] as const) {
         const exprs = applySortMode({ mode: 'top', window }, mockCtx)
         expect(exprs).toHaveLength(3)
-        // [LAW:dataflow-not-control-flow] The primary key is score biased by the backing
-        // lens: score + BACKING_WEIGHT * affinity. With affinity 0 (the unbacked feed)
-        // this evaluates to score exactly — the bias is a value, not a branch.
+        // [LAW:dataflow-not-control-flow] The primary key is the bare ctx.score expression — no
+        // internal weighting, so ORDER BY === the keyset by construction and the (score,…) index
+        // SEEKS it. The backed lens would flow a weighted expression through ctx.score (47p.7); here
+        // it is the bare "score" column.
         const { sql: primary, params } = dialect.sqlToQuery(exprs[0])
-        expect(primary).toBe('("score" + ? * "affinity") desc')
-        expect(params).toEqual([BACKING_WEIGHT])
+        expect(primary).toBe('"score" desc')
+        expect(params).toEqual([])
         expect(dialect.sqlToQuery(exprs[1]).sql).toBe('"created_at" desc')
         expect(dialect.sqlToQuery(exprs[2]).sql).toBe('"id" desc')
       }
@@ -232,24 +236,78 @@ describe('app/lib/sort-mode.ts', () => {
       expect(postB).toBeGreaterThan(postC)
     })
 
-    // [LAW:dataflow-not-control-flow] The backing lens is a VALUE in the ORDER BY, not a
-    // mode. These pin where it lands: the score-ranked modes carry affinity * weight;
-    // 'new' (strict chronology, no quality axis) ignores it the same way it ignores
-    // score. This is the contract the empty-set degradation rests on — affinity is
-    // always in the expression, and 0 affinity makes it vanish arithmetically.
-    describe('backing lens', () => {
-      it('hot folds affinity into the hotness quality axis', () => {
+    // [LAW:dataflow-not-control-flow] ctx.score is the single quality axis the modes consume. These
+    // pin where it lands: hot folds it into the hotness expression; 'new' (strict chronology) has no
+    // quality axis and ignores it. The backed lens (47p.7) would substitute a weighted expression for
+    // ctx.score — these contracts hold for whatever expression flows through, bare or weighted.
+    describe('score axis', () => {
+      it('hot folds ctx.score into the hotness quality axis', () => {
         const primary = dialect.sqlToQuery(applySortMode({ mode: 'hot' }, mockCtx)[0]).sql
-        expect(primary).toContain('"affinity"')
         expect(primary).toContain('"score"')
+        expect(primary).toContain('log(')
       })
 
-      it('new ignores affinity — chronology has no quality axis to bias', () => {
+      it('new ignores the score axis — chronology has no quality term to rank by', () => {
         const exprs = applySortMode({ mode: 'new' }, mockCtx)
         for (const expr of exprs) {
-          expect(dialect.sqlToQuery(expr).sql).not.toContain('affinity')
+          expect(dialect.sqlToQuery(expr).sql).not.toContain('score')
         }
       })
+    })
+  })
+
+  // [LAW:one-source-of-truth] keysetOrderBy is the SELECTION axis the cursor advances along — equal
+  // to applySortMode for top/new (display IS index-seekable), divergent for hot (selection on the
+  // stable created_at axis, display re-sorted by hotness in getFeedPage). These pin that divergence:
+  // a top keyset seeks (score, created_at, id); new AND hot both seek (created_at, id) — hot never
+  // selects by the un-indexable hotness.
+  describe('keysetOrderBy', () => {
+    it('top keysets (score DESC, createdAt DESC, id DESC) — equals its display order', () => {
+      for (const window of ['all', 'day', 'week'] as const) {
+        const exprs = keysetOrderBy({ mode: 'top', window }, mockCtx)
+        expect(exprs.map((e) => dialect.sqlToQuery(e).sql)).toEqual([
+          '"score" desc',
+          '"created_at" desc',
+          '"id" desc',
+        ])
+      }
+    })
+
+    it('new keysets (createdAt DESC, id DESC)', () => {
+      const exprs = keysetOrderBy({ mode: 'new' }, mockCtx)
+      expect(exprs.map((e) => dialect.sqlToQuery(e).sql)).toEqual(['"created_at" desc', '"id" desc'])
+    })
+
+    it('hot keysets the STABLE (createdAt DESC, id DESC) axis — NOT the un-indexable hotness', () => {
+      const exprs = keysetOrderBy({ mode: 'hot' }, mockCtx)
+      // The whole point: hot must NOT select by hotness (a SCAN + temp sort over the window — the
+      // outage). It selects by created_at so the index SEEKS, then getFeedPage re-sorts the page.
+      expect(exprs.map((e) => dialect.sqlToQuery(e).sql)).toEqual(['"created_at" desc', '"id" desc'])
+      for (const e of exprs) expect(dialect.sqlToQuery(e).sql).not.toContain('log(')
+    })
+  })
+
+  // [LAW:one-source-of-truth] cursorFromRow is the inverse of cursorFilter — it reads the per-mode
+  // tuple off the keyset-boundary row. top carries the score boundary; new/hot carry only the
+  // created_at (ms) + id boundary, so a `hot` cursor.t is the page's MIN created_at by construction.
+  describe('cursorFromRow', () => {
+    const row = { score: 7, createdAt: new Date(1_700_000_000_000), id: 'p-42' }
+
+    it('top → { m:"top", s, t(ms), id }', () => {
+      expect(cursorFromRow({ mode: 'top', window: 'all' }, row)).toEqual({
+        m: 'top',
+        s: 7,
+        t: 1_700_000_000_000,
+        id: 'p-42',
+      })
+    })
+
+    it('new → { m:"new", t(ms), id } (no score)', () => {
+      expect(cursorFromRow({ mode: 'new' }, row)).toEqual({ m: 'new', t: 1_700_000_000_000, id: 'p-42' })
+    })
+
+    it('hot → { m:"hot", t(ms), id } (no score — the created_at boundary)', () => {
+      expect(cursorFromRow({ mode: 'hot' }, row)).toEqual({ m: 'hot', t: 1_700_000_000_000, id: 'p-42' })
     })
   })
 

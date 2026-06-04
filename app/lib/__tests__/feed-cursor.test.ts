@@ -48,30 +48,29 @@ describe('cursorFilter — the keyset is the strictly-after of the ORDER BY tupl
   const dialect = new SQLiteSyncDialect()
   const ctx = {
     score: sql`"posts"."score"`,
-    affinity: sql`0`,
     createdAt: sql`"posts"."created_at"`,
     id: sql`"posts"."id"`,
   }
   const render = (c: CursorPayload) => dialect.sqlToQuery(cursorFilter(c, ctx))
 
-  it('top keysets on (effectiveScore, created_at, id) — three lexicographic terms', () => {
+  // [LAW:behavior-not-structure] The keyset is a SQLite ROW-VALUE comparison `(cols…) < (vals…)`,
+  // not an OR-chain — that is what SQLite folds into an index SEEK (proven in feed-page.test.ts's
+  // EXPLAIN). These pin the wire shape: the LHS is the mode's column tuple in order, the RHS its
+  // cursor values in the SAME order, joined by a single `<`, with no `or`.
+  it('top keysets the row-value tuple (score, created_at, id) < (s, t, id)', () => {
     const { sql: s, params } = render({ m: 'top', s: 42, t: 1700, id: 'p9' })
-    // effectiveScore = score + 10*affinity, compared <, then created_at, then id — all DESC → "<".
-    expect(s).toContain('"posts"."created_at" <')
-    expect(s).toContain('"posts"."id" <')
-    expect(s.match(/ or /gi)?.length).toBe(2) // three terms joined by two ORs
-    expect(params).toContain(42) // the score boundary is bound
-    expect(params).toContain('p9')
+    expect(s).toMatch(/\(\s*"posts"\."score",\s*"posts"\."created_at",\s*"posts"\."id"\s*\)\s*<\s*\(/)
+    expect(s).not.toMatch(/ or /i) // a single row-value comparison, no OR-chain
+    expect(params).toEqual([42, 1700, 'p9']) // bound in tuple order: score, then created_at, then id
   })
 
-  it('new/hot keyset on (created_at, id) — two terms, no score', () => {
+  it('new/hot keyset the row-value tuple (created_at, id) < (t, id) — no score', () => {
     for (const m of ['new', 'hot'] as const) {
       const { sql: s, params } = render({ m, t: 1700, id: 'p9' })
-      expect(s).toContain('"posts"."created_at" <')
-      expect(s).toContain('"posts"."id" <')
+      expect(s).toMatch(/\(\s*"posts"\."created_at",\s*"posts"\."id"\s*\)\s*<\s*\(/)
       expect(s).not.toContain('score')
-      expect(s.match(/ or /gi)?.length).toBe(1) // two terms, one OR
-      expect(params).toContain(1700)
+      expect(s).not.toMatch(/ or /i)
+      expect(params).toEqual([1700, 'p9'])
     }
   })
 })

@@ -100,7 +100,13 @@ export const posts = sqliteTable(
     score: integer('score').notNull().default(0),
   },
   (t) => [
-    index('posts_created_at_idx').on(t.createdAt),
+    // [LAW:dataflow-not-control-flow] Serves the `new`/`hot` keyset cursor: `(created_at, id)` is the
+    // exact ORDER BY tuple they paginate on. The `id` tie-break MUST be in the index — posts.id is a
+    // TEXT primary key, NOT the rowid, so it is absent from a `(created_at)`-only index's leaves and
+    // SQLite would add a TEMP B-TREE to order by it (MEASURED — EXPLAIN). This composite supersedes
+    // the old `(created_at)`-only index (a leading-column prefix serves every `created_at` query the
+    // old one did), so the keyset is a COVERING SEEK with no temp sort. (0029)
+    index('posts_created_at_id_idx').on(t.createdAt, t.id),
     // [LAW:dataflow-not-control-flow] Serves the `top` keyset cursor: `(score, created_at, id)` is
     // the exact ORDER BY tuple top paginates on, so a page is an index SEEK to the cursor + K rows
     // forward, no temp sort. The materialized score is what makes this column indexable at all.

@@ -1,8 +1,8 @@
-// [LAW:behavior-not-structure] These tests pin getFeed / getFeedItemById /
+// [LAW:behavior-not-structure] These tests pin getFeedPage / getFeedItemById /
 // getPostById's *contracts* - what shape they return for what storage state.
-// They are deliberately blind to the helper decomposition (voteScoreSubquery,
-// pickFeedIds, selectFeedRows): a refactor that keeps the contract intact must
-// not require editing these tests, and a refactor that drifts must fail them.
+// They are deliberately blind to the helper decomposition (the keyset selection,
+// selectFeedRows, the enrichment passes): a refactor that keeps the contract intact
+// must not require editing these tests, and a refactor that drifts must fail them.
 //
 // [LAW:types-are-the-program] The fact that these tests pass against a real D1
 // isolate (not a mock) is load-bearing. The storage→domain trust boundary in
@@ -12,8 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getFeed, getFeedItemById, getPostById } from '~/db/feed'
-import { setBacking } from '~/db/backings'
+import { getFeedPage, getFeedItemById, getPostById } from '~/db/feed'
 import {
   AgentId,
   PostId,
@@ -22,10 +21,20 @@ import {
   type Origin,
   type RenderablePost,
 } from '~/lib/domain'
+import type { SortMode } from '~/lib/sort-mode'
 import { fallbackTitle } from '~/lib/variety'
 import { db } from '~/db/client'
 import { personas } from '~/db/schema'
 import { seedComment, seedPost, seedVote } from './helpers'
+
+// [LAW:behavior-not-structure] These contract tests assert one PAGE of the feed reader — score,
+// myVote, commentCount, ordering, content arms, verdicts — so they read getFeedPage's `items`. The
+// cursor TOTALITY contracts (paging through > one page with no skip/dupe) live in their own suite
+// below; this helper keeps the page-1 contracts readable. Default page = default sort (Hot), default
+// limit (FEED_PAGE_SIZE); the seeds here are always ≤ one page, so `items` is the whole feed.
+async function feedItems(voterId?: string, sort?: SortMode): Promise<FeedItem[]> {
+  return (await getFeedPage(env, { voterId, sort })).items
+}
 
 // [LAW:single-enforcer] One persona seeder for these tests — a critic must exist in
 // the personas table for its vote's reasoning to resolve to a bylined verdict (the
@@ -59,13 +68,13 @@ function ms(n: number): Date {
   return new Date(MS_BASE + n)
 }
 
-describe('app/db/feed.ts - getFeed', () => {
+describe('app/db/feed.ts - getFeedPage', () => {
   it('returns [] when the posts table is empty', async () => {
     // [LAW:dataflow-not-control-flow] The empty case is data-flow degradation
-    // (pickFeedIds returns []; inArray(posts.id, []) → WHERE FALSE), not an
+    // (no candidate ids; inArray(posts.id, []) → WHERE FALSE), not an
     // early-return branch - but the contract is the same: no rows in, no
     // items out.
-    const result = await getFeed(env)
+    const result = await feedItems()
     expect(result).toEqual([])
   })
 
@@ -75,7 +84,7 @@ describe('app/db/feed.ts - getFeed', () => {
       createdAt: ms(1000),
     })
 
-    const result = await getFeed(env)
+    const result = await feedItems()
 
     expect(result).toHaveLength(1)
     const item = result[0]
@@ -95,7 +104,7 @@ describe('app/db/feed.ts - getFeed', () => {
       await seedVote(env, { postId: id, voterId: 'voter-b', value: 1 })
       await seedVote(env, { postId: id, voterId: 'voter-c', value: -1 })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.score).toBe(1)
     })
 
@@ -103,7 +112,7 @@ describe('app/db/feed.ts - getFeed', () => {
       const id = await seedPost(env, { id: 'post-single-downvote' })
       await seedVote(env, { postId: id, voterId: 'voter-a', value: -1 })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.score).toBe(-1)
     })
   })
@@ -114,8 +123,8 @@ describe('app/db/feed.ts - getFeed', () => {
       await seedVote(env, { postId: id, voterId: 'voter-a', value: 1 })
       await seedVote(env, { postId: id, voterId: 'voter-b', value: -1 })
 
-      const [asA] = await getFeed(env, 'voter-a')
-      const [asB] = await getFeed(env, 'voter-b')
+      const [asA] = await feedItems('voter-a')
+      const [asB] = await feedItems('voter-b')
       expect(asA.myVote).toBe(1)
       expect(asB.myVote).toBe(-1)
     })
@@ -124,7 +133,7 @@ describe('app/db/feed.ts - getFeed', () => {
       const id = await seedPost(env, { id: 'post-no-myvote' })
       await seedVote(env, { postId: id, voterId: 'voter-a', value: 1 })
 
-      const [asC] = await getFeed(env, 'voter-c')
+      const [asC] = await feedItems('voter-c')
       expect(asC.myVote).toBeNull()
     })
 
@@ -132,7 +141,7 @@ describe('app/db/feed.ts - getFeed', () => {
       const id = await seedPost(env, { id: 'post-anon-myvote' })
       await seedVote(env, { postId: id, voterId: 'voter-a', value: 1 })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.myVote).toBeNull()
     })
   })
@@ -145,7 +154,7 @@ describe('app/db/feed.ts - getFeed', () => {
       await seedComment(env, { id: 'c2', postId: target })
       await seedComment(env, { id: 'c3', postId: target })
 
-      const feed = await getFeed(env)
+      const feed = await feedItems()
       const targetItem = feed.find((f) => f.post.id === target)
       const otherItem = feed.find((f) => f.post.id === other)
       expect(targetItem?.commentCount).toBe(3)
@@ -156,7 +165,7 @@ describe('app/db/feed.ts - getFeed', () => {
   describe('top window filtering (jc6.4)', () => {
     // Three posts seeded relative to now: 1h ago (in day and week), 3d ago
     // (in week only), 30d ago (in neither). The actual cutoff is computed by
-    // getFeed via Date.now(), which is a few ms later than the test's `now` —
+    // getFeedPage via Date.now(), which is a few ms later than the test's `now` —
     // the hour/day/week boundaries give enough headroom that clock drift
     // between seeding and querying is irrelevant.
     it('window: "all" returns all posts regardless of age', async () => {
@@ -165,7 +174,7 @@ describe('app/db/feed.ts - getFeed', () => {
       const d3 = await seedPost(env, { id: 'window-3d', createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000) })
       const d30 = await seedPost(env, { id: 'window-30d', createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000) })
 
-      const result = await getFeed(env, undefined, { mode: 'top', window: 'all' })
+      const result = await feedItems(undefined, { mode: 'top', window: 'all' })
       const ids = result.map((f) => f.post.id)
       expect(ids).toContain(h1)
       expect(ids).toContain(d3)
@@ -178,7 +187,7 @@ describe('app/db/feed.ts - getFeed', () => {
       const d3 = await seedPost(env, { id: 'daywin-3d', createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000) })
       const d30 = await seedPost(env, { id: 'daywin-30d', createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000) })
 
-      const result = await getFeed(env, undefined, { mode: 'top', window: 'day' })
+      const result = await feedItems(undefined, { mode: 'top', window: 'day' })
       const ids = result.map((f) => f.post.id)
       expect(ids).toContain(h1)
       expect(ids).not.toContain(d3)
@@ -191,7 +200,7 @@ describe('app/db/feed.ts - getFeed', () => {
       const d3 = await seedPost(env, { id: 'weekwin-3d', createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000) })
       const d30 = await seedPost(env, { id: 'weekwin-30d', createdAt: new Date(now - 30 * 24 * 60 * 60 * 1000) })
 
-      const result = await getFeed(env, undefined, { mode: 'top', window: 'week' })
+      const result = await feedItems(undefined, { mode: 'top', window: 'week' })
       const ids = result.map((f) => f.post.id)
       expect(ids).toContain(h1)
       expect(ids).toContain(d3)
@@ -205,7 +214,7 @@ describe('app/db/feed.ts - getFeed', () => {
       await seedVote(env, { postId: high, voterId: 'v1', value: 1 })
       await seedVote(env, { postId: high, voterId: 'v2', value: 1 })
 
-      const result = await getFeed(env, undefined, { mode: 'top', window: 'day' })
+      const result = await feedItems(undefined, { mode: 'top', window: 'day' })
       const ids = result.map((f) => f.post.id)
       expect(ids.indexOf(high)).toBeLessThan(ids.indexOf(low))
     })
@@ -227,7 +236,7 @@ describe('app/db/feed.ts - getFeed', () => {
       await seedVote(env, { postId: high, voterId: 'v1', value: 1 })
       await seedVote(env, { postId: high, voterId: 'v2', value: 1 })
 
-      const feed = await getFeed(env)
+      const feed = await feedItems()
       expect(feed.map((f) => f.post.id)).toEqual([
         high,
         newerLowScore,
@@ -242,8 +251,8 @@ describe('app/db/feed.ts - getFeed', () => {
       const a = await seedPost(env, { id: 'aaaa', createdAt: ms(5000) })
       const z = await seedPost(env, { id: 'zzzz', createdAt: ms(5000) })
 
-      const first = await getFeed(env)
-      const second = await getFeed(env)
+      const first = await feedItems()
+      const second = await feedItems()
 
       expect(first.map((f) => f.post.id)).toEqual([z, a])
       // [LAW:one-source-of-truth] Two calls of the same query against the
@@ -277,7 +286,7 @@ describe('app/db/feed.ts - getFeed', () => {
         })
       }
 
-      const feed = await getFeed(env)
+      const feed = await feedItems()
       const item = feed.find((f) => f.post.id === target)
       expect(item?.score).toBe(5)
     })
@@ -297,7 +306,7 @@ describe('app/db/feed.ts - getFeed', () => {
       await seedComment(env, { id: 'dc2', postId: distractor })
       await seedComment(env, { id: 'dc3', postId: distractor })
 
-      const feed = await getFeed(env)
+      const feed = await feedItems()
       expect(feed.find((f) => f.post.id === target)?.commentCount).toBe(2)
       expect(feed.find((f) => f.post.id === distractor)?.commentCount).toBe(3)
     })
@@ -310,7 +319,7 @@ describe('app/db/feed.ts - getFeed', () => {
         id: 'post-pending',
         content: { kind: 'generation', status: { kind: 'pending', queuedAt } },
       })
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.post.id).toBe(id)
       if (item.post.content.kind !== 'generation') throw new Error('expected generation content')
       expect(item.post.content.status).toEqual({ kind: 'pending', queuedAt })
@@ -322,7 +331,7 @@ describe('app/db/feed.ts - getFeed', () => {
         id: 'post-running',
         content: { kind: 'generation', status: { kind: 'running', startedAt } },
       })
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       if (item.post.content.kind !== 'generation') throw new Error('expected generation content')
       expect(item.post.content.status).toEqual({ kind: 'running', startedAt })
     })
@@ -336,7 +345,7 @@ describe('app/db/feed.ts - getFeed', () => {
           status: { kind: 'failed', reason: 'provider 500', failedAt },
         },
       })
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       if (item.post.content.kind !== 'generation') throw new Error('expected generation content')
       expect(item.post.content.status).toEqual({
         kind: 'failed',
@@ -359,7 +368,7 @@ describe('app/db/feed.ts - getFeed', () => {
         content: { kind: 'upload', asset },
       })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.post.id).toBe(id)
       if (item.post.content.kind !== 'upload') throw new Error('expected upload content')
       expect(item.post.content.asset).toEqual(asset)
@@ -375,7 +384,7 @@ describe('app/db/feed.ts - getFeed', () => {
         },
       })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.post.id).toBe(id)
       if (item.post.content.kind !== 'found') throw new Error('expected found content')
       expect(item.post.content.url).toBe('https://civitai.com/images/123')
@@ -403,7 +412,7 @@ describe('app/db/feed.ts - getFeed', () => {
         },
       })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       if (item.post.content.kind !== 'found') throw new Error('expected found content')
       expect(item.post.content.url).toBe('https://lexica.art/prompt/abc')
       expect(item.post.content.title).toBe('a discovered prompt')
@@ -427,7 +436,7 @@ describe('app/db/feed.ts - getFeed', () => {
       await seedVote(env, { postId: foundId, voterId: 'v1', value: 1 })
       await seedVote(env, { postId: foundId, voterId: 'v2', value: 1 })
 
-      const feed = await getFeed(env)
+      const feed = await feedItems()
       // found post has score 2, generation has 0 — found wins ranking.
       expect(feed.map((f) => f.post.id)).toEqual([foundId, genId])
       expect(feed[0].rank).toBe(1)
@@ -454,7 +463,7 @@ describe('app/db/feed.ts - getFeed', () => {
         },
       })
 
-      const item = (await getFeed(env)).find((f) => f.post.id === child)
+      const item = (await feedItems()).find((f) => f.post.id === child)
       if (!item || item.post.content.kind !== 'generation') {
         throw new Error('expected child generation in feed')
       }
@@ -505,7 +514,7 @@ describe('app/db/feed.ts - getFeed', () => {
       }
       await seedPost(env, { id: 'post-authored', origin })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.post.origin).toEqual({
         kind: 'authored',
         author: { kind: 'agent', agentId: 'firehose-cron-v1' },
@@ -519,7 +528,7 @@ describe('app/db/feed.ts - getFeed', () => {
       const legacy = { actor: { kind: 'agent', agentId: 'firehose-cron-v1' } } as unknown as Origin
       await seedPost(env, { id: 'post-legacy', origin: legacy })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.post.origin).toEqual({
         kind: 'authored',
         author: { kind: 'agent', agentId: 'firehose-cron-v1' },
@@ -534,7 +543,7 @@ describe('app/db/feed.ts - getFeed', () => {
       }
       await seedPost(env, { id: 'post-bred', origin })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.post.origin).toEqual({
         kind: 'authored',
         author: { kind: 'agent', agentId: 'firehose-cron-v1' },
@@ -549,7 +558,7 @@ describe('app/db/feed.ts - getFeed', () => {
       }
       await seedPost(env, { id: 'post-found', origin, content: { kind: 'found' } })
 
-      const [item] = await getFeed(env)
+      const [item] = await feedItems()
       expect(item.post.origin).toEqual({
         kind: 'found',
         finder: { kind: 'anon', label: 'anon-finder' },
@@ -562,91 +571,17 @@ describe('app/db/feed.ts - getFeed', () => {
       const illegal = { actor: { kind: 'anon', label: 'anon-imposter' } } as unknown as Origin
       await seedPost(env, { id: 'post-illegal-author', origin: illegal })
 
-      await expect(getFeed(env)).rejects.toThrow(/non-persona author/)
+      await expect(feedItems()).rejects.toThrow(/non-persona author/)
     })
   })
 })
 
-// [LAW:behavior-not-structure] The backing lens contract (roll-call-47p.4): backing a
-// citizen reorders the feed toward that citizen's expressed taste, an empty backing set
-// leaves the feed untouched, and the lens never mutates the displayed score. These pin
-// WHAT getFeed does for a viewer's backings — blind to whether the bias lives in a CTE
-// column, applySortMode, or a weight constant.
-//
-// The scenario isolates the lens by NEUTRALIZING the critic's real-score contribution:
-// each post the critic touches gets an opposing human vote, so all three posts have a
-// real score of 0. With equal scores, 'top' orders strictly by createdAt — so the
-// UNBACKED feed is [A, B, C] by recency. The ONLY thing that can reorder it is the
-// viewer-specific affinity term. The backed critic buried A and blessed C, so for a
-// viewer who backs that critic the order flips to [C, B, A].
-describe('app/db/feed.ts - getFeed backing lens (roll-call-47p.4)', () => {
-  const CRITIC = 'agent:gremlin-test'
-  const FAN = '10000000-0000-4000-8000-000000000001' // backs the critic
-  const STRANGER = '20000000-0000-4000-8000-000000000002' // backs nobody
-  const TOP_ALL = { mode: 'top', window: 'all' } as const
-
-  // Equal real scores (0 each), distinct createdAt so unbacked 'top' order is A>B>C.
-  async function seedLensScenario(): Promise<void> {
-    await seedCritic(CRITIC, 'The Gremlin')
-    const a = await seedPost(env, { id: 'lens-a', createdAt: ms(3000) })
-    // lens-b is the untouched middle — no votes, so it anchors the neutral band the
-    // buried post sinks below and the blessed post rises above. Seeded, not bound.
-    await seedPost(env, { id: 'lens-b', createdAt: ms(2000) })
-    const c = await seedPost(env, { id: 'lens-c', createdAt: ms(1000) })
-
-    // Critic buries A, blesses C — and each is cancelled by an opposing human vote so
-    // every post nets a real score of 0. The critic's opinion survives ONLY in the
-    // votes table as a per-citizen signal the lens can read; it does not tilt the
-    // unbacked ranking.
-    await seedVote(env, { postId: a, voterId: CRITIC, value: -1, reasoning: 'deserves the dark' })
-    await seedVote(env, { postId: a, voterId: 'human-a', value: 1 })
-    await seedVote(env, { postId: c, voterId: CRITIC, value: 1, reasoning: 'against my will, this works' })
-    await seedVote(env, { postId: c, voterId: 'human-c', value: -1 })
-  }
-
-  function order(items: { post: { id: string } }[]): string[] {
-    return items.map((i) => i.post.id)
-  }
-
-  it('unbacked viewers see the normal feed; backing the critic reorders toward its taste', async () => {
-    await seedLensScenario()
-
-    // A stranger who backs nobody and an anonymous viewer (no cookie) both get the
-    // identical normal feed — the empty backing set degrades to a 0 affinity by data.
-    const stranger = await getFeed(env, STRANGER, TOP_ALL)
-    const anon = await getFeed(env, undefined, TOP_ALL)
-    expect(order(stranger)).toEqual(['lens-a', 'lens-b', 'lens-c'])
-    expect(order(anon)).toEqual(['lens-a', 'lens-b', 'lens-c'])
-
-    // The fan backs the critic, then sees the city through its eyes: the buried post
-    // sinks to the bottom, the blessed post rises to the top. A measurable reorder
-    // driven solely by the allegiance.
-    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: true }, { env })
-    const fan = await getFeed(env, FAN, TOP_ALL)
-    expect(order(fan)).toEqual(['lens-c', 'lens-b', 'lens-a'])
-  })
-
-  it('the lens biases only the ORDER — the displayed score stays pure SUM(votes)', async () => {
-    await seedLensScenario()
-    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: true }, { env })
-
-    const fan = await getFeed(env, FAN, TOP_ALL)
-    // Every post nets 0 real votes; the lens reordered them but must not have leaked
-    // BACKING_WEIGHT into the number a viewer reads. [LAW:one-source-of-truth]
-    for (const item of fan) {
-      expect(item.score).toBe(0)
-    }
-  })
-
-  it('withdrawing a backing restores the normal feed (the lens is the backing set, nothing cached)', async () => {
-    await seedLensScenario()
-    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: true }, { env })
-    expect(order(await getFeed(env, FAN, TOP_ALL))).toEqual(['lens-c', 'lens-b', 'lens-a'])
-
-    await setBacking({ handle: 'gremlin-test', voterId: FAN, backed: false }, { env })
-    expect(order(await getFeed(env, FAN, TOP_ALL))).toEqual(['lens-a', 'lens-b', 'lens-c'])
-  })
-})
+// [LAW:behavior-not-structure] The global backing-lens contract that lived here (roll-call-47p.4)
+// is intentionally GONE, not skipped: getFeedPage's keyset selects on the bare materialized
+// posts.score for every viewer, so there is no global affinity re-rank to assert. The lens returns
+// under cursor pagination as a WITHIN-PAGE re-rank — a different shape needing its own tests — in the
+// follow-up slopspot-roll-call-47p.7 (blocked on operator sign-off). A skipped test would assert
+// nothing; deleting it is the honest record that this behavior is deferred.
 
 describe('app/db/feed.ts - getFeedItemById', () => {
   it('returns null when the id does not match any post', async () => {
@@ -673,16 +608,16 @@ describe('app/db/feed.ts - getFeedItemById', () => {
     expect(r).not.toHaveProperty('rank')
   })
 
-  it('aggregates match getFeed for the same post', async () => {
-    // [LAW:one-source-of-truth] voteScoreSubquery is the single source for
-    // SUM(votes.value); the two readers must compute the same score per post.
+  it('aggregates match getFeedPage for the same post', async () => {
+    // [LAW:one-source-of-truth] The materialized posts.score column is the single source both
+    // readers read; getFeedPage and getFeedItemById must surface the same score per post.
     const id = await seedPost(env, { id: 'post-aggregate-consistency' })
     await seedVote(env, { postId: id, voterId: 'voter-a', value: 1 })
     await seedVote(env, { postId: id, voterId: 'voter-b', value: 1 })
     await seedVote(env, { postId: id, voterId: 'voter-c', value: -1 })
     await seedComment(env, { id: 'cc1', postId: id })
 
-    const feedItem = (await getFeed(env, 'voter-a')).find((f) => f.post.id === id) as FeedItem
+    const feedItem = (await feedItems('voter-a')).find((f) => f.post.id === id) as FeedItem
     const permalinkItem = (await getFeedItemById(env, id, 'voter-a')) as RenderablePost
     expect(permalinkItem.score).toBe(feedItem.score)
     expect(permalinkItem.commentCount).toBe(feedItem.commentCount)
@@ -885,7 +820,7 @@ describe('app/db/feed.ts - verdict', () => {
       reasoning: 'Four steps and it still found the void. Devastating. I wept.',
     })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict).toEqual({
       critic: 'St. Vivian',
       text: 'Four steps and it still found the void. Devastating. I wept.',
@@ -901,7 +836,7 @@ describe('app/db/feed.ts - verdict', () => {
     await seedVote(env, { postId: blessed, voterId: 'agent:vivian', value: 1, reasoning: 'Canonized.' })
     await seedVote(env, { postId: buried, voterId: 'agent:gremlin', value: -1, reasoning: 'Buried.' })
 
-    const items = await getFeed(env)
+    const items = await feedItems()
     expect(items.find((i) => i.post.id === blessed)?.verdict?.disposition).toBe('blessed')
     expect(items.find((i) => i.post.id === buried)?.verdict?.disposition).toBe('buried')
   })
@@ -911,7 +846,7 @@ describe('app/db/feed.ts - verdict', () => {
     // A human anon vote (no reasoning, no persona row) must not mint a verdict.
     await seedVote(env, { postId: PostId('post-no-verdict'), voterId: 'anon-cookie', value: 1 })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict).toBeUndefined()
   })
 
@@ -922,7 +857,7 @@ describe('app/db/feed.ts - verdict', () => {
     // predicate — it is no verdict, not an empty one.
     await seedVote(env, { postId: id, voterId: 'agent:blankcritic', value: -1, reasoning: '   ' })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict).toBeUndefined()
   })
 
@@ -945,7 +880,7 @@ describe('app/db/feed.ts - verdict', () => {
       createdAt: ms(3000),
     })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict).toEqual({ critic: 'The Gremlin', text: 'Mid. Aggressively mid. Buried.', disposition: 'buried' })
   })
 
@@ -969,7 +904,7 @@ describe('app/db/feed.ts - verdict', () => {
       createdAt: ms(3000),
     })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict).toEqual({
       critic: 'St. Vivian',
       text: 'The sixth finger reaches. Canonized.',
@@ -987,7 +922,7 @@ describe('app/db/feed.ts - verdict', () => {
       reasoning: '   Blessed be the cursed.   ',
     })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict?.text).toBe('Blessed be the cursed.')
   })
 
@@ -1003,7 +938,7 @@ describe('app/db/feed.ts - verdict', () => {
       reasoning: 'A line with no one to sign it.',
     })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict).toBeUndefined()
   })
 
@@ -1026,7 +961,7 @@ describe('app/db/feed.ts - verdict', () => {
       createdAt: ms(3000),
     })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict).toEqual({
       critic: 'St. Vivian',
       text: 'A blessing that keeps its name.',
@@ -1044,7 +979,7 @@ describe('app/db/feed.ts - verdict', () => {
       reasoning: 'Buried.',
     })
 
-    const [item] = await getFeed(env)
+    const [item] = await feedItems()
     expect(item.verdict?.critic).toBe('The Gremlin')
   })
 
