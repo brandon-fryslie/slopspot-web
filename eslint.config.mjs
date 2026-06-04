@@ -15,6 +15,7 @@ export default [
       "worker-configuration.d.ts",
       "services/**/dist/**",
       "services/**/node_modules/**",
+      ".claude/**",
     ],
   },
   js.configs.recommended,

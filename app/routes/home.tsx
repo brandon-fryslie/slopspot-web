@@ -1,8 +1,11 @@
 import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
-import { getFeed } from "~/db/feed"
+import { countSlops, getFeed, getFeedItemById } from "~/db/feed"
+import { latestCrownedPostId } from "~/db/crowns"
 import { getPulse } from "~/db/pulse"
 import { Wall } from "~/components/wall"
+import { RiteHero, type CrownedRenderable } from "~/components/rite-hero"
+import { CastAtWork } from "~/components/cast-at-work"
 import { PulseStrip } from "~/components/pulse-strip"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
@@ -33,10 +36,34 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const cookieSort = parseSortMode(cookieRaw)
   const sort = urlSort ?? cookieSort ?? defaultSortMode
 
-  const [items, pulse] = await Promise.all([
-    getFeed(context.cloudflare.env, readVoterId(request), sort),
-    getPulse(context.cloudflare.env),
+  const env = context.cloudflare.env
+  const voterId = readVoterId(request)
+  // [LAW:one-source-of-truth] The hero is DERIVED from the crowns table (the latest crown),
+  // not a flag — and read through the same feed reader as any post, so it carries the same
+  // mark crowningsForPosts would derive in the wall. The four reads are independent; only
+  // the hero post depends on the crown id, so it follows in a second hop.
+  const [items, pulse, slopCount, heroId] = await Promise.all([
+    getFeed(env, voterId, sort),
+    getPulse(env),
+    countSlops(env),
+    latestCrownedPostId(env),
   ])
+  // [LAW:dataflow-not-control-flow] getFeedItemById takes the id | null and yields the post
+  // | null — the null flows THROUGH (an absent crown is an empty candidate set, no rows), so
+  // the call is uniform, not gated behind a ternary that skips it.
+  const heroPost = await getFeedItemById(env, heroId, voterId)
+  // [LAW:dataflow-not-control-flow] The hero exists iff a crowned post resolves WITH its
+  // crown. This narrows the optional crowning to the required shape RiteHero consumes — it
+  // PRODUCES the typed value (CrownedRenderable | null), it does not skip an operation.
+  const hero: CrownedRenderable | null =
+    heroPost !== null && heroPost.crowning !== undefined
+      ? { ...heroPost, crowning: heroPost.crowning }
+      : null
+  // [LAW:one-source-of-truth] The hero is hung above the wall; the wall is everything else.
+  // A post is one relic — showing the crown as both the gold hero AND a wall tile would be
+  // two of the same. One uniform predicate drops the hero's id (matching nothing when there
+  // is no hero), so the filter runs the same way whether or not a crown reigns.
+  const wallItems = items.filter((i) => i.post.id !== hero?.post.id)
 
   const serialized = serializeSortMode(sort)
   const headers: HeadersInit | undefined =
@@ -44,11 +71,11 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       ? { 'Set-Cookie': serializeSortCookie(sort, url.protocol === 'https:') }
       : undefined
 
-  return data({ items, pulse, sort }, { headers })
+  return data({ items: wallItems, pulse, sort, hero, slopCount }, { headers })
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items, pulse, sort } = loaderData
+  const { items, pulse, sort, hero, slopCount } = loaderData
   // [LAW:dataflow-not-control-flow] The chrome (the sign, the Pulse, the sort, the
   // tagline) holds a readable centered column; the WALL goes full-bleed to fill the
   // room and kill the void. Width is structure, not a mode — the same markup renders
@@ -92,10 +119,19 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </p>
         </div>
       </div>
+      {/* the city visibly peopled + the relentless productivity, made visible. */}
+      <CastAtWork events={pulse} slopCount={slopCount} />
+      {/* [LAW:dataflow-not-control-flow] RiteHero is rendered UNCONDITIONALLY; the hero
+          VALUE (a crowned relic or null) decides whether anything appears — the presence of
+          the crown is the discriminator, handled inside RiteHero, never a caller-side guard.
+          The gold Saint (or the day's rite, in its mark) above; the votive loudest-now leads
+          the wall below. Two kinds of glory, never two gilt. */}
+      <RiteHero hero={hero} />
       {/* [LAW:dataflow-not-control-flow] Presence of slop decides what shows: a full
-          wall, or the Proprietor's honest quiet. The empty copy is the page's, never
-          an empty grid — the silence is part of it. */}
-      {items.length === 0 ? (
+          wall, or the Proprietor's honest quiet. The empty copy speaks only when the
+          room is truly bare — no wall AND no standing crown — so a lone crowned relic
+          never hangs beside a "nobody's here" sign. The silence is part of it. */}
+      {items.length === 0 && hero === null ? (
         <div className="mx-auto max-w-5xl">
           <p className="rounded-lg border border-dashed border-ash/30 px-4 py-16 text-center font-terminal text-sm text-ash">
             nobody&apos;s here yet — the firehose hasn&apos;t fired. the silence is part of it.
@@ -105,7 +141,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <Wall items={items} />
       )}
       <footer className="mx-auto mt-16 flex max-w-5xl items-center justify-between gap-4 border-t border-votive/15 pt-6 font-terminal text-xs text-ash">
-        <span>slopspot · {items.length} slops · open the cage and let the slop out</span>
+        <span>slopspot · {slopCount.toLocaleString("en-US")} slops · open the cage and let the slop out</span>
         <Link to="/cast" className="transition-colors hover:text-votive/70">
           the cast
         </Link>

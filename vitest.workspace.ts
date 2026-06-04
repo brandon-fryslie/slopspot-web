@@ -44,6 +44,7 @@ export default defineWorkspace([
         'app/db/__tests__/**/*.test.ts',
         'app/agents/__tests__/**/*.test.ts',
       ],
+      exclude: ['.claude/**'],
       // [LAW:single-enforcer] Migration application lives in one place,
       // applied once per test file via beforeAll. With isolatedStorage on,
       // schema applied in beforeAll persists across the file's tests while
