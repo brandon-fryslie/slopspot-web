@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bootstrap": "tsx scripts/bootstrap-seed.ts"
+    "bootstrap": "tsx scripts/bootstrap-seed.ts",
+    "gen:routes": "tsx scripts/gen-route-patterns.ts"
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",

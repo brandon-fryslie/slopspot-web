@@ -16,6 +16,15 @@
   "observability": {
     "enabled": true
   },
+  // [LAW:single-enforcer] Route every invocation's finalized trace (carrying the true
+  // billed cpuTime, which the handler cannot read about itself) to the dedicated
+  // out-of-band CPU-measurement consumer. Its own config is workers/cpu-tail/wrangler.jsonc;
+  // it must be deployed before this reference resolves. Zero CPU is added to the measured
+  // path here — the consumer reads cpuTime off-band, so the measurement cannot regress
+  // what it measures.
+  "tail_consumers": [
+    { "service": "slopspot-cpu-tail" }
+  ],
   "upload_source_maps": true,
   // [LAW:single-enforcer] SLOPSPOT_ENV is the discriminator for "is this the
   // prod deploy?" used by app/providers/registry.ts:realProviders() to filter
