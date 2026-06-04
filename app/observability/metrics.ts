@@ -81,6 +81,11 @@ export type MetricLabels = {
   // surface here too, which is exactly what the metric should let you catch.
   // [LAW:single-enforcer] feed.ts toContent is the sole emitter.
   'slopspot.feed.title_fallback': { reason: 'empty_title' }
+  // [LAW:single-enforcer] getFeedPage is the sole emitter. A client-supplied feed cursor that fails
+  // the trust-boundary parse (`garbage`) or names a different sort than the request (`mode_mismatch`)
+  // is DEGRADED to page 1 — not an error, but a counter so a client bug is visible long before a
+  // user reports "the feed jumps to the top." [LAW:no-silent-fallbacks] the degradation is observable.
+  'slopspot.feed.cursor_rejected': { reason: 'garbage' | 'mode_mismatch' }
   // [LAW:single-enforcer] The Cast self-portrait pass (agents/portrait.ts) is the
   // sole emitter. One sample per citizen the pass touched: `rendered` (a new face
   // committed), `failed` (the generation threw — the failed slop row is observable),

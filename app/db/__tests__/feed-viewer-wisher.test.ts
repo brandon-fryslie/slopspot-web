@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getFeed, getFeedItemById } from '~/db/feed'
+import { getFeedPage, getFeedItemById } from '~/db/feed'
 import { authorLabel } from '~/lib/author-label'
 import { AgentId, type Origin, type PostId } from '~/lib/domain'
 import { seedPost } from './helpers'
@@ -59,10 +59,10 @@ describe('app/db/feed.ts - viewerIsModifier (the personal reveal)', () => {
     expect(item!.viewerIsModifier).toBe(false)
   })
 
-  it('getFeed: the same post is personal to the wisher and spectacle to a stranger', async () => {
+  it('getFeedPage: the same post is personal to the wisher and spectacle to a stranger', async () => {
     const id = await seedWishedSlop()
-    const asWisher = (await getFeed(env, WISHER_ID)).find((f) => f.post.id === id)
-    const asStranger = (await getFeed(env, STRANGER_ID)).find((f) => f.post.id === id)
+    const asWisher = (await getFeedPage(env, { voterId: WISHER_ID })).items.find((f) => f.post.id === id)
+    const asStranger = (await getFeedPage(env, { voterId: STRANGER_ID })).items.find((f) => f.post.id === id)
     expect(asWisher!.viewerIsModifier).toBe(true)
     expect(asStranger!.viewerIsModifier).toBe(false)
   })

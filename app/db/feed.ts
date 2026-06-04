@@ -4,21 +4,19 @@
 // pulls that arm's columns. Same discriminators, opposite direction.
 //
 // Three readers live here because they share the same row→Post mapping
-// (toPost/toContent/toStatus): getFeed for the homepage list (with score,
-// commentCount, myVote aggregates), getFeedItemById for the permalink page
-// (same aggregates, narrowed to one post by id), and getPostById for the
-// fork form's parent-recipe fetch (no aggregates — the form does not render
-// score/comments). Splitting them into separate files would duplicate the
-// mapping or force an export-just-for-share — instead they share the helpers
-// in-module.
+// (toPost/toContent/toStatus): getFeedPage for the paginated list (cursor keyset + score,
+// commentCount, myVote aggregates), getFeedItemById for the permalink page (same aggregates,
+// narrowed to one post by id), and getPostById for the fork form's parent-recipe fetch (no
+// aggregates — the form does not render score/comments). Splitting them into separate files would
+// duplicate the mapping or force an export-just-for-share — instead they share the helpers in-module.
 //
-// [LAW:types-are-the-program] FeedItem is the smooth seam between storage and
-// rendering (app/lib/domain.ts). This module's whole job is to absorb the
-// impedance between the storage shape (D1 columns are independently nullable; the
-// vote score is a separate aggregate) and the domain shape (Content/GenerationStatus
-// are closed discriminated unions). Everything below is the residue of that one map.
+// [LAW:types-are-the-program] FeedItem is the smooth seam between storage and rendering
+// (app/lib/domain.ts). This module's whole job is to absorb the impedance between the storage shape
+// (D1 columns are independently nullable; score is the materialized posts.score column) and the
+// domain shape (Content/GenerationStatus are closed discriminated unions). Everything below is the
+// residue of that one map.
 
-import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
@@ -68,19 +66,26 @@ import {
   type RecipeSubject,
   type StyleFamily,
 } from '~/lib/variety'
-import { applySortMode, defaultSortMode, windowFilter, type SortMode } from '~/lib/sort-mode'
-import { backedCitizenIds } from '~/db/backings'
+import {
+  applySortMode,
+  cursorFilter,
+  cursorFromRow,
+  defaultSortMode,
+  keysetOrderBy,
+  windowFilter,
+  type SortMode,
+} from '~/lib/sort-mode'
+import { decodeCursor, encodeCursor, type CursorPayload } from '~/lib/feed-cursor'
 
 // [LAW:dataflow-not-control-flow] How many posts a single feed read hydrates+renders. This is the
 // dominant multiplier on the hot-path CPU: every per-post cost (row hydration, genome assembly,
 // and the home page's React card render) is paid ×N, so N is the largest single CPU lever. The
 // 2026-06-04 outage hit the Worker per-request CPU ceiling on this path; cutting N cuts that term
 // near-proportionally. Set deliberately LOW (12) for the emergency restore — N is a VALUE on a
-// fixed read path, not a mode, so it is tuned down now and raised back by E1 (which makes the
-// per-post work cheap enough to afford a longer page) [LAW:dataflow-not-control-flow]. Named +
-// exported because the materialized read-model (E1) and pagination build ON it — a down payment
-// toward "expensive work happens elsewhere, computed once", not a throwaway cap.
-// [LAW:one-source-of-truth] one page-size, both getFeed callers (/, /api/feed).
+// fixed read path, not a mode. E1 (getFeedPage) makes this a PAGE size, not a truncation: depth is
+// preserved across cursor pages, so the low value bounds per-request CPU without capping the feed.
+// Raising it is a deliberate follow-up once per-page load is verified — it stays 12 for now.
+// [LAW:one-source-of-truth] one default page-size; getFeedPage's `limit` defaults to it.
 export const FEED_PAGE_SIZE = 12
 
 // [LAW:one-source-of-truth] D1 IS a trust boundary (raw SQL / migrations / manual edits can write
@@ -672,92 +677,32 @@ function computeViewerIsModifier(origin: Origin, viewerId: string | undefined): 
   }
 }
 
-// [LAW:single-enforcer] [LAW:one-source-of-truth] ONE pass over the votes table per
-// feed render. The previous design joined this subquery TWICE — once for the ranking
-// score (every vote) and once for the backing-lens affinity (only votes by the viewer's
-// backed citizens) — so each render scanned and grouped `votes` twice. The two are the
-// SAME GROUP BY over the same rows; the affinity is just the score restricted to the
-// backed set. So one grouped scan emits BOTH: `score` = SUM(value), `affinity` = the
-// same SUM gated to the backed citizens by a CASE inside the aggregate.
+// [LAW:single-enforcer] One place defines the FeedItem-shaped rowset's joins, aggregates, and
+// column selection. Both readers (getFeedPage's hydration and getFeedItemById) build from this
+// helper, so any aggregate change (new column, different COALESCE, a future per-post stat) lands in
+// both views by construction — no drift risk.
 //
-// [LAW:dataflow-not-control-flow] The backed set is a VALUE, not a branch. An empty
-// `backed` makes `inArray(votes.voterId, [])` emit `false`, so the CASE is `0` for every
-// vote and affinity coalesces to 0 for every post — the byte-identical unbacked feed,
-// with no second subquery and no toggle. The `filter` parameter still bounds phase 2
-// (visible posts only); phase 1 passes undefined to aggregate over every vote.
+// [LAW:one-source-of-truth][LAW:caches-are-derived] Score is the MATERIALIZED posts.score column —
+// setVote is its single writer, recomputed from SUM(votes.value) on every vote, and the 0028
+// backfill is its definition. Reading the column instead of re-summing the votes table on every
+// feed render is what removed the dominant hot-path CPU cost (the 2026-06-04 outage); the votes
+// table stays authoritative and the column is regenerable from it. commentCount stays a per-post
+// COUNT bounded to the visible `ids` set. The LEFT JOIN + COALESCE keeps a comment-less post at
+// numeric zero rather than NULL.
 //
-// The inner column names carry a stable prefix because Drizzle renders a subquery
-// column reference UNQUALIFIED (bare `"score"`); a distinct name keeps the outer
-// reference unambiguous when this subquery is joined into a larger FROM.
-function voteScoreSubquery(
-  database: ReturnType<typeof db>,
-  filter: SQL | undefined,
-  backed: readonly string[] = [],
-  alias = 'vote_score',
-) {
-  // [LAW:dataflow-not-control-flow] backedSum is SUM(value) gated to the backed set.
-  // inArray(_, []) → `false`, so with no backings every CASE arm is 0 → affinity 0
-  // everywhere. The same expression that biases a backer's feed degrades to the normal
-  // feed by data, in the SAME grouped scan as the score.
-  const backedSum = sql<number>`sum(case when ${inArray(votes.voterId, backed)} then ${votes.value} else 0 end)`
-
-  const voteScore = database
-    .select({
-      postId: votes.postId,
-      score: sql<number>`sum(${votes.value})`.as(`${alias}__sum`),
-      affinity: backedSum.as(`${alias}__affinity`),
-    })
-    .from(votes)
-    .where(filter)
-    .groupBy(votes.postId)
-    .as(alias)
-
-  const score = sql<number>`coalesce(${voteScore.score}, 0)`
-  const affinity = sql<number>`coalesce(${voteScore.affinity}, 0)`
-
-  return { voteScore, score, affinity }
-}
-
-// [LAW:single-enforcer] One place defines the FeedItem-shaped rowset's joins,
-// aggregates, and column selection. Both readers (getFeed and getFeedItemById)
-// build their queries from this helper, so any aggregate change (new column,
-// different COALESCE, a future per-post stat) lands in both views by
-// construction — no drift risk.
+// [LAW:types-are-the-program] The `ids` parameter is the visible post set — the commentCount
+// aggregate and the outer SELECT both narrow by it, so one value determines visibility everywhere.
 //
-// [LAW:types-are-the-program] The `ids` parameter is the visible post set —
-// the strongest true theorem about a per-post aggregate is "aggregate over
-// sibling rows whose post_id is in the visible set." Lifting that constraint
-// into each aggregate's WHERE makes the SUM/COUNT bounded by the caller's
-// narrowing instead of scanning the whole sibling table and then joining late.
-// The outer SELECT also filters by `posts.id IN (ids)`, so a single value
-// (ids) determines visibility for both the row set and every aggregate over
-// it. [LAW:one-source-of-truth] — no parallel "visible set" definitions to
-// drift.
-//
-// [LAW:one-source-of-truth] Score is SUM(votes.value), never a stored column.
-// commentCount is COUNT(comments) per post, derived the same way. The LEFT
-// JOIN + COALESCE shapes make a post with no votes / no comments still appear
-// with a numeric zero, rather than dropping out or yielding NULL downstream.
-//
-// [LAW:dataflow-not-control-flow] The JOIN to the viewer's own vote runs every
-// call, regardless of whether a voter id is known. The sentinel when voterId
-// is absent ('') cannot match any real UUID, so the LEFT JOIN simply yields
-// null for every row — same query shape, the data decides what matches.
-// Empty `ids` is handled by Drizzle's `inArray(_, [])` → `WHERE false`, so the
-// helper degrades to "no rows" by data rather than by an early-return branch.
-//
-// The return shape includes `score` separately because callers need it as a
-// SQL expression for ordering (getFeed orders by it) — separate from the
-// per-row scalar projected into the SELECT.
+// [LAW:dataflow-not-control-flow] The JOIN to the viewer's own vote runs every call; the sentinel
+// when voterId is absent ('') matches no real UUID, so the LEFT JOIN yields null for every row.
+// Empty `ids` → inArray(_, []) → WHERE false, so the helper degrades to "no rows" by data, never an
+// early-return branch. The query is `.$dynamic()` so getFeedPage can append the display ORDER BY
+// (applySortMode) while getFeedItemById uses it bare (a single post has no order).
 function selectFeedRows(
   database: ReturnType<typeof db>,
   ids: readonly string[],
   voterId: string | undefined,
 ) {
-  // The permalink reader does not rank, so it needs only the score; affinity falls out
-  // as 0 (empty backed set) and is ignored. [LAW:one-source-of-truth] same subquery.
-  const { voteScore, score } = voteScoreSubquery(database, inArray(votes.postId, ids))
-
   const commentCount = database
     .select({
       postId: comments.postId,
@@ -773,13 +718,13 @@ function selectFeedRows(
   const myVote = alias(votes, 'my_vote')
   const myVoterId = voterId ?? ''
 
-  const query = database
+  return database
     .select({
       post: posts,
       generation: generations,
       upload: uploads,
       found,
-      score,
+      score: posts.score,
       myVote: myVote.value,
       commentCount: cCount,
     })
@@ -787,7 +732,6 @@ function selectFeedRows(
     .leftJoin(generations, eq(generations.postId, posts.id))
     .leftJoin(uploads, eq(uploads.postId, posts.id))
     .leftJoin(found, eq(found.postId, posts.id))
-    .leftJoin(voteScore, eq(voteScore.postId, posts.id))
     .leftJoin(commentCount, eq(commentCount.postId, posts.id))
     .leftJoin(
       myVote,
@@ -795,8 +739,6 @@ function selectFeedRows(
     )
     .where(inArray(posts.id, ids))
     .$dynamic()
-
-  return { query, score }
 }
 
 // [LAW:single-enforcer] One row → one RenderablePost. Both readers funnel
@@ -834,111 +776,102 @@ function rowToRenderablePost(
   }
 }
 
-// [LAW:one-source-of-truth] A CTE computes the ranked visible post set and
-// their scores in one place. Vote score lives inside the CTE (COALESCE of
-// the vote-sum over all votes for each post). The comments aggregate subquery
-// references the CTE via `SELECT id FROM feed_ids` — a SQL subquery, not a
-// bind-param list. The previous two-phase design (pickFeedIds → selectFeedRows)
-// re-passed the same 50 ids as bind params three times (votes IN, comments IN,
-// WHERE IN = 151 params), exceeding D1's 100-variable limit past ~32 posts.
+// [LAW:no-mode-explosion] One page-size knob, capped. The default page is FEED_PAGE_SIZE; a caller
+// may ask for up to MAX_FEED_PAGE (the homelab voter pulls a wider page). A missing/non-finite limit
+// folds to the default; an out-of-range one clamps — never an error, the value decides the page.
+export const MAX_FEED_PAGE = 50
+function clampPageSize(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return FEED_PAGE_SIZE
+  return Math.max(1, Math.min(MAX_FEED_PAGE, Math.floor(limit)))
+}
+
+// [LAW:single-enforcer] The cursor→active-cursor gate, in ONE place. The client cursor is a TRUST
+// BOUNDARY: decodeCursor SHAPE-validates it once per request (Zod), and a cursor naming a different
+// sort than the request is meaningless against this ORDER BY. Both degrade to page 1 (a null active
+// cursor) and emit a metric so a client bug is visible — never a throw, never a half-valid object.
+// A genuinely absent cursor (page 1) is silent: it is not a rejection. [LAW:dataflow-not-control-flow]
+// the result is a real value the keyset query consumes (predicate ANDed in, or not), not a branch
+// that changes which work runs.
+function resolveCursor(sort: SortMode, raw: string | null): CursorPayload | null {
+  if (raw === null) return null
+  const decoded = decodeCursor(raw)
+  if (decoded === null) {
+    emit('slopspot.feed.cursor_rejected', { reason: 'garbage' }, 1)
+    return null
+  }
+  if (decoded.m !== sort.mode) {
+    emit('slopspot.feed.cursor_rejected', { reason: 'mode_mismatch' }, 1)
+    return null
+  }
+  return decoded
+}
+
+// [LAW:types-are-the-program] One page of the feed: the rendered items plus the opaque cursor for
+// the NEXT page. `nextCursor === null` is the honest end-of-feed signal — set exactly when the page
+// came back short (fewer than `limit` candidates), never a guess.
+export type FeedPage = { items: FeedItem[]; nextCursor: string | null }
+
+// [LAW:single-enforcer] The read-side feed reader — the homepage list (/), the JSON feed (/api/feed),
+// and the breeding-room mate pool (/breed/:id) all funnel through here. The mirror of createPost's
+// discriminator-write, in a two-phase keyset shape:
 //
-// `desc(posts.id)` is the deterministic tie-breaker for equal score+createdAt.
+//   Phase 1 — SELECT the page's ids by KEYSET. `keysetOrderBy` is the index-seekable selection axis
+//   and `cursorFilter` is its lexicographic "strictly after" of the previous page's last row, so the
+//   query SEEKS into the index at the cursor and reads `limit` rows forward — O(limit), independent of
+//   scroll depth (no OFFSET, no scan-and-discard). The score it keysets on is the MATERIALIZED
+//   posts.score column, so there is NO per-read SUM over the votes table (the 2026-06-04 outage cost).
 //
-// [LAW:single-enforcer] sort defaults to defaultSortMode (top/all) — today's
-// behavior. Both the CTE inner query (rank candidates) and the outer hydration
-// query spread applySortMode's result; keeping them in sync is enforced by
-// calling the same function in both places.
-export async function getFeed(
+//   Phase 2 — HYDRATE those ids into FeedItems (selectFeedRows) ordered by `applySortMode` (the DISPLAY
+//   order). For top/new the display axis IS the keyset axis, so order is preserved; for hot the display
+//   axis is the time-decayed hotness, re-sorting the already-selected page (the §4.2 within-slab
+//   re-sort, a bounded temp sort over ≤limit rows). Phase 1 establishes WHICH rows and the nextCursor
+//   boundary; phase 2 establishes the order they render in.
+//
+// [LAW:dataflow-not-control-flow] windowFilter / cursorFilter return predicates ANDed into the WHERE
+// unconditionally (undefined = no-op); an empty candidate set flows to `[]` through inArray([])→false,
+// no early-return branch. The viewer's backing lens is the flagged follow-up roll-call-47p.7 (not in
+// this core): the keyset is the bare stored score for every viewer.
+export async function getFeedPage(
   env: Env,
-  voterId?: string,
-  sort: SortMode = defaultSortMode,
-): Promise<FeedItem[]> {
+  opts: { sort?: SortMode; voterId?: string; limit?: number; cursor?: string | null },
+): Promise<FeedPage> {
   const database = db(env)
+  const sort = opts.sort ?? defaultSortMode
+  const voterId = opts.voterId
+  const limit = clampPageSize(opts.limit)
+  const activeCursor = resolveCursor(sort, opts.cursor ?? null)
 
-  // [LAW:dataflow-not-control-flow] The backing lens (the-roll-call.md) is a per-post
-  // VALUE folded into the ranking, never a second feed path. `backed` is the set of
-  // citizens this viewer pledges to; the affinity aggregate is the SAME SUM(votes.value)
-  // shape as the rank score, gated to votes those citizens cast — computed in the SAME
-  // grouped scan, not a second pass over votes. An empty `backed` makes the gate `false`
-  // → affinity 0 for every post → effectiveScore == score in applySortMode → the
-  // byte-identical normal feed, by data. No `if (backed.length)`, no toggle.
-  const backed = await backedCitizenIds(env, voterId)
-  const { voteScore: rankVoteScore, score: rankScore, affinity: lensAffinity } =
-    voteScoreSubquery(database, undefined, backed)
-
-  // [LAW:dataflow-not-control-flow] applySortMode returns the ORDER BY expressions;
-  // windowFilter returns the WHERE predicate (or undefined = no filter); both are
-  // called unconditionally — the SortMode value picks the expressions and predicate.
-  // Hot now carries a candidate window (HOT_WINDOW_MS) so the rank/aggregation/temp-sort
-  // is bounded to a recent slice instead of every post — the free-tier-CPU fix. The
-  // time-decay already sinks anything that old below the visible 50, so the window
-  // changes no visible result.
-  // affinity rides in the same ctx as score: the lens biases the ORDER BY only — the
-  // selected `score` stays pure SUM(votes), so the displayed score never carries the
-  // viewer-specific lens. [LAW:one-source-of-truth]
-  const feedIds = database.$with('feed_ids').as(
-    database
-      // [LAW:one-source-of-truth] The CTE's computed rank score is aliased `rank_score`, NOT
-      // `score`: posts now has a real `score` column (the 0028 materialization), and the outer
-      // hydration JOINs posts, so a bare `score` in the ORDER BY would be ambiguous between the two.
-      // (E1's getFeedPage replaces this computed rank with the stored posts.score column directly.)
-      .select({ id: posts.id, score: rankScore.as('rank_score'), affinity: lensAffinity.as('affinity') })
-      .from(posts)
-      .leftJoin(rankVoteScore, eq(rankVoteScore.postId, posts.id))
-      .where(windowFilter(sort, posts.createdAt, Date.now()))
-      .orderBy(
-        ...applySortMode(sort, {
-          score: rankScore,
-          affinity: lensAffinity,
-          createdAt: posts.createdAt,
-          id: posts.id,
-        }),
-      )
-      .limit(FEED_PAGE_SIZE),
-  )
-
-  const visibleIds = database.select({ id: feedIds.id }).from(feedIds)
-
-  const commentCount = database
-    .select({ postId: comments.postId, count: sql<number>`count(*)`.as('count') })
-    .from(comments)
-    .where(inArray(comments.postId, visibleIds))
-    .groupBy(comments.postId)
-    .as('comment_count')
-
-  const cCount = sql<number>`coalesce(${commentCount.count}, 0)`
-  const myVote = alias(votes, 'my_vote')
-  const myVoterId = voterId ?? ''
-
-  const rows = await database
-    .with(feedIds)
-    .select({
-      post: posts,
-      generation: generations,
-      upload: uploads,
-      found,
-      score: sql<number>`coalesce(${feedIds.score}, 0)`,
-      myVote: myVote.value,
-      commentCount: cCount,
-    })
-    .from(feedIds)
-    .innerJoin(posts, eq(posts.id, feedIds.id))
-    .leftJoin(generations, eq(generations.postId, posts.id))
-    .leftJoin(uploads, eq(uploads.postId, posts.id))
-    .leftJoin(found, eq(found.postId, posts.id))
-    .leftJoin(commentCount, eq(commentCount.postId, posts.id))
-    .leftJoin(myVote, and(eq(myVote.postId, posts.id), eq(myVote.voterId, myVoterId)))
-    // The outer hydration ORDER BY recomputes the same effectiveScore the CTE ranked by,
-    // from the score AND affinity columns the CTE carried out — so display order matches
-    // selection order. [LAW:one-source-of-truth] both call the same applySortMode.
-    .orderBy(
-      ...applySortMode(sort, {
-        score: feedIds.score,
-        affinity: feedIds.affinity,
-        createdAt: posts.createdAt,
-        id: posts.id,
-      }),
+  // Phase 1: the O(limit) keyset seek. ctx.score is the BARE posts.score column so the
+  // (score, created_at, id) index serves the top keyset and (created_at, id) serves new/hot.
+  const keysetCtx = { score: posts.score, createdAt: posts.createdAt, id: posts.id }
+  const keysetRows = await database
+    .select({ id: posts.id, score: posts.score, createdAt: posts.createdAt })
+    .from(posts)
+    .where(
+      and(
+        windowFilter(sort, posts.createdAt, Date.now()),
+        activeCursor ? cursorFilter(activeCursor, keysetCtx) : undefined,
+      ),
     )
+    .orderBy(...keysetOrderBy(sort, keysetCtx))
+    .limit(limit)
+
+  // [LAW:no-silent-fallbacks] nextCursor is null EXACTLY when the page didn't fill — the honest
+  // "no more rows," never a guess. Otherwise it is the keyset boundary: the LAST row in keyset order
+  // (lowest position reached), which the next page reads strictly after. For hot this row carries the
+  // MIN created_at of the page by construction of keysetOrderBy.
+  const nextCursor =
+    keysetRows.length < limit
+      ? null
+      : encodeCursor(cursorFromRow(sort, keysetRows[keysetRows.length - 1]!))
+
+  const ids = keysetRows.map((r) => r.id)
+
+  // Phase 2: hydrate the page in DISPLAY order. applySortMode over the ≤limit selected rows is the
+  // keyset order for top/new (a no-op re-sort) and the hotness re-sort for hot.
+  const rows = await selectFeedRows(database, ids, voterId).orderBy(
+    ...applySortMode(sort, { score: posts.score, createdAt: posts.createdAt, id: posts.id }),
+  )
 
   // The lineage edges for the visible set, resolved in one query before mapping (toContent
   // assembles each genome's lineage from its parents). [LAW:single-enforcer]
@@ -949,9 +882,9 @@ export async function getFeed(
   const renderables = rows.map((row) =>
     rowToRenderablePost(row, voterId, parentsByChild.get(row.post.id) ?? []),
   )
-  // Two independent post-CTE resolutions over the same visible set: persona faces
-  // (by agentId) and critic verdicts (by postId). Neither depends on the other, so
-  // they run concurrently — one round-trip's latency, not two.
+  // Two independent post-hydration resolutions over the same visible set: persona faces (by agentId)
+  // and critic verdicts + crownings (by postId). Neither depends on the other, so they run
+  // concurrently — one round-trip's latency, not three.
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
   const postIds = renderables.map((r) => r.post.id)
   const [refs, verdicts, crownings] = await Promise.all([
@@ -960,11 +893,11 @@ export async function getFeed(
     crowningsForPosts(database, postIds),
   ])
 
-  return renderables.map((r, i): FeedItem => {
-    // [LAW:dataflow-not-control-flow] The verdict's and crowning's PRESENCE is the
-    // discriminator — a post with no critic line / no crown spreads nothing, so the
-    // field is genuinely absent (not `undefined`-valued), which
-    // exactOptionalPropertyTypes demands.
+  const items = renderables.map((r, i): FeedItem => {
+    // [LAW:dataflow-not-control-flow] The verdict's and crowning's PRESENCE is the discriminator — a
+    // post with no critic line / no crown spreads nothing, so the field is genuinely absent (not
+    // `undefined`-valued), which exactOptionalPropertyTypes demands. `rank` is page-relative (1..limit);
+    // the focal/crowned-relic treatment is a page-1 concern the client owns.
     const verdict = verdicts.get(r.post.id)
     const crowning = crownings.get(r.post.id)
     return {
@@ -978,6 +911,8 @@ export async function getFeed(
       rank: i + 1,
     }
   })
+
+  return { items, nextCursor }
 }
 
 // [LAW:single-enforcer] Single-post lookup — the permalink route (/p/:id)
@@ -1003,9 +938,11 @@ export async function getFeedItemById(
   voterId?: string,
 ): Promise<RenderablePost | null> {
   const database = db(env)
-  const { query } = selectFeedRows(database, id === null ? [] : [id], voterId)
-
-  const rows = await query.limit(1)
+  // [LAW:dataflow-not-control-flow] #109's null-id (home hero, no crown settled) is a VALUE — a null
+  // becomes an empty candidate set; my selectFeedRows returns the dynamic query directly (it reads the
+  // materialized posts.score, no voteScoreSubquery). Both preserved: the null→[] handling AND the
+  // direct-return shape.
+  const rows = await selectFeedRows(database, id === null ? [] : [id], voterId).limit(1)
   if (rows.length === 0) return null
 
   const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
@@ -1032,11 +969,11 @@ export async function getFeedItemById(
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
 // through here. Returns null on miss (the wire decides the 404 status; the
 // reader does not throw on absence, only on shape violations). Same toPost
-// helpers as getFeed, so a generation post's recipe parses identically whether
+// helpers as the feed reader, so a generation post's recipe parses identically whether
 // it arrives via the feed or via this lookup — the wire shape (Content, Status,
 // RecipeSubject) is one boundary translation, not two.
 //
-// [LAW:dataflow-not-control-flow] Same query shape as getFeed minus the
+// [LAW:dataflow-not-control-flow] Same query shape as the feed hydration minus the
 // aggregates: posts + LEFT JOIN generations + LEFT JOIN uploads. No per-post
 // score/commentCount/myVote because fork's loader does not render those — it
 // renders the recipe form.

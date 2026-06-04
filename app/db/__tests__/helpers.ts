@@ -11,6 +11,7 @@
 // without the provider-call side effects that make createPost unsuitable for
 // hermetic tests.
 
+import { eq, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { comments, found, generations, lineageEdges, posts, uploads, votes } from '~/db/schema'
 import {
@@ -269,15 +270,28 @@ export async function seedVote(
     reasoning?: string
   },
 ): Promise<void> {
-  await db(env)
-    .insert(votes)
-    .values({
+  const database = db(env)
+  // [LAW:one-source-of-truth][LAW:caches-are-derived] posts.score is the MATERIALIZED SUM(votes.value)
+  // the feed readers now trust (the 0028 cache). setVote keeps it synced in prod by RECOMPUTING from
+  // votes in the same batch as the vote it applies; the seeder MUST maintain the identical invariant
+  // or a seeded vote would never surface in score. Mirror setVote exactly: insert the vote, then
+  // recompute score from the votes table in the same batch (a later statement's subquery sees the
+  // earlier insert within one D1 batch).
+  await database.batch([
+    database.insert(votes).values({
       postId: opts.postId,
       voterId: opts.voterId,
       value: opts.value,
       createdAt: opts.createdAt ?? new Date('2026-01-01T00:00:00Z'),
       reasoning: opts.reasoning ?? null,
-    })
+    }),
+    database
+      .update(posts)
+      .set({
+        score: sql`COALESCE((SELECT SUM(${votes.value}) FROM ${votes} WHERE ${votes.postId} = ${opts.postId}), 0)`,
+      })
+      .where(eq(posts.id, opts.postId)),
+  ])
 }
 
 export async function seedComment(

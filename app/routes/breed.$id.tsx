@@ -2,7 +2,7 @@ import type { Route } from "./+types/breed.$id"
 import { useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { z } from "zod"
-import { getFeedItemById, getFeed } from "~/db/feed"
+import { getFeedItemById, getFeedPage } from "~/db/feed"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostId, type RenderablePost } from "~/lib/domain"
 import { breedPauseHeadline, forkPause } from "~/lib/breed-failure"
@@ -52,8 +52,9 @@ export async function loader({ request, params, context }: Route.LoaderArgs): Pr
 
   // The room is for finding mate B — the recent gene pool, parent A excluded. A grid of REAL
   // candidates (not a blank catalog): you arrived with one slop loved; here you meet the others.
-  const feed = await getFeed(env, voterId)
-  const mates = feed.map(toSlop).filter((s): s is Slop => s !== null && s.id !== parent.id)
+  // One page (the default Hot page) is the gene pool; the room does not paginate, so no cursor.
+  const { items } = await getFeedPage(env, { voterId })
+  const mates = items.map(toSlop).filter((s): s is Slop => s !== null && s.id !== parent.id)
 
   return { parent, mates }
 }

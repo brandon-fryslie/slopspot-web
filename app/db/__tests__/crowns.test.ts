@@ -16,7 +16,7 @@ import {
   gatherCandidates,
   recordCrowning,
 } from '~/db/crowns'
-import { getFeed } from '~/db/feed'
+import { getFeedPage } from '~/db/feed'
 import { AgentId, PostId } from '~/lib/domain'
 import type { RiteBallot } from '~/lib/rite'
 import { spoke } from '~/lib/voice'
@@ -225,7 +225,7 @@ describe('the feed shows the mark from the crown record alone', () => {
       decree: DECREE,
     })
 
-    const feed = await getFeed(env)
+    const feed = (await getFeedPage(env, {})).items
     const crowned = feed.find((f) => f.post.id === crownedId)
     const uncrowned = feed.find((f) => f.post.id === plain)
 
