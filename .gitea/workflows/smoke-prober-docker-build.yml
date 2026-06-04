@@ -1,0 +1,37 @@
+# Builds and pushes the slopspot-smoke-prober image to the homelab registry.
+# Triggers when the smoke suite, the prober, its Dockerfile, the smoke vitest
+# workspace, or the root manifest change. The Nomad periodic job pulls :latest on
+# each alloc start — no tag management needed for a batch job (mirrors voter).
+#
+# Build context is the REPO ROOT (the Dockerfile COPYs the root manifest + smoke/),
+# so this builds with `-f services/smoke-prober/Dockerfile .` — NOT the per-service
+# context the voter build uses.
+
+name: smoke-prober-docker-build
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'smoke/**'
+      - 'services/smoke-prober/**'
+      - 'vitest.smoke.workspace.ts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.gitea/workflows/smoke-prober-docker-build.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE: registry.sanctuary.gdn/slopspot-smoke-prober
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and push
+        run: |
+          docker build -t "${{ env.IMAGE }}:latest" -f services/smoke-prober/Dockerfile .
+          docker push "${{ env.IMAGE }}:latest"
