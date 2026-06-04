@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { readTarget } from './config'
-import { cookieJarFromResponse, jsonRequest } from './http'
+import { jsonRequest } from './http'
 
 // [LAW:behavior-not-structure] TIER 1 — the live-server liveness probe. Every
 // assertion is the public HTTP contract a real user/agent depends on: the
@@ -104,31 +104,52 @@ describe('liveness (read-only, prod-safe)', () => {
     expect(body.text!.length).toBeGreaterThan(0)
   })
 
-  // [LAW:behavior-not-structure] The one prod-safe WRITE probe: exercise the vote
-  // path end-to-end and leave NO residue. Upvote mints a voter cookie; retract
-  // (value:0) with that SAME cookie removes exactly this vote. Asserts the wire
-  // contract (value round-trips 1 → 0, score is a number) without asserting the
-  // absolute score (other live votes race it — asserting a delta would be flaky).
-  it('vote write-path: upvote then retract, zero residue', async () => {
+  // [LAW:types-are-the-program] The one prod-safe WRITE probe. Residue-safety is a
+  // property of the VOTER IDENTITY, and the probe OWNS that identity as a value: a
+  // stable self-reported agentId (the vote route sets voterId = agentId). It is NOT
+  // an emergent round-trip artifact — an earlier version voted cookie-less, which
+  // minted a FRESH random anon voter every run, so any failure-path strand (retract
+  // throws / process killed) accumulated UNBOUNDED distinct +1 voters on the live
+  // feed. With one stable agentId the bad state is unrepresentable: exactly one smoke
+  // voter ever, PK-capped to ≤1 vote per post, and the next run's retract on the same
+  // id self-heals any strand. The finally clause closes the within-run window so a
+  // mid-probe assertion throw can never leave the +1 behind.
+  //
+  // [LAW:behavior-not-structure] Asserts the wire contract (value 1 → null on retract,
+  // score is a number) — never the absolute score, which other live votes race.
+  //
+  // (Deterministic-post hardening — probe a fixed post so self-heal is EXACT on one
+  // known row — is intentionally NOT done: /api/feed serves only the Hot window
+  // (no ascending-createdAt sort), so there is no stable anchor in the public API and
+  // a hardcoded prod post id would be brittle. agentId + finally already removes the
+  // unbounded accumulation; the residual is ≤1 vote on one post only on a hard process
+  // kill mid-probe, self-healed when that post is next probed.)
+  const SMOKE_VOTER = 'agent:smoke-liveness'
+  it('vote write-path: upvote then retract under one owned identity, zero residue', async () => {
     const voteUrl = `${baseUrl}/api/posts/${topPostId}/vote`
+    try {
+      const up = await jsonRequest(voteUrl, { method: 'POST', body: { value: 1, agentId: SMOKE_VOTER } })
+      expect(up.status, 'upvote must be 200').toBe(200)
+      const upBody = (await up.json()) as VoteResponse
+      expect(upBody.value).toBe(1)
+      expect(typeof upBody.score).toBe('number')
 
-    const up = await jsonRequest(voteUrl, { method: 'POST', body: { value: 1 } })
-    expect(up.status, 'upvote must be 200').toBe(200)
-    const upBody = (await up.json()) as VoteResponse
-    expect(upBody.value).toBe(1)
-    expect(typeof upBody.score).toBe('number')
-
-    // The voter cookie minted by the upvote MUST thread into the retract, or the
-    // retract acts as a different anonymous voter and cancels nothing (leaving a
-    // +1 residue). Asserting it is present also proves the anon-voter cookie mint.
-    const cookie = cookieJarFromResponse(up)
-    expect(cookie, 'upvote must mint a voter cookie to thread into the retract').not.toBeNull()
-
-    const down = await jsonRequest(voteUrl, { method: 'POST', cookie, body: { value: 0 } })
-    expect(down.status, 'retract must be 200').toBe(200)
-    const downBody = (await down.json()) as VoteResponse
-    // value:0 retracts → the vote row is deleted → the returned current vote is
-    // null (not 0). That null IS the proof the probe left no residue on the feed.
-    expect(downBody.value, 'retract removes the vote (current vote is null)').toBeNull()
+      const down = await jsonRequest(voteUrl, { method: 'POST', body: { value: 0, agentId: SMOKE_VOTER } })
+      expect(down.status, 'retract must be 200').toBe(200)
+      const downBody = (await down.json()) as VoteResponse
+      // value:0 retracts → the vote row is deleted → the returned current vote is
+      // null (not 0). That null IS the proof the probe left no residue on the feed.
+      expect(downBody.value, 'retract removes the vote (current vote is null)').toBeNull()
+    } finally {
+      // [LAW:no-silent-fallbacks] Best-effort cleanup so a throw between the upvote
+      // and the in-body retract never strands the +1. Idempotent under the stable
+      // agentId (a no-op retract returns value:null). A cleanup failure is logged
+      // loud, not swallowed, and never masks the test's own result.
+      try {
+        await jsonRequest(voteUrl, { method: 'POST', body: { value: 0, agentId: SMOKE_VOTER } })
+      } catch (err) {
+        console.warn('[smoke] vote-probe cleanup retract failed (residue may persist until next run)', err)
+      }
+    }
   })
 })
