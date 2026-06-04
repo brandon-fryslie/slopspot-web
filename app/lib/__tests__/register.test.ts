@@ -62,6 +62,10 @@ describe('traitBias — EARNESTNESS is the lever (drop-vs-add)', () => {
     // The tell-not-show form is gone: no "no irony / no camp / drop the devices" meta-negation.
     expect(s).not.toContain('DROP every distancing device')
     expect(s.toLowerCase()).not.toContain('no irony')
+    // ZERO register-LABEL words in the sincere steer (CD #7) — no token for the model to echo as a
+    // declaration ("rendered with sincerity"). Leads with the FACE metaphor, then only acts.
+    expect(s.toLowerCase()).not.toContain('sincer')
+    expect(s.toLowerCase()).not.toContain('undefended')
   })
 
   it('low earnestness KEEPS the distancing devices and stays in on the joke', () => {

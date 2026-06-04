@@ -21,7 +21,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { composePrompt, type ComposedSlop, type ComposerInput } from '~/firehose/composer'
-import { fnv1a32 } from '~/lib/hash'
+import { seedHash } from '~/lib/hash'
 import type { TraitVector } from '~/lib/domain'
 import type { RecipeSubject } from '~/lib/variety'
 
@@ -102,19 +102,30 @@ async function main() {
 
   // --- the floor: device skew on the COMPOSED UTTERANCES ---------------------------------------
   let sincIronic = 0, sincDevot = 0, ironIronic = 0, ironDevot = 0
-  for (const { sincere, ironic } of pairs) {
+  // WRONG-POLE check (CD): an ironic-device token appearing in a SINCERE output is a pole leak the
+  // device-skew aggregate can hide (a few leaked tokens still net below the ironic set). Count the
+  // sincere outputs that carry ANY ironic device, and name them — converting CD's by-eye catch of
+  // "deadpan sincerity" into a mechanical tripwire. [LAW:verifiable-goals]
+  const wrongPole: string[] = []
+  for (let i = 0; i < pairs.length; i++) {
+    const { sincere, ironic } = pairs[i]!
     sincIronic += countHits(sincere.prompt, IRONIC_DEVICES)
     sincDevot += countHits(sincere.prompt, DEVOTIONAL)
     ironIronic += countHits(ironic.prompt, IRONIC_DEVICES)
     ironDevot += countHits(ironic.prompt, DEVOTIONAL)
+    const leaked = IRONIC_DEVICES.filter((d) => sincere.prompt.toLowerCase().includes(d))
+    if (leaked.length > 0) wrongPole.push(`pair ${i + 1} sincere “${sincere.title}”: ${leaked.join(', ')}`)
   }
   console.log('\n[soul-test] §4.6 FLOOR (device skew on composed utterances — tripwire, NOT the gate):')
   console.log(`  ironic-device hits:  sincere set = ${sincIronic}   ironic set = ${ironIronic}   (expect sincere < ironic — devices DROPPED)`)
   console.log(`  devotional hits:     sincere set = ${sincDevot}   ironic set = ${ironDevot}   (expect sincere > ironic — reaches for the face)`)
   const dropHolds = sincIronic < ironIronic
   const faceHolds = sincDevot >= ironDevot
-  console.log(`  FLOOR: device-drop ${dropHolds ? 'HOLDS' : 'FAILED'}; devotional-reach ${faceHolds ? 'HOLDS' : 'FAILED'} ` +
-    `→ ${dropHolds && faceHolds ? 'tripwire green (CD blind read still decides)' : 'TRIPWIRE TRIPPED — inspect the lever'}`)
+  const noWrongPole = wrongPole.length === 0
+  console.log(`  WRONG-POLE: ${noWrongPole ? 'none — no ironic device leaked into a sincere output' : `${wrongPole.length} leak(s):`}`)
+  for (const w of wrongPole) console.log(`    ⚠ ${w}`)
+  console.log(`  FLOOR: device-drop ${dropHolds ? 'HOLDS' : 'FAILED'}; devotional-reach ${faceHolds ? 'HOLDS' : 'FAILED'}; wrong-pole ${noWrongPole ? 'CLEAN' : 'LEAKED'} ` +
+    `→ ${dropHolds && faceHolds && noWrongPole ? 'tripwire green (CD blind read still decides)' : 'TRIPWIRE TRIPPED — inspect the lever'}`)
 
   // --- the blind artifact for CD ----------------------------------------------------------------
   // Per-pair deterministic A/B flip (hash of the pair index) so CD reads blind; the key is hidden
@@ -131,7 +142,7 @@ async function main() {
   ]
   const keyLines: string[] = ['', '---', '', '## HIDDEN KEY (do not read until you have judged)', '']
   pairs.forEach(({ sincere, ironic }, i) => {
-    const flip = (fnv1a32(`pair:${i}`) & 1) === 1 // A=sincere when false
+    const flip = (seedHash(i, 'pair') & 1) === 1 // A=sincere when false
     const A = flip ? ironic : sincere
     const B = flip ? sincere : ironic
     lines.push(`### Pair ${i + 1}`)
