@@ -180,11 +180,10 @@ export async function action({ request, params, context }: Route.ActionArgs) {
         traits: parent.content.genome.traits,
         lineage: { kind: 'single', parent: GenomeId(parent.id) },
         params: derivedParams,
-        // [LAW:one-source-of-truth] A bred slop has no Haiku naming step on this
-        // path; it takes the deterministic placard from its inherited subject — the
-        // same derivation the composer fallback and read boundary use. (Giving a
-        // fork its own LLM-authored name is a future ticket; this path adds no
-        // second LLM call.)
+        // [LAW:one-source-of-truth] A forked (single/asexual) slop has no Haiku naming step on
+        // this path; it takes the deterministic placard from its inherited subject — the same
+        // derivation the composer fallback and read boundary use. (Giving a fork its own
+        // LLM-authored name is a future ticket; this path adds no second LLM call.)
         title: fallbackTitle(parent.content.genome.genes.form),
         origin,
       },

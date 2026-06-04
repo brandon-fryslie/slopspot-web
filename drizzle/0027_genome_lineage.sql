@@ -13,6 +13,11 @@
 --      only inside params_json before). Backfilled by extracting the prompt every provider's
 --      params carries. [LAW:one-source-of-truth] utterance is canonical; params.prompt is its
 --      synchronized render-copy (derive-at-render is a later layer, not L1).
+--      [LAW:no-silent-fallbacks] json_extract is NOT COALESCE'd to '': a row whose params_json
+--      somehow lacks a prompt yields NULL → the NOT NULL utterance column REJECTS it → this
+--      migration FAILS LOUD rather than laundering corruption into an empty utterance (which
+--      feed.ts would then read silently). Every real generation row carries a prompt, so this
+--      only bites the genuinely-corrupt case — exactly where a one-time backfill should stop.
 --   3. traits_json — the continuous heritable dials (austerity/curse/density/earnestness), the
 --      substrate of drift. Inert in L1 (carried, not yet read); the neutral vector is the backfill.
 --
@@ -109,7 +114,7 @@ INSERT INTO `generations_new` (
 )
 	SELECT
 		`post_id`, `provider_id`, `provider_version`, `params_json`, `title`,
-		COALESCE(json_extract(`params_json`, '$.prompt'), ''),
+		json_extract(`params_json`, '$.prompt'),
 		'{"austerity":0.5,"curse":0.5,"density":0.5,"earnestness":0.5}',
 		`style_family`, `subject_template`, `slots_json`, `aspect_ratio`, `wish`, `remark_json`,
 		`status`, `queued_at`, `started_at`, `completed_at`, `output_json`, `failed_at`, `failed_reason`
