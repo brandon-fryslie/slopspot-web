@@ -790,18 +790,32 @@ function ForkLink({ postId }: { postId: string }) {
   )
 }
 
-// [LAW:dataflow-not-control-flow] The lineage badge is a pure function of the genome's
-// lineage — the reproduction mode and its parent(s) are the data. A single shows one parent;
-// a bred (L2) shows both. Founder never reaches here (gated by the caller on lineage.kind).
+// [LAW:types-are-the-program] The badge text is a function of the reproduction MODE, never one
+// hardcoded string: single = asexual (a FORK — one parent, a clone with variation), bred =
+// sexual (a CROSS — two parents). That distinction is the genome split's whole point, so the
+// verb must discriminate. Exhaustive switch on lineage.kind so a future multi-parent mode
+// forces a copy decision rather than silently inheriting "bred from". Founder never reaches
+// here (gated by the caller on lineage.kind).
 function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "single" | "bred" }> }) {
-  const parents = lineage.kind === "single" ? [lineage.parent] : lineage.parents
+  const { verb, parents }: { verb: string; parents: readonly string[] } = (() => {
+    switch (lineage.kind) {
+      case "single":
+        return { verb: "forked from", parents: [lineage.parent] }
+      case "bred":
+        return { verb: "bred from", parents: lineage.parents }
+      default: {
+        const _exhaustive: never = lineage
+        return _exhaustive
+      }
+    }
+  })()
   const label = parents.map((p) => `p:${p.slice(0, 8)}`).join(" + ")
   return (
     <span
       className="rounded bg-bone/5 px-1.5 py-0.5 font-terminal text-ash"
-      title={`bred from ${parents.join(", ")}`}
+      title={`${verb} ${parents.join(", ")}`}
     >
-      bred from {label}
+      {verb} {label}
     </span>
   )
 }

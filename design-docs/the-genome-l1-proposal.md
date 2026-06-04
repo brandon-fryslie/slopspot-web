@@ -189,7 +189,7 @@ heritable things and carries lineage:
   `params_json` (every provider's params has `prompt`; this is the exact extraction `fork.$id`
   already does). New writes set it from the composer's result.
 - **`traits_json` `TEXT NOT NULL`** — backfill = the neutral vector
-  `{austerity:0.5,curse:0.5,density:0.5,paletteBias:0.5}`. New writes (founders, until L3) also
+  `{austerity:0.5,curse:0.5,density:0.5,earnestness:0.5}`. New writes (founders, until L3) also
   write neutral.
 - **Lineage** — see Decision B. Founder = no parent, single = `parent_post_id` (today's
   column). `bred` storage is **L2**. Minimal L1 reads lineage straight from `parent_post_id`
