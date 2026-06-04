@@ -36,7 +36,10 @@ export const falFluxMock: GenerationProvider<Params> = {
   },
   async generate({ params: p, aspectRatio }): Promise<Media> {
     const { w, h } = dims[aspectRatio]
-    const seed = encodeURIComponent(p.prompt).slice(0, 64)
-    return { kind: "image", url: `https://picsum.photos/seed/${seed}/${w}/${h}`, w, h, alt: p.prompt }
+    // Minimal 1×1 PNG as a data: URI — Node.js fetch supports data: URIs so
+    // ingestImage can fetch, hash, and store it without a network round-trip.
+    // Replaces the picsum.photos URL that now returns 405 in local dev.
+    const url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=="
+    return { kind: "image", url, w, h, alt: p.prompt }
   },
 }
