@@ -1,17 +1,16 @@
 import type { Route } from "./+types/api.breed.$id"
 import { z } from "zod"
 import { ApiError } from "@fal-ai/client"
-import { createPost, InvalidParamsError } from "~/db/posts"
+import { InvalidParamsError } from "~/db/posts"
 import { getPostById } from "~/db/feed"
-import { breed } from "~/firehose/breed"
-import { composePrompt } from "~/firehose/composer"
+import { authorBredSlop, BredMediumUnavailableError, type BreedableParent } from "~/agents/generator"
 import { checkBudget } from "~/firehose/budget"
-import { getProvider, realProviders, UnknownProviderError } from "~/providers"
+import { UnknownProviderError } from "~/providers"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
-import { PostId, type AuthoredOrigin, type Genome } from "~/lib/domain"
+import { PostId, type HumanModifier } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP trust boundary for BREED submission — sexual (two-parent)
 // reproduction, the Breeding Room's act. Sibling of api.fork.$id (single/asexual), NOT a mode on
@@ -31,10 +30,10 @@ const bodySchema = z.object({
   mateId: z.string().trim().min(1).max(128),
 })
 
-// [LAW:types-are-the-program] A breedable parent is an authored generation. Narrow both parents to
-// that shape once, loudly: a generation with a non-authored origin is a storage-integrity violation
-// (the reader pairs Content.kind ↔ Origin.kind), and a non-generation carries no genome to cross.
-type BreedableParent = { id: PostId; genome: Genome; author: AuthoredOrigin["author"] }
+// [LAW:single-enforcer] A breedable parent is an authored generation — the shared cross contract
+// (app/agents/generator.ts). Narrow both parents to it once, loudly: a generation with a non-
+// authored origin is a storage-integrity violation (the reader pairs Content.kind ↔ Origin.kind),
+// and a non-generation carries no genome to cross.
 
 export async function action({ request, params, context }: Route.ActionArgs) {
   if (request.method !== "POST") {
@@ -92,83 +91,21 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     )
   }
 
-  // (1) The pure crossover fold — genes + traits + lineage bred[a,b], NO utterance. Fresh seed per
-  // breed (reproducibility-by-default is the firehose's contract, not the human breeder's).
-  const seed = crypto.getRandomValues(new Uint32Array(1))[0]!
-  const bred = breed(a.genome, b.genome, seed)
-
-  // The child renders through the medium it inherited; the citizen who owns that medium is its
-  // author (the doc's "out of A, by B"). Crossover gives the medium from exactly one parent — the
-  // author is that parent (A on a same-medium tie). The OTHER parent lives in the bred lineage.
-  const mediumFromA = bred.genes.medium === a.genome.genes.medium
-  const author = mediumFromA ? a.author : b.author
-
-  // [LAW:single-enforcer] Provider lookup through the one registry. The bred medium came from a
-  // parent that rendered with it, but a legacy parent could carry a mock providerId the prod env
-  // filters out — surface that loud (422) rather than rendering through an unavailable medium.
-  let provider
-  try {
-    provider = getProvider(bred.genes.medium)
-  } catch (e) {
-    if (e instanceof UnknownProviderError) {
-      return Response.json({ error: "bred medium not registered", providerId: bred.genes.medium }, { status: 404 })
-    }
-    throw e
-  }
-  if (!realProviders(env).some((p) => p.id === bred.genes.medium)) {
-    return Response.json(
-      { error: "bred medium not available in this environment", providerId: bred.genes.medium },
-      { status: 422 },
-    )
-  }
-
+  // The human picked the MATES; this is the breeder MODIFIER on the bred child's authorship, never
+  // its author. The raw voter UUID never crosses the wire — authorLabel is the single redaction
+  // enforcer. Fresh crypto seed per breed (reproducibility-by-default is the firehose's contract,
+  // not the human breeder's).
   const voter = resolveVoter(request)
+  const human: HumanModifier = {
+    role: "breeder",
+    by: { kind: "anon", label: authorLabel(voter.voterId) },
+  }
+  const seed = crypto.getRandomValues(new Uint32Array(1))[0]!
 
   try {
-    // (2) The ONE composer authors the child's utterance from the breed occasion — both parents'
-    // voices recombined, the child's register steering it. The human picked the mates; the machine
-    // authors the words (the product invariant). The title is the child's own placard.
-    const { prompt: utterance, title } = await composePrompt(
-      {
-        styleFamily: bred.genes.species,
-        subject: bred.genes.form,
-        aspectRatio: bred.genes.frame,
-        traits: bred.traits,
-        occasion: { kind: "breed", parents: [a.genome.utterance, b.genome.utterance] },
-        maxLength: provider.promptMaxLength,
-      },
-      env,
-    )
-
-    const params_ = provider.defaultParamsForRecipe({
-      prompt: utterance,
-      styleFamily: bred.genes.species,
-      seed,
-    })
-
-    // [LAW:types-are-the-program] The bred child is AUTHORED by the medium's citizen; the human who
-    // bred it is the `breeder` MODIFIER, never the author. The raw voter UUID never crosses the
-    // wire — authorLabel is the single redaction enforcer.
-    const origin: AuthoredOrigin = {
-      kind: "authored",
-      author,
-      human: { role: "breeder", by: { kind: "anon", label: authorLabel(voter.voterId) } },
-    }
-
-    // (3) The bred 2-edge write — createPost folds lineage.bred → two lineage_edges rows already.
-    const post = await createPost(
-      {
-        kind: "generation",
-        genes: bred.genes,
-        utterance,
-        traits: bred.traits,
-        lineage: bred.lineage,
-        params: params_,
-        title,
-        origin,
-      },
-      { env },
-    )
+    // [LAW:single-enforcer] The shared breed-authoring assembly — crossover fold → the ONE composer
+    // → bred 2-edge write. The Room differs from the firehose only in this human modifier + seed.
+    const post = await authorBredSlop(env, a, b, seed, human)
 
     const headers = new Headers({ "content-type": "application/json" })
     if (voter.setCookieHeader !== null) headers.set("set-cookie", voter.setCookieHeader)
@@ -176,22 +113,25 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   } catch (e) {
     // [LAW:single-enforcer] Mirror api.fork / api.generate error mapping.
     if (e instanceof UnknownProviderError) {
-      return Response.json({ error: "bred medium not registered", providerId: bred.genes.medium }, { status: 404 })
+      return Response.json({ error: "bred medium not registered", providerId: e.providerId }, { status: 404 })
     }
-    if (e instanceof InvalidParamsError) {
+    if (e instanceof BredMediumUnavailableError) {
       return Response.json(
-        { error: "invalid params for bred medium", providerId: bred.genes.medium, issues: e.issues },
+        { error: "bred medium not available in this environment", providerId: e.providerId },
         { status: 422 },
       )
     }
+    if (e instanceof InvalidParamsError) {
+      return Response.json({ error: "invalid params for bred medium", issues: e.issues }, { status: 422 })
+    }
     if (e instanceof ApiError) {
       return Response.json(
-        { error: "breed failed", providerId: bred.genes.medium, upstreamStatus: e.status, detail: e.body },
+        { error: "breed failed", upstreamStatus: e.status, detail: e.body },
         { status: 502 },
       )
     }
     return Response.json(
-      { error: "breed failed", providerId: bred.genes.medium, detail: e instanceof Error ? e.message : String(e) },
+      { error: "breed failed", detail: e instanceof Error ? e.message : String(e) },
       { status: 502 },
     )
   }

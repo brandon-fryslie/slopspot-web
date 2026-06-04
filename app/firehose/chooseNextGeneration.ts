@@ -28,7 +28,8 @@ import {
   type StyleFamily,
 } from '~/lib/variety'
 import type { RecentRecipe } from '~/db/recent'
-import { seedFloat, seedHash } from '~/lib/hash'
+import { seedHash } from '~/lib/hash'
+import { pickWeighted } from '~/lib/weighted'
 import type { GenerationProvider } from '~/providers/types'
 
 // [LAW:types-are-the-program] Inputs the chooser needs are exactly three:
@@ -90,40 +91,6 @@ const R5_REPEAT_THRESHOLD = 3
 const R5_DOWNWEIGHT = 0.3
 const R6_WINDOW = 20
 const R6_DOWNWEIGHT = 0.5
-
-// [LAW:types-are-the-program] Weighted picker. `items` and `weights` align by
-// index; total weight must be positive. seedFloat(seed, kind) → a uniform float in
-// [0, total) which selects an index via cumulative sum. Determinism: same
-// (items, weights, seed, kind) → same result, every time. The kind tag combines with
-// the seed by independent avalanche (hash.ts), so style/aspect/subject draws decorrelate
-// by construction — no string-position assumption to get wrong.
-//
-// A zero total is a configuration bug — the candidate pool has been emptied by
-// over-aggressive rejection rules. Fail loud rather than silently fall back.
-function pickWeighted<T>(
-  items: readonly T[],
-  weights: readonly number[],
-  seed: number,
-  kind: string,
-): T {
-  if (items.length !== weights.length) {
-    throw new Error(
-      `pickWeighted: items.length=${items.length} != weights.length=${weights.length} (kind=${kind})`,
-    )
-  }
-  let total = 0
-  for (const w of weights) total += w
-  if (!(total > 0)) {
-    throw new Error(`pickWeighted: total weight not positive (kind=${kind}, total=${total})`)
-  }
-  const r = seedFloat(seed, kind) * total
-  let acc = 0
-  for (let i = 0; i < items.length; i++) {
-    acc += weights[i]!
-    if (r < acc) return items[i]!
-  }
-  return items[items.length - 1]!
-}
 
 function countBy<T>(items: readonly T[]): Map<T, number> {
   const out = new Map<T, number>()
