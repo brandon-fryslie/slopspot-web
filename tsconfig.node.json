@@ -8,6 +8,12 @@
   // projects share `noEmit: true` (inherited from tsconfig.json), so there's
   // no duplicate-emit conflict.
   "include": ["vite.config.ts", "scripts/**/*.ts", "app/lib/variety.ts"],
+  // The earnestness soul-test harness spans both contexts no single tsc project models: it
+  // imports app modules through `~/` and the Workers `Env` global (cloudflare project), AND uses
+  // node:fs/process (node project). It is a manual, live-Haiku tool — validated by EXECUTION via
+  // `tsx --tsconfig tsconfig.cloudflare.json`, which resolves both at runtime — not by `tsc -b`,
+  // which can model neither span without polluting a project's types. Excluded from the build.
+  "exclude": ["scripts/earnestness-soul-test.ts"],
   "compilerOptions": {
     "composite": true,
     "strict": true,
