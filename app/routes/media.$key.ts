@@ -27,12 +27,19 @@ declare global {
 export async function loader({ params, request, context }: Route.LoaderArgs) {
   const cache = caches.default
 
+  // [LAW:one-source-of-truth] The sha256 IS the identity of the bytes; the raw
+  // request URL is a looser proxy that admits decoy variants (?cachebust=…) for
+  // one object, each a fresh miss → R2 GET and an unbounded colo-cache entry per
+  // variant. Key the cache on the content address so one object maps to exactly
+  // one entry, immune to query-string busting.
+  const cacheKey = new Request(`${new URL(request.url).origin}/media/${params.key}`)
+
   // [LAW:dataflow-not-control-flow] Hit/miss is a VALUE the colo cache returns
   // (Response | undefined), not a branch that decides whether to serve. Both
   // arms serve a Response; the optionality is folded by returning the cached
   // Response when present. cache.match issues no subrequest, so a hit never
   // touches R2 — the CPU win lives entirely in the value, not in skipped work.
-  const cached = await cache.match(request)
+  const cached = await cache.match(cacheKey)
   if (cached) return cached
 
   const obj = await context.cloudflare.env.MEDIA.get(params.key)
@@ -54,6 +61,6 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
   // Store an independent clone so the body streamed to the client and the body
   // held by the cache do not share a consumed stream. waitUntil lets the
   // response return without blocking on the put — the write outlives the request.
-  context.cloudflare.ctx.waitUntil(cache.put(request, response.clone()))
+  context.cloudflare.ctx.waitUntil(cache.put(cacheKey, response.clone()))
   return response
 }
