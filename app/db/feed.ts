@@ -556,36 +556,40 @@ function computeViewerIsModifier(origin: Origin, viewerId: string | undefined): 
   }
 }
 
-// [LAW:single-enforcer] [LAW:one-source-of-truth] One definition of the
-// vote-score aggregate. The SUM/GROUP BY/alias is identical between phase 1
-// (rank candidates by score) and phase 2 (project per-row scores into the
-// FeedItem). The `filter` parameter is the *value* that distinguishes them —
-// undefined for phase 1 (aggregate over every vote, needed to rank all posts);
-// `inArray(votes.postId, ids)` for phase 2 (aggregate bounded to visible
-// posts). [LAW:dataflow-not-control-flow] — same code runs every call; the
-// caller's filter value is what changes. Drizzle's `.where(undefined)` is a
-// no-op (no WHERE emitted), so passing undefined is the data-flow expression
-// of "no filter."
-// [LAW:single-enforcer] The `alias` parameter lets one query host two instances of
-// this aggregate without a SQL alias collision: the ranking score (every vote) and the
-// backing-lens affinity (only votes by the viewer's backed citizens) are the SAME
-// SUM(votes.value) shape over different WHERE filters. One definition, two filters, two
-// aliases — never a second hand-rolled sum that could drift from this one.
+// [LAW:single-enforcer] [LAW:one-source-of-truth] ONE pass over the votes table per
+// feed render. The previous design joined this subquery TWICE — once for the ranking
+// score (every vote) and once for the backing-lens affinity (only votes by the viewer's
+// backed citizens) — so each render scanned and grouped `votes` twice. The two are the
+// SAME GROUP BY over the same rows; the affinity is just the score restricted to the
+// backed set. So one grouped scan emits BOTH: `score` = SUM(value), `affinity` = the
+// same SUM gated to the backed citizens by a CASE inside the aggregate.
 //
-// The inner SUM column is named per-alias (`<alias>__sum`) because Drizzle renders a
-// subquery column reference UNQUALIFIED (bare `"score"`). With two of these joined into
-// one FROM, a shared inner name makes that bare reference ambiguous at the SQLite layer;
-// a distinct name per subquery keeps it unambiguous. The `score` expression this returns
-// is the only thing callers touch, so the inner name stays an implementation detail.
+// [LAW:dataflow-not-control-flow] The backed set is a VALUE, not a branch. An empty
+// `backed` makes `inArray(votes.voterId, [])` emit `false`, so the CASE is `0` for every
+// vote and affinity coalesces to 0 for every post — the byte-identical unbacked feed,
+// with no second subquery and no toggle. The `filter` parameter still bounds phase 2
+// (visible posts only); phase 1 passes undefined to aggregate over every vote.
+//
+// The inner column names carry a stable prefix because Drizzle renders a subquery
+// column reference UNQUALIFIED (bare `"score"`); a distinct name keeps the outer
+// reference unambiguous when this subquery is joined into a larger FROM.
 function voteScoreSubquery(
   database: ReturnType<typeof db>,
   filter: SQL | undefined,
+  backed: readonly string[] = [],
   alias = 'vote_score',
 ) {
+  // [LAW:dataflow-not-control-flow] backedSum is SUM(value) gated to the backed set.
+  // inArray(_, []) → `false`, so with no backings every CASE arm is 0 → affinity 0
+  // everywhere. The same expression that biases a backer's feed degrades to the normal
+  // feed by data, in the SAME grouped scan as the score.
+  const backedSum = sql<number>`sum(case when ${inArray(votes.voterId, backed)} then ${votes.value} else 0 end)`
+
   const voteScore = database
     .select({
       postId: votes.postId,
       score: sql<number>`sum(${votes.value})`.as(`${alias}__sum`),
+      affinity: backedSum.as(`${alias}__affinity`),
     })
     .from(votes)
     .where(filter)
@@ -593,8 +597,9 @@ function voteScoreSubquery(
     .as(alias)
 
   const score = sql<number>`coalesce(${voteScore.score}, 0)`
+  const affinity = sql<number>`coalesce(${voteScore.affinity}, 0)`
 
-  return { voteScore, score }
+  return { voteScore, score, affinity }
 }
 
 // [LAW:single-enforcer] One place defines the FeedItem-shaped rowset's joins,
@@ -633,6 +638,8 @@ function selectFeedRows(
   ids: readonly string[],
   voterId: string | undefined,
 ) {
+  // The permalink reader does not rank, so it needs only the score; affinity falls out
+  // as 0 (empty backed set) and is ignored. [LAW:one-source-of-truth] same subquery.
   const { voteScore, score } = voteScoreSubquery(database, inArray(votes.postId, ids))
 
   const commentCount = database
@@ -731,25 +738,24 @@ export async function getFeed(
 ): Promise<FeedItem[]> {
   const database = db(env)
 
-  const { voteScore: rankVoteScore, score: rankScore } = voteScoreSubquery(database, undefined)
-
   // [LAW:dataflow-not-control-flow] The backing lens (the-roll-call.md) is a per-post
   // VALUE folded into the ranking, never a second feed path. `backed` is the set of
   // citizens this viewer pledges to; the affinity aggregate is the SAME SUM(votes.value)
-  // shape as the rank score, filtered to votes those citizens cast. An empty `backed`
-  // makes inArray emit `false` SQL → the aggregate matches no rows → affinity coalesces
-  // to 0 for every post → effectiveScore == score in applySortMode → the byte-identical
-  // normal feed, by data. No `if (backed.length)`, no toggle.
+  // shape as the rank score, gated to votes those citizens cast — computed in the SAME
+  // grouped scan, not a second pass over votes. An empty `backed` makes the gate `false`
+  // → affinity 0 for every post → effectiveScore == score in applySortMode → the
+  // byte-identical normal feed, by data. No `if (backed.length)`, no toggle.
   const backed = await backedCitizenIds(env, voterId)
-  const { voteScore: lensVotes, score: lensAffinity } = voteScoreSubquery(
-    database,
-    inArray(votes.voterId, backed),
-    'backing_affinity',
-  )
+  const { voteScore: rankVoteScore, score: rankScore, affinity: lensAffinity } =
+    voteScoreSubquery(database, undefined, backed)
 
   // [LAW:dataflow-not-control-flow] applySortMode returns the ORDER BY expressions;
   // windowFilter returns the WHERE predicate (or undefined = no filter); both are
   // called unconditionally — the SortMode value picks the expressions and predicate.
+  // Hot now carries a candidate window (HOT_WINDOW_MS) so the rank/aggregation/temp-sort
+  // is bounded to a recent slice instead of every post — the free-tier-CPU fix. The
+  // time-decay already sinks anything that old below the visible 50, so the window
+  // changes no visible result.
   // affinity rides in the same ctx as score: the lens biases the ORDER BY only — the
   // selected `score` stays pure SUM(votes), so the displayed score never carries the
   // viewer-specific lens. [LAW:one-source-of-truth]
@@ -758,7 +764,6 @@ export async function getFeed(
       .select({ id: posts.id, score: rankScore.as('score'), affinity: lensAffinity.as('affinity') })
       .from(posts)
       .leftJoin(rankVoteScore, eq(rankVoteScore.postId, posts.id))
-      .leftJoin(lensVotes, eq(lensVotes.postId, posts.id))
       .where(windowFilter(sort, posts.createdAt, Date.now()))
       .orderBy(
         ...applySortMode(sort, {

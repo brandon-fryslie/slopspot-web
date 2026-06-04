@@ -156,10 +156,18 @@ function assertNeverContent(value: never, what: string): never {
   throw new Error(`helpers: unexpected ${what} at seed boundary: ${String(value)}`)
 }
 
+// [LAW:dataflow-not-control-flow] Default seed time is "just now", not a fixed past
+// epoch. A post with no explicit createdAt is a fresh post, so it must fall inside the
+// default feed's candidate window (Hot carries HOT_WINDOW_MS). A fixed-2026 default
+// silently aged out of that window and dropped default-sorted posts from the feed —
+// a scaffolding constant masquerading as a contract. Tests that need a specific age
+// pass createdAt explicitly; the default just means "recent".
+const SEED_NOW = () => new Date()
+
 export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostId> {
   const database = db(env)
   const id = opts.id ?? crypto.randomUUID()
-  const createdAt = opts.createdAt ?? new Date('2026-01-01T00:00:00Z')
+  const createdAt = opts.createdAt ?? SEED_NOW()
   const origin = opts.origin ?? DEFAULT_ORIGIN
   const content: SeedPostContent = opts.content ?? { kind: 'generation' }
 
