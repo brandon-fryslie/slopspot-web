@@ -60,4 +60,29 @@ export default [
     },
     settings: { react: { version: "detect" } },
   },
+  {
+    // The black-box smoke suite + the prober wrapper: node + fetch context (no app
+    // bindings, no JSX). tsParser handles both .ts and .mjs; no-undef off mirrors the
+    // app block (tsc -b validates the .ts via tsconfig.node; the .mjs prober is tested).
+    files: ["smoke/**/*.{ts,mjs}"],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: { ecmaVersion: 2022, sourceType: "module" },
+      globals: {
+        console: "readonly",
+        process: "readonly",
+        fetch: "readonly",
+        Response: "readonly",
+        Headers: "readonly",
+        URL: "readonly",
+      },
+    },
+    plugins: { "@typescript-eslint": tsPlugin },
+    rules: {
+      ...tsPlugin.configs.recommended.rules,
+      "no-undef": "off",
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+    },
+  },
 ]
