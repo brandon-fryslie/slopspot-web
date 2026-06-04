@@ -4,10 +4,14 @@
 // through `setVote`. Score recomputation lives here too so that a caller never
 // has to know which subset of votes to sum: pass a postId, get the new score.
 //
-// [LAW:one-source-of-truth] Score is `SUM(votes.value)` per post, computed here
-// at write time AND in feed.ts at read time. Same SQL shape (sum + coalesce to
-// zero); never a denormalized column on posts that two writers could disagree
-// about.
+// [LAW:one-source-of-truth][LAW:caches-are-derived] Score = SUM(votes.value). setVote
+// MATERIALIZES it into posts.score in the SAME batch as the vote it applies, by RECOMPUTING
+// from votes (never an increment — recompute-from-source is correct under any partial-commit
+// interleaving; an increment would be catastrophic). The votes table stays authoritative;
+// posts.score is a regenerable cache (the 0028 backfill is its definition + self-heal). feed.ts
+// READS posts.score instead of re-summing per request — that removed the dominant hot-path CPU
+// cost (the 2026-06-04 outage). The cache is correct in every interleaving because score is a
+// total function of the committed votes; see the success-check asymmetry below.
 //
 // [LAW:types-are-the-program] `VoteIntent` is the wire shape (-1 | 0 | 1);
 // `VoteValue` is the stored shape (-1 | 1). The 0 → DELETE translation happens
@@ -18,6 +22,7 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
 import { posts, votes } from '~/db/schema'
+import { emit } from '~/observability/metrics'
 import type { PostId, VoteIntent, VoteValue } from '~/lib/domain'
 
 export type SetVoteInput = {
@@ -65,35 +70,67 @@ export async function setVote(
     return { ok: false, reason: 'post_not_found' }
   }
 
-  if (value === 0) {
-    await database
-      .delete(votes)
-      .where(and(eq(votes.postId, postId), eq(votes.voterId, voterId)))
-  } else {
-    // Drizzle's onConflictDoUpdate emits SQLite's INSERT ... ON CONFLICT DO UPDATE.
-    // The (post_id, voter_id) PK is the conflict target; the row's value and
-    // created_at advance to the latest write. One vote per voter is enforced by
-    // the PK, not by a read-then-write here.
-    await database
-      .insert(votes)
-      .values({
-        postId,
-        voterId,
-        value,
-        createdAt: new Date(),
-        reasoning: reasoning ?? null,
-      })
-      .onConflictDoUpdate({
-        target: [votes.postId, votes.voterId],
-        set: { value, createdAt: new Date(), reasoning: reasoning ?? null },
-      })
+  // [LAW:dataflow-not-control-flow] The vote write is one statement whose SHAPE the `value`
+  // discriminator picks (delete on retract, upsert otherwise) — not two code paths with two
+  // score writes. Drizzle's onConflictDoUpdate emits INSERT ... ON CONFLICT DO UPDATE; the
+  // (post_id, voter_id) PK enforces one vote per voter, no read-then-write.
+  const voteStmt =
+    value === 0
+      ? database.delete(votes).where(and(eq(votes.postId, postId), eq(votes.voterId, voterId)))
+      : database
+          .insert(votes)
+          .values({ postId, voterId, value, createdAt: new Date(), reasoning: reasoning ?? null })
+          .onConflictDoUpdate({
+            target: [votes.postId, votes.voterId],
+            set: { value, createdAt: new Date(), reasoning: reasoning ?? null },
+          })
+
+  // [LAW:caches-are-derived] The score materialization recomputes from votes (subquery), in the
+  // SAME batch, AFTER the vote write. MEASURED (app/db/__tests__/d1-batch-atomicity.test.ts): a
+  // later statement's subquery SEES an earlier statement's effect within one D1 batch, so this
+  // UPDATE includes the just-written vote. Recompute-not-increment means the column equals
+  // SUM(committed votes) regardless of which statements committed.
+  const scoreUpdate = database
+    .update(posts)
+    .set({ score: sql`COALESCE((SELECT SUM(${votes.value}) FROM ${votes} WHERE ${votes.postId} = ${postId}), 0)` })
+    .where(eq(posts.id, postId))
+
+  const results = await database.batch([voteStmt, scoreUpdate])
+
+  // [LAW:no-silent-fallbacks] D1 batch is not transactional for the NON-THROWING failure mode:
+  // drizzle's mapRunResult never checks D1Result.success, so a per-statement failure resolves
+  // silently (the orphan incident, May 2026). Cast to the raw shape and split the two statements
+  // by their DISTINCT failure MEANINGS — the asymmetry is the whole point:
+  const voteRaw = results[0] as unknown as { success: boolean; error?: string }
+  const scoreRaw = results[1] as unknown as { success: boolean; error?: string }
+
+  // (1) The VOTE statement failing means the vote did NOT commit. Returning ok:true with a
+  // recomputed score would tell the client "recorded" when nothing was. Fail loud → the route
+  // 500s, the client retries. NEVER a false success.
+  if (!voteRaw.success) {
+    throw new Error(`setVote: vote write failed for post ${postId}: ${voteRaw.error ?? 'unknown'}`)
   }
 
-  return {
-    ok: true,
-    score: await scoreFor(database, postId),
-    value: value === 0 ? null : value,
+  // (2) The SCORE statement failing is the opposite case: the vote DID commit (client intent
+  // honored), only the derived cache column is momentarily stale. Swallow loudly — drift metric +
+  // error log — and self-heal: the next vote to this post recomputes it, and the backfill is the
+  // global recovery. Returning ok with the freshly-recomputed score (below) is honest: the vote
+  // is real, and the client sees the true count even though the column lagged.
+  if (!scoreRaw.success) {
+    emit('slopspot.score.drift', { post_id: postId }, 1)
+    console.error(
+      `setVote: posts.score materialization failed for post ${postId} (vote committed, cache stale): ` +
+        `${scoreRaw.error ?? 'unknown'} — self-heals on next vote / backfill`,
+    )
   }
+
+  // The new score: read the materialized column on the happy path (a PK lookup, cheaper than a
+  // SUM); recompute from votes only on the rare cache-stale path so the returned number is honest.
+  const score = scoreRaw.success
+    ? (await database.select({ score: posts.score }).from(posts).where(eq(posts.id, postId)))[0]!.score
+    : await scoreFor(database, postId)
+
+  return { ok: true, score, value: value === 0 ? null : value }
 }
 
 export type VoterStat = {
