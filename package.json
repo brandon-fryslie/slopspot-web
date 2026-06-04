@@ -14,6 +14,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke": "vitest run --workspace vitest.smoke.workspace.ts smoke/liveness.smoke.ts",
+    "smoke:write": "vitest run --workspace vitest.smoke.workspace.ts smoke/write.smoke.ts",
     "bootstrap": "tsx scripts/bootstrap-seed.ts",
     "gen:routes": "tsx scripts/gen-route-patterns.ts"
   },
