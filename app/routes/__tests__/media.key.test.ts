@@ -26,16 +26,20 @@ const stubCtx: ExecutionContext = {
 }
 const drainWaitUntil = () => Promise.all(pending.splice(0))
 
-const args = (key: string): Parameters<typeof loader>[0] => {
-  const url = new URL(`https://slopspot.ai/media/${key}`)
-  return {
+const argsForUrl = (key: string, url: URL): Parameters<typeof loader>[0] =>
+  ({
     params: { key },
     context: { cloudflare: { env, ctx: stubCtx } },
     request: new Request(url),
     url,
     pattern: '/media/:key',
-  } as Parameters<typeof loader>[0]
-}
+  }) as Parameters<typeof loader>[0]
+
+const args = (key: string): Parameters<typeof loader>[0] =>
+  argsForUrl(key, new URL(`https://slopspot.ai/media/${key}`))
+
+const argsWithQuery = (key: string, query: string): Parameters<typeof loader>[0] =>
+  argsForUrl(key, new URL(`https://slopspot.ai/media/${key}?${query}`))
 
 describe('/media/:key route loader', () => {
   it('returns 404 for an unknown key', async () => {
@@ -78,6 +82,30 @@ describe('/media/:key route loader', () => {
     expect(second.headers.get('content-type')).toBe('image/png')
     expect(second.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
     const body = new Uint8Array(await second.arrayBuffer())
+    expect(body).toEqual(bytes)
+  })
+
+  it('serves a query-busted read from the same normalized cache entry (no fresh R2 miss)', async () => {
+    const bytes = new Uint8Array([4, 2])
+    const key = 'ef'.repeat(32)
+    await env.MEDIA.put(key, bytes.buffer, { httpMetadata: { contentType: 'image/png' } })
+
+    // Populate the cache via the bare key.
+    const first = await loader(args(key))
+    expect(first.status).toBe(200)
+    await first.arrayBuffer()
+    await drainWaitUntil()
+
+    // Delete R2, then read with a cache-busting query string. The cache key is
+    // the content address, not the raw URL, so this resolves to the SAME entry
+    // — a 200 from cache proves the query variant did not bypass it into a dead
+    // R2 read.
+    await env.MEDIA.delete(key)
+
+    const busted = await loader(argsWithQuery(key, 'cachebust=whatever'))
+    expect(busted.status).toBe(200)
+    expect(busted.headers.get('content-type')).toBe('image/png')
+    const body = new Uint8Array(await busted.arrayBuffer())
     expect(body).toEqual(bytes)
   })
 })
