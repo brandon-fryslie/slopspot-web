@@ -21,17 +21,31 @@
 // boundary (authorSlop); callers pass the raw Persona from pickPersona/seatCitizen.
 
 import { z } from 'zod'
-import { ProviderId, type AuthoredOrigin, type HumanModifier, type HumanRef, type Post } from '~/lib/domain'
+import {
+  PostId,
+  ProviderId,
+  type AuthoredOrigin,
+  type Genome,
+  type HumanModifier,
+  type HumanRef,
+  type Post,
+} from '~/lib/domain'
 import { createPost } from '~/db/posts'
 import { getRecentRecipes } from '~/db/recent'
+import { getNicheGenePool } from '~/db/genepool'
+import { getPostById } from '~/db/feed'
 import { recordRemark } from '~/db/remark'
 import { pickPersona, type Persona } from '~/agents/persona'
+import { breed } from '~/firehose/breed'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
 import { composePrompt, type ComposerOccasion } from '~/firehose/composer'
+import { pickNiche } from '~/firehose/niche'
+import { selectReproduction } from '~/firehose/select'
+import { seedHash } from '~/lib/hash'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { utter } from '~/lib/voice'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
-import { getProvider } from '~/providers'
+import { getProvider, realProviders } from '~/providers'
 
 const RECENT_WINDOW = 20
 
@@ -298,18 +312,153 @@ export async function authorSlop(
   return post
 }
 
-// [LAW:single-enforcer] The firehose entry. runOneFire (firehose/scheduled.ts)
-// delegates here for every channel fire. It owns only persona SELECTION (a
-// deterministic pick by scheduled time); authoring is authorSlop's. [RECONCILE A]
-// An empty generator pool is a loud misconfiguration (seed migrations guarantee a
-// non-empty pool), never a silent default author.
-export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promise<void> {
-  const persona = await pickPersona(env, 'generator', scheduledTimeMs)
-  if (persona === null) {
-    throw new Error(
-      'runGeneratorPass: no generator personas configured — a slop must be authored by a citizen',
-    )
+// [LAW:types-are-the-program] A breedable parent: an authored generation carrying a genome. Both
+// the human Breeding Room and the roomless firehose resolve their two parents to THIS shape before
+// crossing — a non-generation has no genome to cross, a non-authored generation is a storage-
+// integrity violation. Shared so the cross has one parent contract, not a per-caller copy.
+export type BreedableParent = {
+  id: PostId
+  genome: Genome
+  author: AuthoredOrigin['author']
+}
+
+// [LAW:single-enforcer] A bred medium that no real provider in this environment serves. The
+// crossed medium comes from a parent that rendered with it, so this only fires for a legacy/mock
+// providerId the prod registry filters out — surfaced loud (the HTTP route maps it to 422; the
+// firehose logs + skips) rather than rendering through an unavailable medium.
+export class BredMediumUnavailableError extends Error {
+  constructor(readonly providerId: ProviderId) {
+    super(`bred medium not available in this environment: ${providerId}`)
+    this.name = 'BredMediumUnavailableError'
   }
-  // The firehose passes no occasion — a citizen firing on its own, no human, no wish.
-  await authorSlop(env, persona, scheduledTimeMs)
+}
+
+// [LAW:single-enforcer] The ONE breed-authoring implementation — sexual reproduction's assembly,
+// shared by the Breeding Room (api.breed: a human breeder + a crypto seed) and the roomless
+// firehose (no human + a scheduled-time seed). They differ ONLY in two VALUES: the entropy `seed`
+// and whether a `human` modifier exists. [LAW:one-type-per-behavior] breeding a slop is one
+// behavior; the room's old inline assembly collapses into this call, never duplicated beside it.
+//
+// The child renders through the medium it INHERITED (crossover gives it from exactly one parent);
+// the citizen owning that medium is its author (the doc's "out of A, by B" — A on a same-medium
+// tie). [LAW:dataflow-not-control-flow] the author is selected by the bred-medium VALUE, not a
+// branch into a different origin shape. Throws on provider/composer/creation failure; the caller
+// maps it (HTTP status vs firehose log+skip).
+export async function authorBredSlop(
+  env: Env,
+  a: BreedableParent,
+  b: BreedableParent,
+  seed: number,
+  human?: HumanModifier,
+): Promise<Post> {
+  const bred = breed(a.genome, b.genome, seed)
+  const author = bred.genes.medium === a.genome.genes.medium ? a.author : b.author
+
+  const provider = getProvider(bred.genes.medium) // throws UnknownProviderError
+  if (!realProviders(env).some((p) => p.id === bred.genes.medium)) {
+    throw new BredMediumUnavailableError(bred.genes.medium)
+  }
+
+  // The ONE composer authors the child's utterance from the breed occasion — both parents' voices
+  // recombined, the child's register steering it. Mates were chosen elsewhere; the machine authors
+  // the words (the product invariant). The title is the child's own placard.
+  const { prompt: utterance, title } = await composePrompt(
+    {
+      styleFamily: bred.genes.species,
+      subject: bred.genes.form,
+      aspectRatio: bred.genes.frame,
+      traits: bred.traits,
+      occasion: { kind: 'breed', parents: [a.genome.utterance, b.genome.utterance] },
+      maxLength: provider.promptMaxLength,
+    },
+    env,
+  )
+  const params = provider.defaultParamsForRecipe({
+    prompt: utterance,
+    styleFamily: bred.genes.species,
+    seed,
+  })
+
+  // [LAW:dataflow-not-control-flow] The bred child is AUTHORED by the medium's citizen; the optional
+  // human (the breeder, room only) is a MODIFIER, never the author. The conditional spread is data-
+  // shaped construction (one origin shape, an optional field), not a branch into a different origin.
+  const origin: AuthoredOrigin = {
+    kind: 'authored',
+    author,
+    ...(human ? { human } : {}),
+  }
+
+  return createPost(
+    {
+      kind: 'generation',
+      genes: bred.genes,
+      utterance,
+      traits: bred.traits,
+      lineage: bred.lineage,
+      params,
+      title,
+      origin,
+    },
+    { env },
+  )
+}
+
+// [LAW:single-enforcer] The firehose's trust boundary for a parent the selection fold chose. The
+// candidate came from getNicheGenePool — a succeeded generation the niche voted on — so a null,
+// non-generation, or non-authored result here is a delete race or storage-integrity violation, not
+// a normal path: fail loud rather than breed a half-resolved parent. [LAW:no-defensive-null-guards]
+// exception: these map "the storage contract was violated" to a loud error, like feed.ts's required().
+async function loadBreedable(env: Env, id: PostId): Promise<BreedableParent> {
+  const post = await getPostById(env, id)
+  if (post === null) throw new Error(`runGeneratorPass: selected parent ${id} not found`)
+  if (post.content.kind !== 'generation') {
+    throw new Error(`runGeneratorPass: selected parent ${id} is not a generation`)
+  }
+  if (post.origin.kind !== 'authored') {
+    throw new Error(`runGeneratorPass: selected parent ${id} has non-authored origin`)
+  }
+  return { id: post.id, genome: post.content.genome, author: post.origin.author }
+}
+
+// [LAW:no-mode-explosion] The top-N fittest slice each niche's selection draws from — the gene-pool
+// bound. Surfaced; bounds the cron read and focuses selection on the genomes the niche favors.
+const GENE_POOL_SIZE = 64
+
+// [LAW:single-enforcer] The firehose entry. The queue consumer (firehose/gen-queue.ts) delegates
+// here for every fire. It owns the reproduction DECISION and dispatch; the two authoring acts are
+// authorSlop's / authorBredSlop's. [LAW:dataflow-not-control-flow] The fire reads the niche whose
+// taste shapes it, that niche's breedable pool, and folds the selection into a plan — then the plan
+// VALUE selects the authoring act. Both arms author a slop (the unconditional side effect); the
+// data decides breed-vs-found, never a mode flag. [RECONCILE A] An empty generator pool on the
+// founder arm is a loud misconfiguration, never a silent default author.
+export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promise<void> {
+  const niche = await pickNiche(env, scheduledTimeMs)
+  const pool = await getNicheGenePool(env, niche, GENE_POOL_SIZE)
+  const plan = selectReproduction(pool, seedHash(scheduledTimeMs, 'reproduce'))
+
+  // [LAW:types-are-the-program] Exhaustive over ReproductionPlan: a new reproduction mode forces a
+  // case here before it compiles. Bred crosses the two selected parents (author = the medium's
+  // citizen); founder seeds a fresh bloodline through a picked generator persona, no occasion.
+  switch (plan.kind) {
+    case 'bred': {
+      const a = await loadBreedable(env, plan.parents[0])
+      const b = await loadBreedable(env, plan.parents[1])
+      await authorBredSlop(env, a, b, seedHash(scheduledTimeMs, 'breed'))
+      return
+    }
+    case 'founder': {
+      const persona = await pickPersona(env, 'generator', scheduledTimeMs)
+      if (persona === null) {
+        throw new Error(
+          'runGeneratorPass: no generator personas configured — a slop must be authored by a citizen',
+        )
+      }
+      await authorSlop(env, persona, scheduledTimeMs)
+      return
+    }
+    default: {
+      const _exhaustive: never = plan
+      return _exhaustive
+    }
+  }
 }

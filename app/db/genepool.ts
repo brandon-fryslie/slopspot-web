@@ -16,7 +16,7 @@
 // data (the niche has selected nothing breedable yet) and the fold degrades to founder with
 // no "first run" branch.
 
-import { and, desc, eq, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { generations, posts, votes } from '~/db/schema'
 import { PostId } from '~/lib/domain'
@@ -69,4 +69,26 @@ export async function getNicheGenePool(env: Env, niche: Niche, n: number): Promi
     .limit(n)
 
   return rows.map((row) => ({ ref: PostId(row.postId), fitness: Number(row.fitness) }))
+}
+
+// [LAW:single-enforcer] The niche-pick's read-side dependency: how many votes each cast citizen
+// has cast — its SELECTION ACTIVITY, the weight by which an active critic exerts more pressure on
+// which niche breeds. Only citizen voterIds are counted; human activity never enters niche-pick
+// (the populist's pick weight is derived from citizen activity in firehose/niche.ts, so crowd
+// VOLUME cannot dominate the cross-niche pick — the monoculture guard, by construction).
+//
+// [LAW:dataflow-not-control-flow] An empty citizen set has no counts to read; returning the empty
+// Map is the query's identity (inArray of nothing is nothing), not a skipped operation. A citizen
+// with zero votes is absent from the result — the caller reads a missing entry as zero activity.
+export async function getCitizenVoteCounts(
+  env: Env,
+  voterIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (voterIds.length === 0) return new Map()
+  const rows = await db(env)
+    .select({ voterId: votes.voterId, count: sql<number>`count(*)` })
+    .from(votes)
+    .where(inArray(votes.voterId, [...voterIds]))
+    .groupBy(votes.voterId)
+  return new Map(rows.map((row) => [row.voterId, Number(row.count)]))
 }

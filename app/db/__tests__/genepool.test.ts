@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getNicheGenePool, type Niche } from '~/db/genepool'
+import { getCitizenVoteCounts, getNicheGenePool, type Niche } from '~/db/genepool'
 import { setVote } from '~/db/votes'
 import { PostId } from '~/lib/domain'
 import { seedPost } from './helpers'
@@ -102,5 +102,25 @@ describe('getNicheGenePool — one niche\'s breedable snapshot', () => {
   it('returns [] when the niche has selected nothing (the bootstrap is the data)', async () => {
     await seedPost(env, { id: 'np-unvoted', content: { kind: 'generation' } })
     expect(await getNicheGenePool(env, citizenNiche(ST_VIVIAN), 50)).toEqual([])
+  })
+})
+
+describe('getCitizenVoteCounts — niche-pick selection activity', () => {
+  it('counts each cast voter\'s votes; a zero-activity citizen is simply absent', async () => {
+    const p1 = await seedPost(env, { id: 'ac-1', content: { kind: 'generation' } })
+    const p2 = await seedPost(env, { id: 'ac-2', content: { kind: 'generation' } })
+    await vote(p1, ST_VIVIAN, 1)
+    await vote(p2, ST_VIVIAN, -1) // a downvote is still selection ACTIVITY
+    await vote(p1, GREMLIN, 1)
+    await humanVote(p1, 'anon-h', 1) // human activity must NOT count toward a citizen
+
+    const counts = await getCitizenVoteCounts(env, [ST_VIVIAN, GREMLIN, 'voter:silent'])
+    expect(counts.get(ST_VIVIAN)).toBe(2)
+    expect(counts.get(GREMLIN)).toBe(1)
+    expect(counts.has('voter:silent')).toBe(false) // never voted → absent (read as 0)
+  })
+
+  it('returns an empty map for an empty cast (the inArray identity, no footgun)', async () => {
+    expect(await getCitizenVoteCounts(env, [])).toEqual(new Map())
   })
 })
