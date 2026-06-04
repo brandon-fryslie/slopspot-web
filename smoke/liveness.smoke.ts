@@ -61,13 +61,13 @@ describe('liveness (read-only, prod-safe)', () => {
     mediaPath = renderable.post.content.status!.output!.url
   })
 
-  it('GET / serves the homepage as HTML', async () => {
+  it('homepage: serves HTML', async () => {
     const res = await fetch(`${baseUrl}/`)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toMatch(/text\/html/)
   })
 
-  it('GET /api/feed returns renderable items (each post carries an id)', async () => {
+  it('feed: returns renderable items (each post carries an id)', async () => {
     const res = await jsonRequest(`${baseUrl}/api/feed`)
     expect(res.status).toBe(200)
     const body = (await res.json()) as FeedResponse
@@ -78,7 +78,7 @@ describe('liveness (read-only, prod-safe)', () => {
     }
   })
 
-  it('GET /p/:id renders the permalink page', async () => {
+  it('permalink: renders the post page', async () => {
     const res = await fetch(`${baseUrl}/p/${topPostId}`)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toMatch(/text\/html/)
@@ -88,13 +88,13 @@ describe('liveness (read-only, prod-safe)', () => {
     expect(html).toContain(topPostId)
   })
 
-  it('GET /media/:key resolves to an image', async () => {
+  it('media: resolves to an image', async () => {
     const res = await fetch(`${baseUrl}${mediaPath}`)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toMatch(/^image\//)
   })
 
-  it('GET /api/challenge issues a challenge', async () => {
+  it('challenge: issues a challenge', async () => {
     const res = await jsonRequest(`${baseUrl}/api/challenge`)
     expect(res.status).toBe(200)
     const body = (await res.json()) as { challengeId?: string; text?: string }
@@ -125,7 +125,7 @@ describe('liveness (read-only, prod-safe)', () => {
   // unbounded accumulation; the residual is ≤1 vote on one post only on a hard process
   // kill mid-probe, self-healed when that post is next probed.)
   const SMOKE_VOTER = 'agent:smoke-liveness'
-  it('vote write-path: upvote then retract under one owned identity, zero residue', async () => {
+  it('vote: upvote then retract under one owned identity, zero residue', async () => {
     const voteUrl = `${baseUrl}/api/posts/${topPostId}/vote`
     try {
       const up = await jsonRequest(voteUrl, { method: 'POST', body: { value: 1, agentId: SMOKE_VOTER } })
