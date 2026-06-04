@@ -1,0 +1,25 @@
+/**
+ * Wrangler config for slopspot-cpu-tail — the out-of-band CPU-measurement tail
+ * consumer for slopspot-web. Deployed as its own Worker:
+ *   pnpm exec wrangler deploy -c workers/cpu-tail/wrangler.jsonc
+ *
+ * The main worker (../../wrangler.jsonc) points its `tail_consumers` at the
+ * `slopspot-cpu-tail` service name below. [LAW:one-source-of-truth] the consumer's
+ * identity (name) lives here; the producer references it by that name.
+ *
+ * VICTORIA_METRICS_ENDPOINT is the full InfluxDB-line write URL, mirroring the
+ * homelab jobs' env. It is NOT a secret — set it as a var per environment, e.g.
+ *   pnpm exec wrangler deploy -c workers/cpu-tail/wrangler.jsonc \
+ *     --var VICTORIA_METRICS_ENDPOINT:http://192.168.7.208:8428/write
+ * (or pin it in the `vars` block once the operator confirms the prod-reachable URL).
+ */
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "slopspot-cpu-tail",
+  "main": "./index.ts",
+  "compatibility_date": "2026-05-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  }
+}

@@ -7,7 +7,17 @@
   // both contexts. Composite mode tolerates the dual-include because both
   // projects share `noEmit: true` (inherited from tsconfig.json), so there's
   // no duplicate-emit conflict.
-  "include": ["vite.config.ts", "scripts/**/*.ts", "app/lib/variety.ts"],
+  // app/routes.ts + app/lib/route-canonicalize.ts are the source of truth the
+  // route-pattern generator (scripts/gen-route-patterns.ts) reads; like variety.ts
+  // they are pure (no DOM/Workers types) so they compile in the node context, and
+  // the dual-include is tolerated under composite mode (both projects are noEmit).
+  "include": [
+    "vite.config.ts",
+    "scripts/**/*.ts",
+    "app/lib/variety.ts",
+    "app/routes.ts",
+    "app/lib/route-canonicalize.ts"
+  ],
   // The earnestness soul-test harness spans both contexts no single tsc project models: it
   // imports app modules through `~/` and the Workers `Env` global (cloudflare project), AND uses
   // node:fs/process (node project). It is a manual, live-Haiku tool — validated by EXECUTION via
