@@ -16,7 +16,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
 import { AgentId } from '~/lib/domain'
-import { fnv1a32 } from '~/lib/hash'
+import { seedHash } from '~/lib/hash'
 
 export type PersonaRole = 'voter' | 'discoverer' | 'generator' | 'host'
 
@@ -145,10 +145,9 @@ export async function pickPersona(
 ): Promise<Persona | null> {
   const pool = await listPersonas(env, role)
   if (pool.length === 0) return null
-  // [LAW:one-source-of-truth] Seed FIRST, discriminator LAST — `${scheduledTimeMs}:persona:${role}`,
-  // the canonical key shape (a role before a shared `:${time}` suffix would re-correlate roles via
-  // FNV-1a, the defect proven in breed.ts).
-  const idx = fnv1a32(`${scheduledTimeMs}:persona:${role}`) % pool.length
+  // [LAW:one-source-of-truth] The scheduled time + role combine by independent avalanche (hash.ts) —
+  // no hand-built key whose correlation would depend on string position.
+  const idx = seedHash(scheduledTimeMs, 'persona', role) % pool.length
   return pool[idx]
 }
 
