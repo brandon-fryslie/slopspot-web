@@ -14,6 +14,7 @@
 // .orderBy(). No branch that skips .orderBy() exists.
 
 import { desc, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
+import type { CursorPayload } from '~/lib/feed-cursor'
 
 export type SortMode = { mode: 'top'; window: 'day' | 'week' | 'all' } | { mode: 'new' } | { mode: 'hot' }
 
@@ -120,6 +121,33 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
     }
     default:
       return assertNever(sort)
+  }
+}
+
+// [LAW:one-source-of-truth] The keyset predicate is the lexicographic "strictly after" of the SAME
+// tuple applySortMode orders by — defined HERE, as its sibling, reusing the SAME effectiveScore, so
+// the ORDER BY and the cursor WHERE can never disagree (a disagreement is exactly the skip/dupe bug
+// that breaks pagination). Every ORDER BY arm is DESC, so "the row strictly after the cursor" is
+// "the tuple LESS THAN the cursor tuple," expanded lexicographically with the tie-breakers so no row
+// is skipped or repeated at a value boundary.
+//
+// `cursor.m` IS the discriminator — the caller has already enforced `cursor.m === sort.mode` (a
+// mismatch decodes to page 1, no cursor, no call here), so this reads the cursor's own variant. For
+// `top` the key is (effectiveScore, createdAt, id); for `new`/`hot` it is (createdAt, id) — `hot`
+// keysets on the stable created_at axis within its window, the hotness re-sort happening within the
+// over-fetched slab (not in this predicate). The window cutoff is a SEPARATE WHERE (windowFilter),
+// ANDed in by the caller. [LAW:types-are-the-program] exhaustive over the cursor union.
+export function cursorFilter(cursor: CursorPayload, ctx: SortCtx): SQL {
+  switch (cursor.m) {
+    case 'top': {
+      const s = effectiveScore(ctx)
+      return sql`(${s} < ${cursor.s}) OR (${s} = ${cursor.s} AND ${ctx.createdAt} < ${cursor.t}) OR (${s} = ${cursor.s} AND ${ctx.createdAt} = ${cursor.t} AND ${ctx.id} < ${cursor.id})`
+    }
+    case 'new':
+    case 'hot':
+      return sql`(${ctx.createdAt} < ${cursor.t}) OR (${ctx.createdAt} = ${cursor.t} AND ${ctx.id} < ${cursor.id})`
+    default:
+      return assertNever(cursor)
   }
 }
 
