@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, Crowning, CrownMark, Generation, GenerationStatus, HumanRole, PersonaActor, Post, PostId, RenderablePost, RiteLens, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, Crowning, CrownMark, Genome, GenerationRender, GenerationStatus, HumanRole, Lineage, PersonaActor, Post, PostId, RenderablePost, RiteLens, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
 import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
@@ -82,11 +82,11 @@ export function PostCard({
           <>
             <ForkLink postId={post.id} />
             <StatusBadge status={post.content.status} />
-            {/* [LAW:types-are-the-program] parentId is optional in the recipe;
-                a present value means this post is itself a fork. Lineage is
-                opt-in by data — the badge renders or not, no flag needed. */}
-            {post.content.recipe.parentId !== undefined && (
-              <ForkedFromBadge parentId={post.content.recipe.parentId} />
+            {/* [LAW:dataflow-not-control-flow] The lineage badge renders for any non-founder
+                genome — single (one parent) or bred (two, L2). The reproduction mode IS the
+                discriminator; no "is this a fork" flag. */}
+            {post.content.genome.lineage.kind !== "founder" && (
+              <ForkedFromBadge lineage={post.content.genome.lineage} />
             )}
           </>
         )}
@@ -94,7 +94,9 @@ export function PostCard({
       </div>
       {/* [LAW:types-are-the-program] The medium (the provider) lives in the recipe
           drawer, never the headline — the serial number does not headline the art. */}
-      {post.content.kind === "generation" && <RecipeDrawer recipe={post.content.recipe} />}
+      {post.content.kind === "generation" && (
+        <RecipeDrawer genome={post.content.genome} render={post.content.render} />
+      )}
       <CommentSection postId={post.id} initialCount={commentCount} />
     </article>
   )
@@ -110,8 +112,9 @@ type WishContext = {
   answerer: PersonaActor
   postId: PostId
   // The citizen's name for the result — the most faithful single-line gist of "what
-  // the well answered with" available at the read boundary (the raw machine prompt
-  // is provider-shaped inside recipe.params; the placard is the honest summary).
+  // the well answered with" available at the read boundary (the machine prompt is the
+  // genome's utterance, provider-shaped inside render.params; the placard is the honest
+  // summary).
   resultTitle: string
 }
 
@@ -122,7 +125,7 @@ type WishContext = {
 // than guessing an answerer.
 function wishContext(post: Post): WishContext | null {
   if (post.content.kind !== "generation") return null
-  const { wish } = post.content.recipe
+  const { wish } = post.content.render
   if (wish === undefined) return null
   if (post.origin.kind !== "authored") return null
   return {
@@ -756,15 +759,16 @@ function ChosenSilence() {
 // [LAW:types-are-the-program] The recipe drawer: the medium (the provider) and the
 // raw recipe live HERE, never on the headline — the serial number does not headline
 // the art. Closed by default; the curious open it.
-function RecipeDrawer({ recipe }: { recipe: Generation }) {
+function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRender }) {
   return (
     <details className="border-t border-votive/12 px-3 py-2 text-[11px] text-votive/70">
       <summary className="cursor-pointer select-none font-terminal uppercase tracking-wider text-votive/50">recipe</summary>
       <p className="mt-2 font-terminal text-[11px] text-votive/70">
-        <span className="text-ash">medium</span> {recipe.providerId}
+        {/* [LAW:types-are-the-program] The medium is a gene, not the headline. */}
+        <span className="text-ash">medium</span> {genome.genes.medium}
       </p>
       <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words font-terminal text-[11px] leading-relaxed text-votive/80">
-{JSON.stringify(recipe.params, null, 2)}
+{JSON.stringify(render.params, null, 2)}
       </pre>
     </details>
   )
@@ -786,16 +790,32 @@ function ForkLink({ postId }: { postId: string }) {
   )
 }
 
-// [LAW:dataflow-not-control-flow] The lineage badge is a pure function of
-// recipe.parentId — it renders when the data says so. No "is this a fork"
-// flag, no parallel boolean; the optional id is the discriminator.
-function ForkedFromBadge({ parentId }: { parentId: string }) {
+// [LAW:types-are-the-program] The badge text is a function of the reproduction MODE, never one
+// hardcoded string: single = asexual (a FORK — one parent, a clone with variation), bred =
+// sexual (a CROSS — two parents). That distinction is the genome split's whole point, so the
+// verb must discriminate. Exhaustive switch on lineage.kind so a future multi-parent mode
+// forces a copy decision rather than silently inheriting "bred from". Founder never reaches
+// here (gated by the caller on lineage.kind).
+function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "single" | "bred" }> }) {
+  const { verb, parents }: { verb: string; parents: readonly string[] } = (() => {
+    switch (lineage.kind) {
+      case "single":
+        return { verb: "forked from", parents: [lineage.parent] }
+      case "bred":
+        return { verb: "bred from", parents: lineage.parents }
+      default: {
+        const _exhaustive: never = lineage
+        return _exhaustive
+      }
+    }
+  })()
+  const label = parents.map((p) => `p:${p.slice(0, 8)}`).join(" + ")
   return (
     <span
       className="rounded bg-bone/5 px-1.5 py-0.5 font-terminal text-ash"
-      title={`forked from ${parentId}`}
+      title={`${verb} ${parents.join(", ")}`}
     >
-      forked from p:{parentId.slice(0, 8)}
+      {verb} {label}
     </span>
   )
 }

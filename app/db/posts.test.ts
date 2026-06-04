@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CreatePostInput } from '~/db/posts'
 import { AgentId, ProviderId } from '~/lib/domain'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 
 // Drizzle fluent chain returns `this` at each step, with batch as the terminal.
 // The mock must satisfy: db(env).insert(table).values(row) → a batchable token,
@@ -63,12 +64,17 @@ const fakeEnv = {} as Env
 
 const GENERATION_INPUT: CreatePostInput = {
   kind: 'generation',
-  providerId: ProviderId('test-provider'),
+  genes: {
+    species: 'photoreal',
+    form: { subjectTemplate: 'T00', slots: { freeText: 'test' } },
+    frame: '1:1',
+    medium: ProviderId('test-provider'),
+  },
+  utterance: 'a test prompt',
+  traits: NEUTRAL_TRAITS,
+  lineage: { kind: 'founder' },
   params: { prompt: 'a test prompt' },
   title: 'The Test Placard',
-  styleFamily: 'photoreal',
-  subject: { subjectTemplate: 'T00', slots: { freeText: 'test' } },
-  aspectRatio: '1:1',
   origin: { kind: 'authored', author: { kind: 'agent', agentId: AgentId('agent:test') } },
 }
 
@@ -219,12 +225,17 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       const WISH = 'WISH_SENTINEL_a_lighthouse_at_the_end_of_the_world'
       const wishInput: CreatePostInput = {
         kind: 'generation',
-        providerId: ProviderId('test-provider'),
+        genes: {
+          species: 'photoreal',
+          form: { subjectTemplate: 'T00', slots: { freeText: 'test' } },
+          frame: '1:1',
+          medium: ProviderId('test-provider'),
+        },
+        utterance: 'a test prompt',
+        traits: NEUTRAL_TRAITS,
+        lineage: { kind: 'founder' },
         params: { prompt: 'a test prompt' },
         title: 'The Test Placard',
-        styleFamily: 'photoreal',
-        subject: { subjectTemplate: 'T00', slots: { freeText: 'test' } },
-        aspectRatio: '1:1',
         // A Well-born origin: a human wisher, the persona authors on their behalf.
         origin: {
           kind: 'authored',
@@ -253,10 +264,10 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       const { createPost } = await import('~/db/posts')
       const post = await createPost(wishInput, { env: fakeEnv })
 
-      // The wish is preserved on the recipe as provenance...
+      // The wish is preserved on the render record as provenance...
       expect(post.content.kind).toBe('generation')
       if (post.content.kind === 'generation') {
-        expect(post.content.recipe.wish).toBe(WISH)
+        expect(post.content.render.wish).toBe(WISH)
       }
 
       // ...it IS persisted to the generations row (only that INSERT carries a
@@ -267,6 +278,47 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       // appears in none of generate()'s call args.
       expect(mockGenerate).toHaveBeenCalledTimes(1)
       expect(JSON.stringify(mockGenerate.mock.calls)).not.toContain(WISH)
+    })
+
+    // [LAW:one-source-of-truth] utterance is canonical; params.prompt is its render-copy.
+    // createPost DERIVES the copy from the source, so a caller's divergent params.prompt cannot
+    // be stored — divergence is unrepresentable, not merely checked.
+    it('derives params.prompt from the canonical utterance — a divergent caller prompt is overridden', async () => {
+      const input: CreatePostInput = {
+        ...GENERATION_INPUT,
+        utterance: 'the canonical utterance',
+        params: { prompt: 'a STALE divergent prompt', seed: 7 },
+      }
+      mockBatch.mockResolvedValue([{ success: true }, { success: true }])
+      mockGenerate.mockResolvedValueOnce({ kind: 'image', url: 'https://cdn/x.png', w: 1, h: 1 })
+      const { ingestImage } = await import('~/storage/ingest')
+      vi.mocked(ingestImage).mockResolvedValueOnce({
+        url: '/media/abc',
+        key: 'abc',
+        size: 1,
+        contentType: 'image/png',
+      })
+      const valuesSpy = vi.fn().mockReturnThis()
+      mockInsert.mockReturnValue({ values: valuesSpy })
+
+      const { createPost } = await import('~/db/posts')
+      const post = await createPost(input, { env: fakeEnv })
+
+      // The stored render params carry the utterance, never the caller's stale prompt; other
+      // params fields (seed) survive — only prompt is derived from the canonical source.
+      expect(valuesSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paramsJson: JSON.stringify({ prompt: 'the canonical utterance', seed: 7 }),
+        }),
+      )
+      if (post.content.kind === 'generation') {
+        expect((post.content.render.params as { prompt: string }).prompt).toBe(
+          'the canonical utterance',
+        )
+        expect(post.content.genome.utterance).toBe('the canonical utterance')
+      }
+      // The provider never saw the stale prompt.
+      expect(JSON.stringify(mockGenerate.mock.calls)).not.toContain('STALE')
     })
   })
 

@@ -7,22 +7,22 @@
 import { eq } from 'drizzle-orm'
 import type { ZodError, ZodIssue } from 'zod'
 import { db } from '~/db/client'
-import { found, generations, posts } from '~/db/schema'
+import { found, generations, lineageEdges, posts } from '~/db/schema'
 import { emit } from '~/observability/metrics'
 import { getProvider } from '~/providers'
 import { ingestImage } from '~/storage/ingest'
 import type {
-  AspectRatio,
   AuthoredOrigin,
   FoundOrigin,
+  Genes,
+  Lineage,
   Media,
   Post,
   PostId,
   ProviderId,
-  RecipeSubject,
-  StyleFamily,
+  TraitVector,
 } from '~/lib/domain'
-import { PostId as makePostId } from '~/lib/domain'
+import { GenomeId, PostId as makePostId } from '~/lib/domain'
 
 // [LAW:types-are-the-program] CreatePostInput is a discriminated union — the
 // variant the caller wants to write IS the input shape, not a flag inside it.
@@ -32,21 +32,26 @@ import { PostId as makePostId } from '~/lib/domain'
 export type CreatePostInput =
   | {
       kind: 'generation'
-      providerId: ProviderId
+      // [LAW:types-are-the-program] The heritable genome the caller composed, MINUS its id:
+      // the post id is minted here (the single writer) and IS the genome id, so the caller
+      // cannot supply it. genes.medium is the provider to look up; `params` is the provider-
+      // native render config the caller derived from the genome (utterance + genes + seed).
+      genes: Genes
+      utterance: string
+      traits: TraitVector
+      // The lineage the caller knows: founder (firehose), single{parent} (fork), bred{[a,b]}
+      // (L2). createPost writes the corresponding lineage_edges rows (0/1/2).
+      lineage: Lineage
       params: unknown
       // [LAW:one-source-of-truth] The placard NAME for this piece. Composed by the
       // caller (the firehose's one Haiku call; the deterministic fallbackTitle for
       // fork / direct-API paths) and persisted here, the single writer. Required and
       // non-empty — createPost trusts its typed input rather than re-deriving a name.
       title: string
-      styleFamily: StyleFamily
-      subject: RecipeSubject
-      aspectRatio: AspectRatio
       // [LAW:one-source-of-truth] A generation is AUTHORED — its origin must carry a
       // persona author. Demanding AuthoredOrigin here pairs Content.kind with
       // Origin.kind at construction: a 'found' origin cannot reach a generation row.
       origin: AuthoredOrigin
-      parentId?: PostId
       // The human wish, when this generation was born of a Well wish. Stored as
       // provenance; never forwarded to the provider (it is not part of params).
       // [LAW:one-source-of-truth]
@@ -126,6 +131,28 @@ export async function createPost(
   return createGenerationPost(input, ctx)
 }
 
+// [LAW:dataflow-not-control-flow][LAW:types-are-the-program] The write-side fold from a Lineage
+// to its lineage_edges rows: founder → 0, single → 1, bred → 2. The arity is carried by the
+// union, so the row count is a property of the data, never a branch the caller manages. An
+// empty list (founder) simply contributes no edge statement to the batch.
+function lineageEdgeRows(
+  childId: PostId,
+  lineage: Lineage,
+): { childGenomeId: string; parentGenomeId: string }[] {
+  switch (lineage.kind) {
+    case 'founder':
+      return []
+    case 'single':
+      return [{ childGenomeId: childId, parentGenomeId: lineage.parent }]
+    case 'bred':
+      return lineage.parents.map((p) => ({ childGenomeId: childId, parentGenomeId: p }))
+    default: {
+      const _exhaustive: never = lineage
+      return _exhaustive
+    }
+  }
+}
+
 async function createGenerationPost(
   input: Extract<CreatePostInput, { kind: 'generation' }>,
   ctx: { env: Env },
@@ -136,9 +163,20 @@ async function createGenerationPost(
   // [LAW:single-enforcer] Provider lookup + param validation cross the registry's
   // trust boundary here. Both throw before any row is written (unknown provider /
   // bad params are caller errors, not failed generations), so neither leaves a
-  // dangling row.
-  const provider = getProvider(input.providerId)
-  const validated = provider.paramsSchema.safeParse(input.params)
+  // dangling row. The provider is the genome's `medium` gene.
+  const provider = getProvider(input.genes.medium)
+  // [LAW:one-source-of-truth] utterance is the canonical prompt; params.prompt is its render-copy.
+  // DERIVE the copy from the source — inject the utterance as the params prompt before validation,
+  // overriding whatever the caller put there — so a divergent (or empty) params.prompt is
+  // UNREPRESENTABLE, not merely checked. An empty utterance then fails the provider's
+  // prompt.min(1) here as an InvalidParamsError, for free. This matters most at L2, where breed
+  // authors the utterance separately from params; nailing the invariant at the one writer means
+  // no caller, present or future, can store two diverging prompts.
+  const paramsWithUtterance = {
+    ...(input.params as Record<string, unknown>),
+    prompt: input.utterance,
+  }
+  const validated = provider.paramsSchema.safeParse(paramsWithUtterance)
   if (!validated.success) {
     throw new InvalidParamsError(provider.id, validated.error)
   }
@@ -167,10 +205,14 @@ async function createGenerationPost(
   // commits independently. The success check below is the cardinality enforcer —
   // if the generations row does not land, we detect and clean up before going
   // further so feed reads never see a post without its sibling.
+  // [LAW:dataflow-not-control-flow] The lineage edges are a data-derived list (0/1/2 rows);
+  // they ride in the same batch after the posts row so the child FK is satisfiable in order.
+  const edgeRows = lineageEdgeRows(id, input.lineage)
   let postInsert: unknown
   let genInsert: unknown
+  let edgeInserts: unknown[]
   try {
-    ;[postInsert, genInsert] = await database.batch([
+    const results = await database.batch([
       database.insert(posts).values({
         id,
         createdAt: startedAt,
@@ -183,16 +225,21 @@ async function createGenerationPost(
         providerVersion: provider.version,
         paramsJson: JSON.stringify(params),
         title: input.title,
-        parentPostId: input.parentId ?? null,
-        styleFamily: input.styleFamily,
-        subjectTemplate: input.subject.subjectTemplate,
-        slotsJson: JSON.stringify(input.subject.slots),
-        aspectRatio: input.aspectRatio,
+        utterance: input.utterance,
+        traitsJson: JSON.stringify(input.traits),
+        styleFamily: input.genes.species,
+        subjectTemplate: input.genes.form.subjectTemplate,
+        slotsJson: JSON.stringify(input.genes.form.slots),
+        aspectRatio: input.genes.frame,
         wish: input.wish ?? null,
         status: 'running',
         startedAt,
       }),
+      ...edgeRows.map((r) => database.insert(lineageEdges).values(r)),
     ])
+    postInsert = results[0]
+    genInsert = results[1]
+    edgeInserts = results.slice(2)
   } catch (err) {
     emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
     throw err
@@ -227,13 +274,34 @@ async function createGenerationPost(
     emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
     throw new Error(`${genError}${cleanupNote}`)
   }
+  // [LAW:no-silent-fallbacks] A lineage edge that silently fails to land would make a single/
+  // bred child read as a founder (0 edges) — a corrupted DAG, not a missing optional. Check
+  // each edge the same way as the sibling rows; on failure delete the post (cascade clears the
+  // generations row and any committed edges) so the read boundary never sees a half-lineage.
+  for (const edgeInsert of edgeInserts) {
+    const edgeRaw = edgeInsert as unknown as { success: boolean; error?: string }
+    if (edgeRaw.success) continue
+    const edgeError = `lineage_edges INSERT failed: ${edgeRaw.error ?? 'unknown'}`
+    let cleanupNote = ''
+    try {
+      const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
+      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      if (!cleanupRaw.success) {
+        cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
+      }
+    } catch (cleanupErr) {
+      cleanupNote = `; orphan cleanup threw: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+    }
+    emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
+    throw new Error(`${edgeError}${cleanupNote}`)
+  }
 
   let output: Media
   let completedAt: Date
   const generateStartedMs = Date.now()
   try {
     const generated = await provider.generate(
-      { params, aspectRatio: input.aspectRatio },
+      { params, aspectRatio: input.genes.frame },
       { env },
     )
     // [LAW:single-enforcer] Every external image flows through ingestImage so the
@@ -308,7 +376,7 @@ async function createGenerationPost(
     {
       content_kind: 'generation',
       provider_id: provider.id,
-      style_family: input.styleFamily,
+      style_family: input.genes.species,
     },
     1,
   )
@@ -321,15 +389,20 @@ async function createGenerationPost(
     content: {
       kind: 'generation',
       title: input.title,
-      recipe: {
-        providerId: provider.id,
+      // [LAW:types-are-the-program] The genome id IS the post id (the genome/phenotype 1:1 in
+      // L1); a distinct brand over the same value. genes/utterance/traits/lineage are the
+      // caller's heritable input, carried back whole.
+      genome: {
+        id: GenomeId(id),
+        genes: input.genes,
+        utterance: input.utterance,
+        traits: input.traits,
+        lineage: input.lineage,
+      },
+      render: {
         providerVersion: provider.version,
         params,
-        styleFamily: input.styleFamily,
-        aspectRatio: input.aspectRatio,
-        subject: input.subject,
-        parentId: input.parentId,
-        wish: input.wish,
+        ...(input.wish !== undefined ? { wish: input.wish } : {}),
       },
       status: { kind: 'succeeded', output, completedAt },
     },

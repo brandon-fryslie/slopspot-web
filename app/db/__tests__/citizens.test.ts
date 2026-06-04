@@ -73,11 +73,18 @@ async function seedForkChild(childId: string, parentId: string, createdAt: numbe
   await env.DB.prepare(
     `INSERT INTO generations
        (post_id, provider_id, provider_version, params_json, title, style_family,
-        subject_template, slots_json, aspect_ratio, status, started_at, parent_post_id)
+        subject_template, slots_json, aspect_ratio, status, started_at)
      VALUES (?, 'fal-flux', '1', '{}', 'a fork', 'photoreal', 'T00', '{"freeText":""}', '1:1',
-        'running', ?, ?)`,
+        'running', ?)`,
   )
-    .bind(childId, createdAt, parentId)
+    .bind(childId, createdAt)
+    .run()
+  // The lineage lives in the edge DAG now (parent_post_id is gone): one edge = a single
+  // (asexual) child, which is what makerHighlights counts as a descendant.
+  await env.DB.prepare(
+    `INSERT INTO lineage_edges (child_genome_id, parent_genome_id) VALUES (?, ?)`,
+  )
+    .bind(childId, parentId)
     .run()
 }
 

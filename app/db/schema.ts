@@ -138,7 +138,20 @@ export const generations = sqliteTable(
     // the read boundary (feed.ts) maps to a deterministic placard — createPost always
     // writes a real non-empty name, so '' never lands in a normal write.
     title: text('title').notNull().default(''),
-    parentPostId: text('parent_post_id').references(() => posts.id),
+    // [LAW:one-source-of-truth] Lineage is the lineage_edges DAG (below), NOT a column here.
+    // A single parent_post_id (dropped in 0027) could not hold a bred child's TWO parents;
+    // the Lineage domain union is the read-model assembled from edge COUNT at the boundary.
+    // [LAW:types-are-the-program] utterance is the composed prompt promoted to a first-class
+    // HERITABLE field (the genome's soft tissue). Canonical; params_json's prompt is its
+    // synchronized render-copy. NOT NULL; the '' DEFAULT is migration scaffolding only —
+    // createPost always writes a real utterance.
+    utterance: text('utterance').notNull().default(''),
+    // The continuous heritable dials (austerity/curse/density/earnestness), the substrate of
+    // drift — inert in L1 (carried, not read). The neutral-vector DEFAULT doubles as the
+    // backfill; createPost writes explicit traits going forward.
+    traitsJson: text('traits_json')
+      .notNull()
+      .default('{"austerity":0.5,"curse":0.5,"density":0.5,"earnestness":0.5}'),
     // [LAW:one-source-of-truth] The DB-level DEFAULTs duplicate values that
     // 0001_variety_taxonomy.sql sets so `ALTER TABLE ADD COLUMN NOT NULL` can
     // populate existing rows. createPost always supplies these fields
@@ -173,7 +186,6 @@ export const generations = sqliteTable(
   },
   (t) => [
     index('generations_status_idx').on(t.status),
-    index('generations_parent_idx').on(t.parentPostId),
     check(
       'generations_status_shape',
       sql`(
@@ -207,6 +219,38 @@ export const generations = sqliteTable(
           AND ${t.failedReason} IS NOT NULL)
       )`,
     ),
+  ],
+)
+
+// [LAW:one-source-of-truth] Lineage edges: the heredity DAG, the ONE source of truth for
+// who-descends-from-whom. A child genome (= a generation post id in L1) has 0 parent rows
+// (founder/spontaneous), 1 (single/asexual), or 2 (bred/sexual — arriving in L2). The domain
+// `Lineage` union is the read-model assembled from the COUNT of a child's edges; an arity
+// outside {0,1,2} fails loud at the read boundary, never laundered.
+//
+// [LAW:types-are-the-program] The (child, parent) PK forbids a duplicate edge by construction.
+// This SUPERSEDES the dropped generations.parent_post_id — a single column could not hold
+// bred's two parents, so keeping it beside the edges would be a second, conflicting source of
+// truth. child FK ON DELETE CASCADE: a deleted child's edges are meaningless (mirrors votes/
+// comments). parent FK no-action: a parent is historical lineage fact (mirrors the old
+// parent_post_id reference); posts are not normally deleted. The parent index serves L4's
+// descendant/dynasty folds (recursive CTEs over this table).
+export const lineageEdges = sqliteTable(
+  'lineage_edges',
+  {
+    childGenomeId: text('child_genome_id')
+      .notNull()
+      .references(() => posts.id, { onDelete: 'cascade' }),
+    parentGenomeId: text('parent_genome_id')
+      .notNull()
+      .references(() => posts.id),
+    // No created_at: an edge is a pure structural fact; its timestamp is the child genome's
+    // own createdAt (the post row), so a second timestamp here would be a derivable duplicate.
+    // [LAW:one-source-of-truth]
+  },
+  (t) => [
+    primaryKey({ columns: [t.childGenomeId, t.parentGenomeId] }),
+    index('lineage_edges_parent_idx').on(t.parentGenomeId),
   ],
 )
 
@@ -417,6 +461,8 @@ export type DbPost = typeof posts.$inferSelect
 export type NewDbPost = typeof posts.$inferInsert
 export type DbGeneration = typeof generations.$inferSelect
 export type NewDbGeneration = typeof generations.$inferInsert
+export type DbLineageEdge = typeof lineageEdges.$inferSelect
+export type NewDbLineageEdge = typeof lineageEdges.$inferInsert
 export type DbUpload = typeof uploads.$inferSelect
 export type NewDbUpload = typeof uploads.$inferInsert
 export type DbFound = typeof found.$inferSelect

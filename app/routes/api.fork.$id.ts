@@ -9,7 +9,7 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
-import { PostId, ProviderId, type AuthoredOrigin } from "~/lib/domain"
+import { GenomeId, PostId, ProviderId, type AuthoredOrigin } from "~/lib/domain"
 import { aspectRatioSchema, fallbackTitle, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 
@@ -165,19 +165,27 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     const post = await createPost(
       {
         kind: 'generation',
-        providerId: chosenProviderId,
+        // [LAW:types-are-the-program] A fork is a SINGLE (asexual) reproduction: one parent,
+        // its genome inherited with variation. The body plan (form) and the continuous traits
+        // are inherited from the parent genome; the visitor may vary species/frame/medium and
+        // re-authors the utterance. lineage.parent is the parent genome (= its post id). The
+        // 2-parent crossover (bred) is L2 — this path stays single.
+        genes: {
+          species: parsed.styleFamily,
+          form: parent.content.genome.genes.form,
+          frame: parsed.aspectRatio,
+          medium: chosenProviderId,
+        },
+        utterance: parsed.prompt,
+        traits: parent.content.genome.traits,
+        lineage: { kind: 'single', parent: GenomeId(parent.id) },
         params: derivedParams,
-        // [LAW:one-source-of-truth] A bred slop has no Haiku naming step on this
-        // path; it takes the deterministic placard from its inherited subject — the
-        // same derivation the composer fallback and read boundary use. (Giving a
-        // fork its own LLM-authored name is a future ticket; this path adds no
-        // second LLM call.)
-        title: fallbackTitle(parent.content.recipe.subject),
-        styleFamily: parsed.styleFamily,
-        subject: parent.content.recipe.subject,
-        aspectRatio: parsed.aspectRatio,
+        // [LAW:one-source-of-truth] A forked (single/asexual) slop has no Haiku naming step on
+        // this path; it takes the deterministic placard from its inherited subject — the same
+        // derivation the composer fallback and read boundary use. (Giving a fork its own
+        // LLM-authored name is a future ticket; this path adds no second LLM call.)
+        title: fallbackTitle(parent.content.genome.genes.form),
         origin,
-        parentId: parent.id,
       },
       { env: context.cloudflare.env },
     )
