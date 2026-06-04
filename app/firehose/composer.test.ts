@@ -19,6 +19,7 @@ import {
   renderTemplate,
   STYLE_FAMILY_PROMPT_SEEDS,
 } from '~/lib/variety'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { composePrompt, type ComposerInput } from './composer'
 
 vi.mock('~/observability/metrics', () => ({ emit: vi.fn() }))
@@ -37,6 +38,9 @@ function makeInput(overrides: Partial<ComposerInput> = {}): ComposerInput {
     styleFamily: 'photoreal',
     subject,
     aspectRatio: '1:1',
+    // [LAW:single-enforcer] traits is required — neutral is the firehose's real position,
+    // projecting to an empty register steer (a no-op). Tests that exercise the lever override it.
+    traits: NEUTRAL_TRAITS,
     ...overrides,
   }
 }
@@ -307,6 +311,85 @@ describe('composePrompt', () => {
 
     expect(result.title).toBe('GutterMonk')
     expect(result.title).not.toBe(fallbackTitle(input.subject))
+  })
+
+  // [LAW:single-enforcer] The breed occasion (L2) recombines two parent UTTERANCES into the child's
+  // voice on the SAME composer — both parents steer Haiku, neither is the returned prompt verbatim.
+  it('a breed occasion steers Haiku with BOTH parent utterances, isolated and not returned raw', async () => {
+    const parentA = 'a reliquary of melted halos under a dead fluorescent sky'
+    const parentB = 'thirteen identical saints, each missing the same finger'
+    let capturedBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      capturedBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('The Inheritance', 'a single saint cradling a melted halo, one finger short')
+    })
+
+    const result = await composePrompt(
+      makeInput({ occasion: { kind: 'breed', parents: [parentA, parentB] } }),
+      mockEnv('test-key'),
+    )
+
+    // Both parents reach the model as steering...
+    expect(capturedBody).toContain(parentA)
+    expect(capturedBody).toContain(parentB)
+    expect(capturedBody).toContain('CROSS of two lineages')
+    // ...but the child is the machine's own authorship, never either parent echoed verbatim.
+    expect(result.prompt).not.toContain(parentA)
+    expect(result.prompt).not.toContain(parentB)
+  })
+
+  it('caps over-long parent utterances before embedding them in the breed request', async () => {
+    const head = 'A'.repeat(1000)
+    const tail = 'B'.repeat(4000)
+    let capturedBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      capturedBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('Capped', 'ok')
+    })
+
+    await composePrompt(
+      makeInput({ occasion: { kind: 'breed', parents: [head + tail, 'short'] } }),
+      mockEnv('test-key'),
+    )
+    expect(capturedBody).toContain(head)
+    expect(capturedBody).not.toContain(tail)
+  })
+
+  // [LAW:single-enforcer] The genome's register steers composition via the one traitBias projection.
+  // A leaning bloodline bends the words; the neutral firehose embeds no register line.
+  it('a leaning earnestness register reaches Haiku as the drop-vs-add device instruction', async () => {
+    let sincereBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      sincereBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('A Held Breath', 'a figure gazed at as genuinely holy')
+    })
+    await composePrompt(
+      makeInput({ traits: { austerity: 0.5, curse: 0.5, density: 0.5, earnestness: 0.95 } }),
+      mockEnv('test-key'),
+    )
+    expect(sincereBody).toContain('Register')
+    expect(sincereBody).toContain('DROP every distancing device')
+
+    let ironicBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      ironicBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('Sixth Finger, Heh', 'a saint winking at its own glitch')
+    })
+    await composePrompt(
+      makeInput({ traits: { austerity: 0.5, curse: 0.5, density: 0.5, earnestness: 0.05 } }),
+      mockEnv('test-key'),
+    )
+    expect(ironicBody).toContain('KEEP the distancing devices')
+  })
+
+  it('the neutral firehose register embeds NO register line (a no-op steer)', async () => {
+    let capturedBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      capturedBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('Plain', 'a plain thing')
+    })
+    await composePrompt(makeInput(), mockEnv('test-key')) // neutral traits by default
+    expect(capturedBody).not.toContain('Register —')
   })
 
   it('trims leading/trailing whitespace from the parsed prompt and title', async () => {

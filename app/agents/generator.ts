@@ -187,6 +187,11 @@ export async function authorSlop(
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
+      // [LAW:one-source-of-truth] The SAME traits written to the genome below steer the
+      // composition — a firehose fire seeds no drift, so its register is neutral and
+      // traitBias projects it to an empty steer (the no-op the firehose has always been).
+      // Breeding (L2 surface) and selection (L3) pass recombined/drifted traits here.
+      traits: NEUTRAL_TRAITS,
       promptPrefix: config.promptPrefix,
       // The occasion (a wish, a self-portrait, or none) flows as one closed value —
       // the composer cannot receive both a wish and a self-portrait by construction.
