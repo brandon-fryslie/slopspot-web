@@ -7,6 +7,7 @@
 // is a misconfigured row, surfaced immediately.
 
 import type { Persona } from '~/agents/persona'
+import { seedFloat } from '~/lib/hash'
 
 export type SchedulerConfig = {
   expectedDailyFires: number
@@ -76,10 +77,13 @@ export function shouldFireNow(
   }
 
   // Fire probability per tick = expectedDailyFires / TICKS_PER_DAY.
-  // Hash seed: agentId + ISO timestamp so same tick always picks same decision.
+  // [LAW:one-source-of-truth] The tick (a number) + the per-agent discriminator combine by
+  // independent avalanche (hash.ts). This is the case that defeated string concatenation BOTH ways:
+  // agentId-first re-correlated agents sharing a `:${time}` suffix, time-first re-correlated future
+  // agentIds sharing a long prefix. The combine has no concatenation, so two agents decide
+  // independently regardless of how their ids relate.
   const probability = expectedDailyFires / TICKS_PER_DAY
-  const hash = fnv1a32(`${agentId}:${scheduledTime.toISOString()}`)
-  const bucket = hash / 0x100000000
+  const bucket = seedFloat(scheduledTime.getTime(), agentId)
   return bucket < probability
 }
 
@@ -89,16 +93,4 @@ export function personasDueNow(personas: Persona[], scheduledTime: Date): Person
     const config = parseSchedulerConfig(p.config)
     return shouldFireNow(p.agentId, config, scheduledTime)
   })
-}
-
-// [LAW:one-source-of-truth] FNV-1a hash — same implementation as persona.ts
-// and chooseNextGeneration.ts. Not extracted to a shared util to avoid coupling
-// three independently-pure modules over a 7-line function.
-function fnv1a32(input: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
 }

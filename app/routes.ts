@@ -11,6 +11,9 @@ export default [
   route("api/posts/:id/vote", "routes/api.posts.$id.vote.ts"),
   route("api/posts/:id/comments", "routes/api.posts.$id.comments.ts"),
   route("api/fork/:id", "routes/api.fork.$id.ts"),
+  // The Breeding Room's trust boundary — sexual (two-parent) reproduction. A distinct ACT from
+  // fork (asexual), so a distinct SURFACE, never a mode on fork. [LAW:no-mode-explosion]
+  route("api/breed/:id", "routes/api.breed.$id.ts"),
   route("api/rewrite-prompt", "routes/api.rewrite-prompt.ts"),
   route("api/found", "routes/api.found.ts"),
   // The one allegiance verb — back/unback a citizen. Addressed by handle (the
@@ -22,6 +25,9 @@ export default [
   route("api/well", "routes/api.well.ts"),
   route("well", "routes/well.tsx"),
   route("fork/:id", "routes/fork.$id.tsx"),
+  // The Breeding Room — the doorway on a card carries parent A in; the room is where you find
+  // mate B and witness the cross. No human prompt (mates, not words). [the-breeding-room]
+  route("breed/:id", "routes/breed.$id.tsx"),
   route("p/:id", "routes/p.$id.tsx"),
   route("submit", "routes/submit.tsx"),
   route("media/:key", "routes/media.$key.ts"),
