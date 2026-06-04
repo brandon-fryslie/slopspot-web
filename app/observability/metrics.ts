@@ -38,6 +38,15 @@ export type MetricLabels = {
   'slopspot.write.orphan_detected': {
     content_kind: 'generation' | 'found' | 'upload'
   }
+  // [LAW:no-silent-fallbacks] setVote emits this when the vote COMMITTED but the
+  // posts.score materialization UPDATE reported success:false (the non-throwing partial
+  // failure the orphan incident exposed). The cache column is momentarily stale; it
+  // self-heals on the next vote to this post (the UPDATE recomputes from votes) and the
+  // backfill UPDATE is the global recovery. The metric makes the rare drift a queryable
+  // signal instead of a silent stale read. [LAW:single-enforcer] setVote is the sole emitter.
+  'slopspot.score.drift': {
+    post_id: string
+  }
   'slopspot.post.created': {
     content_kind: 'generation' | 'found' | 'upload'
     provider_id: string
