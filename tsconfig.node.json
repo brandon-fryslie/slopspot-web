@@ -16,7 +16,12 @@
     "scripts/**/*.ts",
     "app/lib/variety.ts",
     "app/routes.ts",
-    "app/lib/route-canonicalize.ts"
+    "app/lib/route-canonicalize.ts",
+    // The black-box smoke suite (smoke/**/*.smoke.ts + helpers) is plain node:
+    // process.env + global fetch/Response/Headers, no `~/` app imports, no Workers
+    // types. It belongs in the node project so `tsc -b` type-checks it like any
+    // other source — a smoke test that doesn't compile is worse than no smoke test.
+    "smoke/**/*.ts"
   ],
   // The earnestness soul-test harness spans both contexts no single tsc project models: it
   // imports app modules through `~/` and the Workers `Env` global (cloudflare project), AND uses
