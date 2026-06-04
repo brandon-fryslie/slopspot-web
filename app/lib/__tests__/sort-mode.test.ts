@@ -11,6 +11,7 @@ import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import {
   BACKING_WEIGHT,
+  HOT_WINDOW_MS,
   HOTNESS_DECAY_S,
   HOTNESS_REFERENCE_EPOCH,
   TOP_WINDOW_MS,
@@ -263,8 +264,15 @@ describe('app/lib/sort-mode.ts', () => {
       expect(windowFilter({ mode: 'new' }, mockCtx.createdAt, NOW)).toBeUndefined()
     })
 
-    it('returns undefined for { mode: "hot" } — no time window filter', () => {
-      expect(windowFilter({ mode: 'hot' }, mockCtx.createdAt, NOW)).toBeUndefined()
+    it('{ mode: "hot" } emits createdAt >= cutoff with the Hot candidate window', () => {
+      // [LAW:verifiable-goals] Hot is bounded to a recent candidate window so the
+      // feed rank/aggregation/temp-sort never spans every post (the free-tier-CPU
+      // fix). The time-decay already sinks anything this old below the visible 50,
+      // so the window changes no visible result while bounding the work.
+      const expr = windowFilter({ mode: 'hot' }, mockCtx.createdAt, NOW)!
+      const { sql: sqlStr, params } = dialect.sqlToQuery(expr)
+      expect(sqlStr).toBe('"created_at" >= ?')
+      expect(params).toEqual([NOW - HOT_WINDOW_MS])
     })
 
     it('{ mode: "top", window: "day" } emits createdAt >= cutoff with day offset', () => {
