@@ -1,6 +1,7 @@
 import { createRequestHandler } from "react-router"
 import { runBankGen } from "./bank-gen"
 import { runScheduled } from "~/firehose/scheduled"
+import { runGenJobs, type GenJob } from "~/firehose/gen-queue"
 import { runPortraitPass } from "~/agents/portrait"
 import { runRite } from "~/agents/rite"
 
@@ -61,4 +62,14 @@ export default {
     }
     await runScheduled(event, env)
   },
-} satisfies ExportedHandler<Env>
+  // [LAW:locality-or-seam] The generation consumer. The scheduled handler above
+  // is a pure producer (enqueues GenJobs); the heavy generation work runs here,
+  // on the QUEUE invocation class — a CPU/billing boundary distinct from `fetch`
+  // and `scheduled`, so generation CPU never lands on a serving-class invocation.
+  // Same single-enforcer reason as `fetch`/`scheduled`: bindings cross into the
+  // app world here and only here. max_concurrency:1 (wrangler.jsonc) makes the
+  // sequential anti-rep guarantee an explicit queue-config invariant.
+  async queue(batch, env, _ctx) {
+    await runGenJobs(batch, env)
+  },
+} satisfies ExportedHandler<Env, GenJob>
