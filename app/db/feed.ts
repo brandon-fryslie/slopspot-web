@@ -18,7 +18,7 @@
 // vote score is a separate aggregate) and the domain shape (Content/GenerationStatus
 // are closed discriminated unions). Everything below is the residue of that one map.
 
-import { and, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
@@ -254,6 +254,10 @@ async function lineageParentsByChild(
     .select({ child: lineageEdges.childGenomeId, parent: lineageEdges.parentGenomeId })
     .from(lineageEdges)
     .where(inArray(lineageEdges.childGenomeId, [...childIds]))
+    // [LAW:types-are-the-program] Deterministic parent order: a bred child's [a,b] is a TUPLE,
+    // so its element order must be fixed across reads — DB return order is not guaranteed. Order
+    // by parent id so toLineage's bred tuple (and L2's crossover fold reading it) is stable.
+    .orderBy(asc(lineageEdges.parentGenomeId))
   for (const r of rows) {
     const list = map.get(r.child) ?? []
     list.push(GenomeId(r.parent))
