@@ -13,9 +13,14 @@
 // constraints. [LAW:single-enforcer] places it at that one boundary rather than
 // scattering triggers across every sibling insert/delete.
 //
-// [LAW:one-source-of-truth] No score column on posts — score is SUM(votes.value)
-// per post, computed at read time. Adding a denormalized score would create a
-// second representation that can drift from the votes table.
+// [LAW:one-source-of-truth][LAW:caches-are-derived] posts.score IS a column — but a
+// DERIVED MATERIALIZATION of SUM(votes.value), not a second source. The votes table stays
+// authoritative; score is the sanctioned cache exception: single writer (setVote), rewritten
+// from votes in the same operation as the vote it applies, regenerable from votes at any time
+// (the 0028 backfill UPDATE is both its definition and its self-heal). It exists because the
+// per-read SUM(votes) GROUP-BY was the dominant hot-path CPU cost (the 2026-06-04 outage); the
+// materialization moves that compute to write time so the feed read is O(page). Drift is bounded
+// + detectable + self-healing, never silent — see setVote.
 
 import { sql } from 'drizzle-orm'
 import {
@@ -90,9 +95,16 @@ export const posts = sqliteTable(
       enum: ['generation', 'upload', 'found'],
     }).notNull(),
     originJson: text('origin_json').notNull(),
+    // Derived materialization of SUM(votes.value) — see the file-head rationale. Single writer:
+    // setVote. default(0) is correct for a fresh post (0 votes) with no write. [LAW:caches-are-derived]
+    score: integer('score').notNull().default(0),
   },
   (t) => [
     index('posts_created_at_idx').on(t.createdAt),
+    // [LAW:dataflow-not-control-flow] Serves the `top` keyset cursor: `(score, created_at, id)` is
+    // the exact ORDER BY tuple top paginates on, so a page is an index SEEK to the cursor + K rows
+    // forward, no temp sort. The materialized score is what makes this column indexable at all.
+    index('posts_score_created_idx').on(t.score, t.createdAt, t.id),
     // [LAW:types-are-the-program] Drizzle's `enum` on a text column is
     // type-level only — it emits no SQL CHECK. Without this, the DB would
     // accept any string for content_kind, so a raw-SQL writer could store a

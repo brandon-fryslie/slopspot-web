@@ -878,7 +878,11 @@ export async function getFeed(
   // viewer-specific lens. [LAW:one-source-of-truth]
   const feedIds = database.$with('feed_ids').as(
     database
-      .select({ id: posts.id, score: rankScore.as('score'), affinity: lensAffinity.as('affinity') })
+      // [LAW:one-source-of-truth] The CTE's computed rank score is aliased `rank_score`, NOT
+      // `score`: posts now has a real `score` column (the 0028 materialization), and the outer
+      // hydration JOINs posts, so a bare `score` in the ORDER BY would be ambiguous between the two.
+      // (E1's getFeedPage replaces this computed rank with the stored posts.score column directly.)
+      .select({ id: posts.id, score: rankScore.as('rank_score'), affinity: lensAffinity.as('affinity') })
       .from(posts)
       .leftJoin(rankVoteScore, eq(rankVoteScore.postId, posts.id))
       .where(windowFilter(sort, posts.createdAt, Date.now()))
