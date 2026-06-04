@@ -468,6 +468,25 @@ describe('app/db/feed.ts - getFeed', () => {
       // (asexual) lineage — the read-model assembled from edge count.
       expect(genome.lineage).toEqual({ kind: 'single', parent })
     })
+
+    // [LAW:no-silent-fallbacks] A GenomeId is a generation-post id, so a lineage edge whose
+    // child is an upload/found post is storage corruption — the read boundary must fail loud,
+    // never silently drop it.
+    it('throws on a lineage edge attached to a non-generation post — corruption, not dropped', async () => {
+      const parent = await seedPost(env, { id: 'edge-parent-gen', createdAt: ms(1000) })
+      const upload = await seedPost(env, {
+        id: 'edge-child-upload',
+        createdAt: ms(2000),
+        content: { kind: 'upload' },
+      })
+      // Corruption: an upload is not a genome, so it must never carry a lineage edge.
+      await env.DB.prepare(
+        'INSERT INTO lineage_edges (child_genome_id, parent_genome_id) VALUES (?, ?)',
+      )
+        .bind('edge-child-upload', parent)
+        .run()
+      await expect(getFeedItemById(env, upload)).rejects.toThrow(/lineage edge/i)
+    })
   })
 
   describe('origin reconstruction (Content.kind -> Origin arm)', () => {

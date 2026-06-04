@@ -165,7 +165,18 @@ async function createGenerationPost(
   // bad params are caller errors, not failed generations), so neither leaves a
   // dangling row. The provider is the genome's `medium` gene.
   const provider = getProvider(input.genes.medium)
-  const validated = provider.paramsSchema.safeParse(input.params)
+  // [LAW:one-source-of-truth] utterance is the canonical prompt; params.prompt is its render-copy.
+  // DERIVE the copy from the source — inject the utterance as the params prompt before validation,
+  // overriding whatever the caller put there — so a divergent (or empty) params.prompt is
+  // UNREPRESENTABLE, not merely checked. An empty utterance then fails the provider's
+  // prompt.min(1) here as an InvalidParamsError, for free. This matters most at L2, where breed
+  // authors the utterance separately from params; nailing the invariant at the one writer means
+  // no caller, present or future, can store two diverging prompts.
+  const paramsWithUtterance = {
+    ...(input.params as Record<string, unknown>),
+    prompt: input.utterance,
+  }
+  const validated = provider.paramsSchema.safeParse(paramsWithUtterance)
   if (!validated.success) {
     throw new InvalidParamsError(provider.id, validated.error)
   }

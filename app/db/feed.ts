@@ -240,6 +240,20 @@ function toLineage(parents: readonly GenomeId[], postId: string): Lineage {
   }
 }
 
+// [LAW:no-silent-fallbacks] A lineage edge belongs ONLY to a generation (a GenomeId IS a
+// generation-post id). An edge whose child is an upload/found post is storage corruption, so a
+// non-generation post carrying any parent must fail loud here — silently ignoring it would be
+// the exact silent-fallback the rest of this read boundary (absent / requiredSibling /
+// assertNever) refuses. The generation arm consumes `parents` via toLineage; the other arms
+// assert there are none.
+function noLineage(parents: readonly GenomeId[], kind: string, postId: string): void {
+  if (parents.length > 0) {
+    throw new Error(
+      `${kind} post ${postId} has ${parents.length} lineage edge(s); only a generation (a genome) can have lineage`,
+    )
+  }
+}
+
 // [LAW:single-enforcer] The one read of the lineage DAG: fetch every child→parent edge for a
 // set of child genome (post) ids in one query, grouped into a map. Edges are 0..2 per child, so
 // they cannot ride the one-row-per-post feed join without multiplying rows — they are resolved
@@ -279,6 +293,7 @@ function toContent(row: FeedRow, parents: readonly GenomeId[]): Content {
     case 'upload': {
       absent(row.generation, `generations row for upload post ${row.post.id}`)
       absent(row.found, `found row for upload post ${row.post.id}`)
+      noLineage(parents, 'upload', row.post.id)
       const u = requiredSibling(row.upload, 'upload', row.post.id)
       return {
         kind: 'upload',
@@ -288,6 +303,7 @@ function toContent(row: FeedRow, parents: readonly GenomeId[]): Content {
     case 'found': {
       absent(row.generation, `generations row for found post ${row.post.id}`)
       absent(row.upload, `uploads row for found post ${row.post.id}`)
+      noLineage(parents, 'found', row.post.id)
       const f = requiredSibling(row.found, 'found', row.post.id)
       const thumbnail =
         f.thumbnailJson === null
