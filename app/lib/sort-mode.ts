@@ -14,6 +14,7 @@
 // .orderBy(). No branch that skips .orderBy() exists.
 
 import { desc, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
+import type { CursorPayload } from '~/lib/feed-cursor'
 
 export type SortMode = { mode: 'top'; window: 'day' | 'week' | 'all' } | { mode: 'new' } | { mode: 'hot' }
 
@@ -48,37 +49,21 @@ export const HOT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 // in SQLite expressions since D1 exposes only `log(x)` (natural log).
 const LOG10_E = 0.4342944819032518
 
-// [LAW:one-source-of-truth] The single weight a backed citizen's expressed opinion
-// carries in the viewer's ranking — the backing lens (the-roll-call.md). `affinity`
-// (supplied per post in SortCtx) is Σ of the vote values cast by citizens this viewer
-// backs; this constant is how many votes-equivalent each unit of that opinion is worth
-// when the feed is ranked. A backed critic's blessing (+1) lifts a post by
-// BACKING_WEIGHT; a burial (−1) sinks it by the same — so you browse the city through
-// your backed citizens' eyes: what they value rises, what they reject falls. It is a
-// BIAS on the ranking score, never a filter (no post is ever removed), and it touches
-// only the ORDER BY — the displayed score stays pure SUM(votes). Calibrate against real
-// vote velocity as traffic grows, the same way DECAY_CONSTANT will be.
-export const BACKING_WEIGHT = 10
-
-// Context the caller supplies: the expressions that differ across call sites.
-// `score` differs between the CTE inner query (rankScore subquery) and the outer query
-// (feedIds.score projection). `affinity` is the per-post backing-lens term (0 for every
-// post when the viewer backs no one). `createdAt` and `id` are always from posts but the
-// caller's query context determines which binding is in scope.
-// [LAW:one-source-of-truth] Callers do not hand-code ORDER BY expressions; every
-// mode's expression lives in this function's switch.
-type SortCtx = { score: SQLWrapper; affinity: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
-
-// [LAW:dataflow-not-control-flow] The quality axis every score-ranked mode orders by:
-// the post's real score, biased by the viewer's backing lens. `affinity` is a VALUE
-// that is 0 for every post when the viewer backs no one (the affinity aggregate
-// degrades to no rows by data), so this expression equals `score` exactly in the
-// unbacked case — the normal feed, with no branch. Both 'top' and 'hot' route their
-// score through here so the lens lands in one place; 'new' has no quality axis and
-// ignores it (strict chronology), the same way 'new' ignores score.
-function effectiveScore(ctx: SortCtx): SQL {
-  return sql`(${ctx.score} + ${BACKING_WEIGHT} * ${ctx.affinity})`
-}
+// [LAW:dataflow-not-control-flow] Context the caller supplies. `score` is THE sort-score
+// EXPRESSION the mode ranks by — variance lives in WHICH expression the caller flows through this
+// field, never in a branch inside applySortMode/keysetOrderBy/cursorFilter. getFeedPage sets it to
+// the BARE `posts.score` column, so the `(score, created_at, id)` index SEEKS the keyset instead of
+// SCANning a computed expression. [LAW:one-source-of-truth] applySortMode's ORDER BY,
+// keysetOrderBy's selection axis, and cursorFilter's keyset predicate all consume THIS one field,
+// so display order, selection order, and the cursor WHERE cannot disagree (disagreement is the
+// skip/dupe bug).
+//
+// The viewer-specific backing lens (the-roll-call.md) — which would flow a weighted
+// `posts.score + W*affinity` expression through this same field for backed viewers — is the
+// flagged follow-up slopspot-roll-call-47p.7 (within-page affinity re-rank, blocked on operator
+// sign-off). It is deliberately NOT in this core: that expression is not index-seekable, so it
+// cannot serve the keyset the same way the bare column does.
+type SortCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
 
 function assertNever(discriminant: never): never {
   throw new Error(`sort-mode: unhandled discriminant ${String(discriminant)}`)
@@ -98,7 +83,7 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
         case 'all':
         case 'day':
         case 'week':
-          return [desc(effectiveScore(ctx)), desc(ctx.createdAt), desc(ctx.id)]
+          return [desc(ctx.score), desc(ctx.createdAt), desc(ctx.id)]
         default:
           return assertNever(sort.window)
       }
@@ -109,15 +94,96 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
       //   log10(max(|score|,1)) * sign(score) + (createdAt_s - REFERENCE_EPOCH) / DECAY_S
       // D1 has no log10; log(x) is ln(x), so log10(x) = log(x) * LOG10_E.
       // createdAt is stored as Unix ms (timestamp_ms mode) — divide by 1000 for seconds.
-      // The score term is the backing-lens-biased effectiveScore: a backed citizen's
-      // opinion enters the hotness exactly as extra votes would, so the lens and vote
-      // velocity share one quality axis rather than competing as two ORDER BY terms.
-      const s = effectiveScore(ctx)
+      // The score term is ctx.score — the bare posts.score column getFeedPage flows through. This is
+      // hot's DISPLAY order, applied over an already-selected page (getFeedPage selects the page by
+      // keysetOrderBy on the stable created_at axis, then re-sorts that bounded page by this hotness
+      // — the §4.2 within-slab re-sort). Hotness is not index-seekable, so it ranks the page, never
+      // selects it.
+      const s = ctx.score
       const hotnessExpr = sql<number>`
         ${LOG10_E} * log(max(abs(${s}), 1)) * sign(${s})
         + (${ctx.createdAt} / 1000 - ${HOTNESS_REFERENCE_EPOCH}) / ${HOTNESS_DECAY_S}`
       return [desc(hotnessExpr), desc(ctx.createdAt), desc(ctx.id)]
     }
+    default:
+      return assertNever(sort)
+  }
+}
+
+// [LAW:one-source-of-truth] The keyset predicate: the lexicographic "strictly after" of the SAME
+// tuple keysetOrderBy selects by, consuming the SAME ctx.score, so the ORDER BY and the cursor WHERE
+// cannot disagree (a disagreement IS the skip/dupe bug). For `top` the key is (ctx.score, createdAt,
+// id); for `new`/`hot` it is (createdAt, id) — hot deliberately keysets the STABLE created_at axis
+// (the §4 slab approximation), its hotness re-sort happening within the page in getFeedPage, NOT here.
+//
+// [LAW:types-are-the-program] Expressed as a SQLite ROW-VALUE comparison `(a, b, c) < (x, y, z)`, NOT
+// the equivalent `(a<x) OR (a=x AND b<y) OR …` OR-chain. MEASURED (EXPLAIN, feed-page.test.ts): the
+// OR-chain forces SQLite to SCAN+filter the index — O(depth) — because it cannot fold the disjunction
+// into a seek range; the row-value form IS folded into `SEARCH … USING COVERING INDEX (…)<(?,?,?)`,
+// an O(K) seek to the cursor position. Same lexicographic semantics (all-DESC ⇒ strictly-after ⇒ the
+// whole tuple `<` the cursor tuple), fewer terms, and the difference between O(depth) and O(K).
+//
+// `cursor.m` IS the discriminator — the caller has already enforced `cursor.m === sort.mode` (a
+// mismatch decodes to page 1, no cursor, no call here), so this reads the cursor's own variant. The
+// window cutoff is a SEPARATE WHERE (windowFilter), ANDed in by the caller. [LAW:types-are-the-program]
+// exhaustive over the cursor union.
+export function cursorFilter(cursor: CursorPayload, ctx: SortCtx): SQL {
+  switch (cursor.m) {
+    case 'top':
+      return sql`(${ctx.score}, ${ctx.createdAt}, ${ctx.id}) < (${cursor.s}, ${cursor.t}, ${cursor.id})`
+    case 'new':
+    case 'hot':
+      return sql`(${ctx.createdAt}, ${ctx.id}) < (${cursor.t}, ${cursor.id})`
+    default:
+      return assertNever(cursor)
+  }
+}
+
+// [LAW:one-source-of-truth] The candidate-SELECTION order — the axis the cursor advances along,
+// the lexicographic order whose "strictly after" cursorFilter is. For `top`/`new` it is identical
+// to applySortMode (the display order IS index-seekable), so the selected page needs no re-sort.
+// For `hot` it DIVERGES: hotness is not index-seekable, so hot SELECTS along the stable created_at
+// axis (so the (created_at) index SEEKS the keyset) and getFeedPage re-sorts the bounded page by
+// applySortMode's hotness afterward. That divergence is the entire reason this function exists
+// apart from applySortMode. Same DESC directions as cursorFilter so ORDER BY and WHERE agree by
+// construction. [LAW:types-are-the-program] exhaustive over modes (+ top windows).
+export function keysetOrderBy(sort: SortMode, ctx: SortCtx): SQL[] {
+  switch (sort.mode) {
+    case 'top':
+      switch (sort.window) {
+        case 'all':
+        case 'day':
+        case 'week':
+          return [desc(ctx.score), desc(ctx.createdAt), desc(ctx.id)]
+        default:
+          return assertNever(sort.window)
+      }
+    case 'new':
+    case 'hot':
+      return [desc(ctx.createdAt), desc(ctx.id)]
+    default:
+      return assertNever(sort)
+  }
+}
+
+// [LAW:one-source-of-truth] The cursor BUILDER — the inverse of cursorFilter, reading the same
+// per-mode tuple off the keyset-boundary row (the last row in keysetOrderBy order, i.e. the lowest
+// position the page reached). `top` carries the score boundary; `new`/`hot` carry only the
+// created_at boundary (`hot`'s cursor.t is therefore the MIN created_at of the selected page, by
+// construction of keysetOrderBy). createdAt is stored ms (timestamp_ms), surfaced as a Date — .getTime()
+// returns the ms the cursor compares against. [LAW:types-are-the-program] the returned variant's `m`
+// matches `sort.mode`, so a cursor can only ever be built for the mode that produced it.
+export function cursorFromRow(
+  sort: SortMode,
+  row: { score: number; createdAt: Date; id: string },
+): CursorPayload {
+  switch (sort.mode) {
+    case 'top':
+      return { m: 'top', s: row.score, t: row.createdAt.getTime(), id: row.id }
+    case 'new':
+      return { m: 'new', t: row.createdAt.getTime(), id: row.id }
+    case 'hot':
+      return { m: 'hot', t: row.createdAt.getTime(), id: row.id }
     default:
       return assertNever(sort)
   }

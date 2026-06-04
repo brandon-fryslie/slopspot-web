@@ -1,6 +1,7 @@
 import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
-import { countSlops, getFeed, getFeedItemById } from "~/db/feed"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { countSlops, getFeedPage, getFeedItemById } from "~/db/feed"
 import { latestCrownedPostId } from "~/db/crowns"
 import { getPulse } from "~/db/pulse"
 import { Wall } from "~/components/wall"
@@ -10,7 +11,9 @@ import { PulseStrip } from "~/components/pulse-strip"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
 import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
-import { defaultSortMode, parseSortMode, serializeSortMode } from "~/lib/sort-mode"
+import { defaultSortMode, parseSortMode, serializeSortMode, sortModeUrlQuery } from "~/lib/sort-mode"
+import type { FeedItem } from "~/lib/domain"
+import { reviveFeedItem, type WireFeedItem } from "~/lib/feed-wire"
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -41,9 +44,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // [LAW:one-source-of-truth] The hero is DERIVED from the crowns table (the latest crown),
   // not a flag — and read through the same feed reader as any post, so it carries the same
   // mark crowningsForPosts would derive in the wall. The four reads are independent; only
-  // the hero post depends on the crown id, so it follows in a second hop.
-  const [items, pulse, slopCount, heroId] = await Promise.all([
-    getFeed(env, voterId, sort),
+  // the hero post depends on the crown id, so it follows in a second hop. The feed read is now
+  // a cursor PAGE (getFeedPage) — page.items is page 1; the client appends the rest.
+  const [page, pulse, slopCount, heroId] = await Promise.all([
+    getFeedPage(env, { sort, voterId }),
     getPulse(env),
     countSlops(env),
     latestCrownedPostId(env),
@@ -62,8 +66,9 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // [LAW:one-source-of-truth] The hero is hung above the wall; the wall is everything else.
   // A post is one relic — showing the crown as both the gold hero AND a wall tile would be
   // two of the same. One uniform predicate drops the hero's id (matching nothing when there
-  // is no hero), so the filter runs the same way whether or not a crown reigns.
-  const wallItems = items.filter((i) => i.post.id !== hero?.post.id)
+  // is no hero), so the filter runs the same way whether or not a crown reigns. This filters page 1;
+  // the client extends the same hero-exclusion to every appended page (one relic, never also a tile).
+  const wallItems = page.items.filter((i) => i.post.id !== hero?.post.id)
 
   const serialized = serializeSortMode(sort)
   const headers: HeadersInit | undefined =
@@ -71,11 +76,68 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       ? { 'Set-Cookie': serializeSortCookie(sort, url.protocol === 'https:') }
       : undefined
 
-  return data({ items: wallItems, pulse, sort, hero, slopCount }, { headers })
+  // The payload merges BOTH features: #109's hero/slopCount (the masthead drama) AND the cursor
+  // page's wall items + nextCursor (the infinite scroll). page 1's wall items are hero-excluded above.
+  return data(
+    { items: wallItems, nextCursor: page.nextCursor, pulse, sort, hero, slopCount },
+    { headers },
+  )
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items, pulse, sort, hero, slopCount } = loaderData
+  const { items: firstPage, nextCursor: firstCursor, pulse, sort, hero, slopCount } = loaderData
+
+  // [LAW:dataflow-not-control-flow] Page 1 is the loader's SSR result (the cheap real-path probe);
+  // later pages are appended from /api/feed. `cursor === null` is the DATA that ends the scroll — the
+  // observer has nothing left to advance to, not a branch that tears the component down.
+  const [extraItems, setExtraItems] = useState<FeedItem[]>([])
+  const [cursor, setCursor] = useState<string | null>(firstCursor)
+  const [loading, setLoading] = useState(false)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  // A sort change re-runs the loader → a fresh page-1 (new loaderData identity) → restart the scroll
+  // from it. [LAW:one-source-of-truth] page 1 always comes from the loader; only the appended tail is
+  // local state, so a stale cursor can never out-live its sort.
+  useEffect(() => {
+    setExtraItems([])
+    setCursor(firstCursor)
+  }, [firstPage, firstCursor])
+
+  const loadMore = useCallback(async () => {
+    if (loading || cursor === null) return
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/feed?${sortModeUrlQuery(sort)}&cursor=${encodeURIComponent(cursor)}`)
+      // [LAW:single-enforcer] reviveFeedItem (feed-wire.ts) owns the wire→domain boundary: /api/feed
+      // serializes Dates to ISO strings (Response.json), so an appended row's post.createdAt must be
+      // revived to a Date or PostCard's relativeTime throws. The wire shape is honest (createdAt: string).
+      const next = (await res.json()) as { items: WireFeedItem[]; nextCursor: string | null }
+      // [LAW:one-source-of-truth] The crowned hero is hung once (the gold relic); it must never ALSO
+      // appear as a wall tile — #109 enforces this on page 1 (loader filter); the SAME uniform predicate
+      // extends it to every appended page (hero?.post.id matches nothing when no crown reigns).
+      const revived = next.items.map(reviveFeedItem).filter((i) => i.post.id !== hero?.post.id)
+      setExtraItems((prev) => [...prev, ...revived])
+      setCursor(next.nextCursor)
+    } finally {
+      setLoading(false)
+    }
+  }, [loading, cursor, sort, hero])
+
+  // [LAW:dataflow-not-control-flow] One observer. `rootMargin` prefetches the next page ~600px before
+  // the sentinel is visible so the scroll never stalls; when `cursor === null` the effect attaches
+  // nothing, so the feed simply ends.
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (el === null || cursor === null) return
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) void loadMore() },
+      { rootMargin: '600px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [loadMore, cursor])
+
+  const items = [...firstPage, ...extraItems]
   // [LAW:dataflow-not-control-flow] The chrome (the sign, the Pulse, the sort, the
   // tagline) holds a readable centered column; the WALL goes full-bleed to fill the
   // room and kill the void. Width is structure, not a mode — the same markup renders
@@ -140,6 +202,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       ) : (
         <Wall items={items} />
       )}
+      {/* [LAW:dataflow-not-control-flow] The sentinel the observer watches to prefetch the next page.
+          Present whenever there is a wall; the observer only advances while `cursor !== null`, so at
+          the end of the feed it sits inert — the data ends the scroll, not a torn-down node. */}
+      {items.length > 0 ? (
+        <div className="mx-auto mt-8 max-w-5xl">
+          <div ref={sentinelRef} aria-hidden className="h-px" />
+          <p className="text-center font-terminal text-[11px] text-ash">
+            {loading ? "letting more slop out…" : cursor === null ? "you've reached the back wall." : ""}
+          </p>
+        </div>
+      ) : null}
       <footer className="mx-auto mt-16 flex max-w-5xl items-center justify-between gap-4 border-t border-votive/15 pt-6 font-terminal text-xs text-ash">
         <span>slopspot · {slopCount.toLocaleString("en-US")} slops · open the cage and let the slop out</span>
         <Link to="/cast" className="transition-colors hover:text-votive/70">
