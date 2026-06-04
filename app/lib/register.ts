@@ -38,9 +38,17 @@ const POLES: Record<keyof TraitVector, { readonly low: string; readonly high: st
   // [LAW:types-are-the-program] THE LEVER. sincere = undefended (devices DROPPED), NOT pleasant/
   // wholesome (that warm pole is the Populist mirror — still a defended pose). Any feeling shown
   // without a wink counts. The drop-vs-add is what moves the words; the soul-test gates it.
+  //
+  // [LAW:dataflow-not-control-flow] SHOW, don't TELL (CD's blind soul-read). Both poles name only
+  // CONCRETE, renderable acts — never the abstract quality. The ironic pole shows its camp/deadpan/
+  // sight-gag (which Haiku renders as imagery); the sincere pole shows its kneeling/wound/gold-leaf
+  // (likewise). The earlier sincere clause listed NEGATIONS ("no irony, no camp") — abstract
+  // meta-instructions Haiku echoed back into the output as a TELL ("rendered with sincerity").
+  // Positive devotional directives carry the same drop (the devices are simply absent) without the
+  // declaration. The lever is subtraction TOWARD sincerity; the words it reaches for are the face.
   earnestness: {
     low: 'irony, defended — KEEP the distancing devices: ironic juxtaposition, camp, kitsch, a self-referential winking frame, the feeling held in scare-quotes, deadpan; hold the subject at arm’s length, in on its own joke',
-    high: 'sincerity, undefended — DROP every distancing device: no ironic juxtaposition, no camp, no kitsch, no self-referential or winking frame, no scare-quotes around the feeling, no deadpan; render the subject devotionally, gazed at as if it genuinely matters, the feeling shown without protection — mean it and do not look away',
+    high: 'sincerity, undefended — gaze at the subject as if it genuinely matters and do not look away; honor its flaw as a real wound borne with grace; lay the gold leaf like an act of love; let the body grieve its own wrongness; the composition kneels before the thing rather than nudging at it, every imperfection rendered as an aspect of grace, the figure regarded with plain reverence and held open',
   },
 }
 
