@@ -61,7 +61,7 @@ function PostCardImpl({
   myVote,
   commentCount,
   viewerIsModifier,
-  verdict,
+  verdicts,
   crowning,
   frame,
 }: RenderablePost & { frame: FrameLevel }) {
@@ -103,11 +103,10 @@ function PostCardImpl({
           <SignedRemark ctx={wish} />
         </>
       )}
-      {/* [LAW:dataflow-not-control-flow] The critic's verdict renders by the presence
-          of the value the read boundary computed — a slop no critic has weighed in on
-          carries no verdict and this block simply does not appear. No isReviewed flag,
-          no empty placeholder museum-speak. */}
-      {verdict !== undefined && <VerdictLine verdict={verdict} />}
+      {/* [LAW:dataflow-not-control-flow] The critics who SPOKE on this slop render by the verdicts
+          ARRAY the read boundary computed — empty → nothing, one → a line, two or more → side by side
+          (the feud's visual germ). The array's length is the data; no isReviewed/isFeud flag. */}
+      <Verdicts verdicts={verdicts} />
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
         {/* [LAW:types-are-the-program] Fork button gated on the content
@@ -811,6 +810,24 @@ export function EternalMark({ crowning }: { crowning: Crowning }) {
       <span aria-hidden className="font-terminal text-[0.65rem] uppercase tracking-wide opacity-55">
         · {crowning.riteDay}
       </span>
+    </div>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The critics who spoke, rendered by COUNT: an empty array is no
+// block at all; one verdict is the critic's line; two or more render SIDE BY SIDE — the co-presence
+// that is the feud's visual germ (slopspot-voice-w2v.1), the Gremlin's burial beside Vivian's blessing
+// of the same slop. The same flex layout serves one (a single full-width child) or many; the array's
+// length is the data, the layout follows it — no isFeud flag, no count branch in the markup.
+function Verdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
+  if (verdicts.length === 0) return null
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-start">
+      {verdicts.map((v, i) => (
+        <div key={i} className="min-w-0 flex-1">
+          <VerdictLine verdict={v} />
+        </div>
+      ))}
     </div>
   )
 }
