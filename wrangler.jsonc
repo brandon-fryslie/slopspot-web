@@ -43,10 +43,50 @@
   //   happen to land on multiples of 5, collapsing the schedule shape.
   //   ~77 firing-minutes/day × $0.003/post ≈ $7/month, capped at $1/day by
   //   the budget enforcer in app/firehose/budget.ts.
+  //   [LAW:locality-or-seam] The scheduled handler is now a PURE PRODUCER:
+  //   chooseFires → enqueue a GenJob per channel onto GEN_QUEUE (below). The
+  //   every-minute granularity is unchanged (the prime-period design requires
+  //   it) but each tick's CPU collapses to the enqueue floor — generation CPU
+  //   is billed on the queue consumer invocation, never this scheduled (serving-
+  //   class) one. "Right-sizing the cadence" is achieved by making the tick cheap,
+  //   not by coarsening the cron (which would throw away the prime-period schedule).
   // "0 3 * * *": bank-gen — ~1000 BankEntry records daily at 03:00 UTC with
   //   48h TTL overlap. Model: claude-haiku-4-5-20251001 (cost-efficient bulk gen).
   "triggers": {
     "crons": ["* * * * *", "0 3 * * *"]
+  },
+  // [LAW:locality-or-seam] GEN_QUEUE is the seam between the cron producer
+  // (scheduled handler, serving-class invocation) and the generation consumer
+  // (queue-class invocation). The producer emits a GenJob value per fired
+  // channel; the consumer (workers/app.ts `queue`) owns all heavy work — Haiku
+  // compose, provider polling, R2 ingest — so generation CPU is billed/bounded
+  // separately from the serving (fetch/scheduled) path by construction.
+  //
+  // max_concurrency:1 is LOAD-BEARING, not a perf knob: it guarantees no two
+  // consumer invocations run concurrently, which (with the consumer's sequential
+  // per-message await) restores the read-after-write anti-rep invariant the old
+  // sequential tick loop provided implicitly — channel B's getRecentRecipes sees
+  // channel A's committed recipe and R1/R3/R4 push B's choice away. This turns an
+  // implicit sequential-await invariant into an explicit, documented queue-config
+  // invariant. [LAW:dataflow-not-control-flow] the GenJob message is the variability.
+  //
+  // max_retries:0 is deliberate: a generation is NON-IDEMPOTENT (a retry re-runs
+  // Haiku + a paid provider call + a new post). A failed fire is dropped (logged
+  // loud, emits skipped-error) exactly as the old runOneFire did — never replayed.
+  // No DLQ for the same reason: there is no correct way to replay a generation.
+  "queues": {
+    "producers": [
+      { "binding": "GEN_QUEUE", "queue": "slopspot-gen" }
+    ],
+    "consumers": [
+      {
+        "queue": "slopspot-gen",
+        "max_concurrency": 1,
+        "max_batch_size": 3,
+        "max_batch_timeout": 5,
+        "max_retries": 0
+      }
+    ]
   },
   // [LAW:one-source-of-truth] Apex domain binding lives in config, not in the
   // dashboard. `custom_domain: true` makes wrangler the single owner of the A/AAAA
