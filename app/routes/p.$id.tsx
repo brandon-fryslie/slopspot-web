@@ -73,7 +73,7 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
           returns; the route names the frame LEVEL its container owns — a lone
           permalinked relic hangs "standalone". Spread the renderable as one value
           and name the level beside it; the type system carries the contract. */}
-      <PostCard {...item} frame="standalone" />
+      <PostCard {...item} frame={{ kind: "standalone" }} />
     </main>
   )
 }

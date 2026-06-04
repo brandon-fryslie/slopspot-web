@@ -991,13 +991,19 @@ export async function getFeed(
 // The shared selectFeedRows helper guarantees the same aggregates the feed
 // uses — score, commentCount, myVote — so a future change to any aggregate
 // applies to both views by construction.
+//
+// [LAW:dataflow-not-control-flow] `id` is PostId | null: an absent id (the home hero when
+// no crown has settled) is a VALUE, not a reason to skip the call. A null id becomes an
+// empty candidate set that flows through the same query — no rows match, the existing
+// empty-result arm yields null. The caller stays uniform (always calls this); the null
+// decides the outcome, never a caller-side guard around the await.
 export async function getFeedItemById(
   env: Env,
-  id: PostId,
+  id: PostId | null,
   voterId?: string,
 ): Promise<RenderablePost | null> {
   const database = db(env)
-  const { query } = selectFeedRows(database, [id], voterId)
+  const { query } = selectFeedRows(database, id === null ? [] : [id], voterId)
 
   const rows = await query.limit(1)
   if (rows.length === 0) return null
@@ -1054,4 +1060,17 @@ export async function getPostById(env: Env, id: PostId): Promise<Post | null> {
   if (rows.length === 0) return null
   const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
   return toPost(rows[0], parentsByChild.get(rows[0].post.id) ?? [])
+}
+
+// [LAW:single-enforcer] The one count of "how much slop the city has made" — the live
+// gauge under the masthead ("Non-Stop Slop") and the footer's tally read the SAME number,
+// so the two can never disagree. Every post is a slop (a generation, an upload, a found
+// link), so this is the full corpus, not a windowed page — the relentless productivity,
+// made visible. [LAW:one-source-of-truth] the footer no longer counts the rendered page
+// (which lies — it is the feed window, not the city's output); both read this.
+export async function countSlops(env: Env): Promise<number> {
+  const rows = await db(env)
+    .select({ count: sql<number>`count(*)` })
+    .from(posts)
+  return rows[0]?.count ?? 0
 }
