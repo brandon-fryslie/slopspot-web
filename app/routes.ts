@@ -2,6 +2,9 @@ import { type RouteConfig, index, layout, route } from "@react-router/dev/routes
 
 export default [
   index("routes/home.tsx"),
+  // Cheap binding-free liveness probe. [LAW:single-enforcer] liveness only —
+  // D1 readiness is owned elsewhere; this route does no query work by construction.
+  route("health", "routes/health.ts"),
   route("api/feed", "routes/api.feed.ts"),
   route("api/challenge", "routes/api.challenge.ts"),
   route("api/generate", "routes/api.generate.ts"),
