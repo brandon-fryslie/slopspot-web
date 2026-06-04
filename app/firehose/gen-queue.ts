@@ -26,31 +26,42 @@ export type GenJob = {
 // per producing tick): with max_concurrency:1 + the sequential ack loop, each
 // fire's check reads every prior committed fire's spend, so the cap reflects
 // actual fire time — strictly more honest than the old once-per-tick snapshot.
+//
+// [LAW:no-silent-fallbacks] runOneJob is TOTAL: it never throws. Every I/O that
+// can fail — the budget query (checkBudget hits live D1; a transient 503 throws)
+// AND the authoring pass (runGeneratorPass throws on any provider/creation error)
+// — is INSIDE the single try, so every failure maps to a skipped-error metric +
+// a loud log and the function returns normally. This totality is load-bearing:
+// runGenJobs acks every message only because runOneJob cannot throw out of the
+// batch loop. A budget-query throw left OUTSIDE this try would abort the loop
+// mid-batch and, under max_retries:0, drop the remaining messages SILENTLY with
+// no metric — the exact regression this shape forbids. A dropped fire self-heals
+// on the next tick (generation is non-idempotent; it must never be replayed),
+// but it is always SIGNALLED, never silent.
 async function runOneJob(job: GenJob, env: Env): Promise<void> {
-  const budget = await checkBudget(env)
-  if (!budget.withinBudget) {
-    // [LAW:no-silent-fallbacks] Over-budget is a deliberate outcome, not an
-    // error: log the suppressed fire and emit skipped-budget so the per-channel
-    // dashboard reflects it. The message is still acked by the caller (a retry
-    // would never become in-budget on its own and generation is non-idempotent).
-    console.log('firehose.gen-queue: over budget; skipping', {
-      spentUsd: budget.spentUsd,
-      ceilingUsd: budget.ceilingUsd,
-      channel: job.channel,
-      scheduledTime: job.scheduledTimeMs,
-    })
-    emit('slopspot.firehose.fire', { channel: job.channel, outcome: 'skipped-budget' }, 1)
-    return
-  }
-
-  // [LAW:no-silent-fallbacks] runGeneratorPass throws on any I/O or creation
-  // error; the catch logs + emits skipped-error without swallowing the root
-  // cause and without rethrowing — one job's failure must not abort its
-  // batch-mates (mirrors the old runOneFire's keep-the-worker-alive contract).
   try {
+    const budget = await checkBudget(env)
+    if (!budget.withinBudget) {
+      // [LAW:no-silent-fallbacks] Over-budget is a DELIBERATE, distinct outcome
+      // (the budget enforcer working as designed), not an error — its own metric
+      // label so the dashboard separates "suppressed by cap" from "failed". The
+      // message is still acked by the caller; a retry would never become
+      // in-budget on its own and generation is non-idempotent.
+      console.log('firehose.gen-queue: over budget; skipping', {
+        spentUsd: budget.spentUsd,
+        ceilingUsd: budget.ceilingUsd,
+        channel: job.channel,
+        scheduledTime: job.scheduledTimeMs,
+      })
+      emit('slopspot.firehose.fire', { channel: job.channel, outcome: 'skipped-budget' }, 1)
+      return
+    }
     await runGeneratorPass(env, job.scheduledTimeMs)
     emit('slopspot.firehose.fire', { channel: job.channel, outcome: 'fired' }, 1)
   } catch (err) {
+    // Any failure (budget query OR authoring) → one loud log + skipped-error,
+    // root cause preserved (err as a separate console arg so Workers logs keep
+    // the stack), no rethrow. One job's failure cannot abort its batch-mates.
     console.error(
       'firehose.gen-queue: fire failed',
       { channel: job.channel, scheduledTime: job.scheduledTimeMs },
@@ -69,8 +80,12 @@ async function runOneJob(job: GenJob, env: Env): Promise<void> {
 // serialized. Parallelizing here OR raising max_concurrency would break
 // anti-rep silently — both are invariants, not perf choices.
 //
-// Every message is acked regardless of fire/skip/error outcome: runOneJob never
-// throws, and a generation must never be replayed (non-idempotent, max_retries:0).
+// Every message is acked regardless of outcome (fired | skipped-budget |
+// skipped-error). This is correct ONLY because runOneJob is total — it cannot
+// throw, so the loop always reaches ack() for every message and never drops a
+// batch-mate. A generation must never be replayed (non-idempotent,
+// max_retries:0), so ack-always is the right contract: a failed fire is signalled
+// by skipped-error and left to self-heal on the next tick, not retried.
 export async function runGenJobs(batch: MessageBatch<GenJob>, env: Env): Promise<void> {
   for (const message of batch.messages) {
     await runOneJob(message.body, env)

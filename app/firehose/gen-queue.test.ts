@@ -42,7 +42,8 @@ function makeBatch(jobs: GenJob[]): { batch: MessageBatch<GenJob>; messages: Ack
 }
 
 const jobA: GenJob = { channel: 'generation-a', scheduledTimeMs: 47 * 60_000 }
-const jobB: GenJob = { channel: 'generation-b', scheduledTimeMs: 47 * 60_000 }
+const jobB: GenJob = { channel: 'generation-b', scheduledTimeMs: 53 * 60_000 }
+const jobC: GenJob = { channel: 'generation-c', scheduledTimeMs: 73 * 60_000 }
 
 describe('runGenJobs (consumer)', () => {
   let runGenJobs: Awaited<typeof import('./gen-queue')>['runGenJobs']
@@ -155,5 +156,46 @@ describe('runGenJobs (consumer)', () => {
     releaseA()
     await done
     expect(runGeneratorPassMock).toHaveBeenCalledTimes(2)
+  })
+
+  // [LAW:no-silent-fallbacks] The teeth: checkBudget does a live D1 query that can
+  // throw (transient 503). A budget-query failure on ONE job must NOT abort the
+  // batch and silently drop its mates under max_retries:0 — it must be SIGNALLED
+  // (skipped-error) and the loop must continue + ack every message. This test
+  // FAILS against the pre-fix code (checkBudget outside the try → runOneJob throws
+  // → runGenJobs aborts mid-loop → jobC unacked+unfired, no skipped-error emit).
+  it('checkBudget throws on job B: does not abort batch — signals skipped-error, fires A+C, acks all', async () => {
+    checkBudgetMock
+      .mockResolvedValueOnce({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 }) // A
+      .mockRejectedValueOnce(new Error('D1_ERROR: transient 503')) // B
+      .mockResolvedValueOnce({ withinBudget: true, spentUsd: 0, ceilingUsd: 1.0 }) // C
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { batch, messages } = makeBatch([jobA, jobB, jobC])
+
+    // The whole batch resolves — a mid-batch budget-query failure never throws out.
+    await expect(runGenJobs(batch, fakeEnv)).resolves.toBeUndefined()
+
+    // A and C fired (by their distinct seeds); B did not.
+    expect(runGeneratorPassMock).toHaveBeenCalledTimes(2)
+    expect(runGeneratorPassMock).toHaveBeenCalledWith(fakeEnv, jobA.scheduledTimeMs)
+    expect(runGeneratorPassMock).toHaveBeenCalledWith(fakeEnv, jobC.scheduledTimeMs)
+    expect(runGeneratorPassMock).not.toHaveBeenCalledWith(fakeEnv, jobB.scheduledTimeMs)
+
+    // B's budget-query failure is SIGNALLED, not silent.
+    expect(emitMock).toHaveBeenCalledWith(
+      'slopspot.firehose.fire',
+      { channel: 'generation-b', outcome: 'skipped-error' },
+      1,
+    )
+    expect(errSpy).toHaveBeenCalledWith(
+      'firehose.gen-queue: fire failed',
+      { channel: 'generation-b', scheduledTime: jobB.scheduledTimeMs },
+      expect.any(Error),
+    )
+
+    // Every message acked — none silently dropped.
+    for (const message of messages) {
+      expect(message.ack).toHaveBeenCalledTimes(1)
+    }
   })
 })
