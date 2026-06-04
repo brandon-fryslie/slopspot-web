@@ -10,16 +10,21 @@ import { loader } from '~/routes/media.$key'
 // The loader only accesses params.key and context.cloudflare.env.MEDIA. The
 // `url` and `pattern` fields are required by RR7's CreateServerLoaderArgs
 // type even though the loader does not read them.
-// No-op ExecutionContext stub. The loader does not call ctx.waitUntil or
-// ctx.passThroughOnException, but providing real methods (instead of an empty
-// cast) keeps the test helper structurally correct so a future loader that
-// starts using ctx fails by behavior, not by TypeError on a missing method.
+// ExecutionContext stub that captures waitUntil work so the test can await it.
+// The loader writes to caches.default via ctx.waitUntil(cache.put(...)); a no-op
+// waitUntil would drop that promise on the floor and the cache would stay empty,
+// making the hit path untestable. Collecting and draining the promises exercises
+// the real production write path instead of mocking it away.
+const pending: Promise<unknown>[] = []
 const stubCtx: ExecutionContext = {
-  waitUntil() {},
+  waitUntil(promise) {
+    pending.push(Promise.resolve(promise))
+  },
   passThroughOnException() {},
   exports: {} as Cloudflare.Exports,
   props: {},
 }
+const drainWaitUntil = () => Promise.all(pending.splice(0))
 
 const args = (key: string): Parameters<typeof loader>[0] => {
   const url = new URL(`https://slopspot.ai/media/${key}`)
@@ -50,6 +55,29 @@ describe('/media/:key route loader', () => {
     expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
 
     const body = new Uint8Array(await response.arrayBuffer())
+    expect(body).toEqual(bytes)
+  })
+
+  it('serves a repeat read from the edge cache without a second R2 read', async () => {
+    const bytes = new Uint8Array([9, 8, 7, 6, 5])
+    const key = 'cd'.repeat(32)
+    await env.MEDIA.put(key, bytes.buffer, { httpMetadata: { contentType: 'image/png' } })
+
+    // First read: cache miss -> R2 -> response cloned into caches.default.
+    const first = await loader(args(key))
+    expect(first.status).toBe(200)
+    await first.arrayBuffer() // drain the client copy so the clone can settle
+    await drainWaitUntil() // let cache.put complete
+
+    // Delete the R2 object. A second read that still returns the bytes proves
+    // it was served from the edge cache, not from R2 — the CPU-saving path.
+    await env.MEDIA.delete(key)
+
+    const second = await loader(args(key))
+    expect(second.status).toBe(200)
+    expect(second.headers.get('content-type')).toBe('image/png')
+    expect(second.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
+    const body = new Uint8Array(await second.arrayBuffer())
     expect(body).toEqual(bytes)
   })
 })
