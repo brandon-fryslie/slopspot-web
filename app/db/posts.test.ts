@@ -279,6 +279,47 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       expect(mockGenerate).toHaveBeenCalledTimes(1)
       expect(JSON.stringify(mockGenerate.mock.calls)).not.toContain(WISH)
     })
+
+    // [LAW:one-source-of-truth] utterance is canonical; params.prompt is its render-copy.
+    // createPost DERIVES the copy from the source, so a caller's divergent params.prompt cannot
+    // be stored — divergence is unrepresentable, not merely checked.
+    it('derives params.prompt from the canonical utterance — a divergent caller prompt is overridden', async () => {
+      const input: CreatePostInput = {
+        ...GENERATION_INPUT,
+        utterance: 'the canonical utterance',
+        params: { prompt: 'a STALE divergent prompt', seed: 7 },
+      }
+      mockBatch.mockResolvedValue([{ success: true }, { success: true }])
+      mockGenerate.mockResolvedValueOnce({ kind: 'image', url: 'https://cdn/x.png', w: 1, h: 1 })
+      const { ingestImage } = await import('~/storage/ingest')
+      vi.mocked(ingestImage).mockResolvedValueOnce({
+        url: '/media/abc',
+        key: 'abc',
+        size: 1,
+        contentType: 'image/png',
+      })
+      const valuesSpy = vi.fn().mockReturnThis()
+      mockInsert.mockReturnValue({ values: valuesSpy })
+
+      const { createPost } = await import('~/db/posts')
+      const post = await createPost(input, { env: fakeEnv })
+
+      // The stored render params carry the utterance, never the caller's stale prompt; other
+      // params fields (seed) survive — only prompt is derived from the canonical source.
+      expect(valuesSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paramsJson: JSON.stringify({ prompt: 'the canonical utterance', seed: 7 }),
+        }),
+      )
+      if (post.content.kind === 'generation') {
+        expect((post.content.render.params as { prompt: string }).prompt).toBe(
+          'the canonical utterance',
+        )
+        expect(post.content.genome.utterance).toBe('the canonical utterance')
+      }
+      // The provider never saw the stale prompt.
+      expect(JSON.stringify(mockGenerate.mock.calls)).not.toContain('STALE')
+    })
   })
 
   describe('createFoundPost', () => {
