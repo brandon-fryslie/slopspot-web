@@ -14,7 +14,7 @@
 // no clock, no votes, no ambient randomness. Same (a, b, seed) → same child, every time.
 
 import type { Genes, Genome, Lineage, TraitVector } from '~/lib/domain'
-import { unitFloat } from '~/lib/hash'
+import { seedFloat } from '~/lib/hash'
 
 // [LAW:types-are-the-program] The crossover result — exactly the parts heredity folds
 // DETERMINISTICALLY. No utterance (the composer authors it), no id/render/status (those are
@@ -53,12 +53,10 @@ export function breed(a: Genome, b: Genome, seed: number): BredGenome {
   // is not asserted; it is the only thing the expression can produce. Crossing species or medium
   // is what makes a hybrid (one parent's form through the other's species/medium) — the radiation
   // the Genome exists for.
-  // [LAW:types-are-the-program] The per-dimension discriminator (gene name / axis) goes LAST in
-  // the tag, NOT in the middle with a shared `:${seed}` suffix. FNV-1a re-processing identical
-  // trailing bytes through the same xor-multiply steps partially RE-CORRELATES two streams that
-  // diverged earlier (a measurable cross-stream r the decorrelation tests catch); diverging at the
-  // final bytes lets the avalanche separate them cleanly. Same seed → same tags → same draws.
-  const heads = (gene: string): boolean => unitFloat(`gene:${seed}:${gene}`) < 0.5
+  // [LAW:one-source-of-truth] The seed + dimension tags combine by independent avalanche (hash.ts),
+  // never a hand-built `gene:${seed}:${gene}` string — so the per-gene coins decorrelate by
+  // construction regardless of seed magnitude, even for the small integer seeds breed uses.
+  const heads = (gene: string): boolean => seedFloat(seed, 'gene', gene) < 0.5
   const genes: Genes = {
     species: heads('species') ? a.genes.species : b.genes.species,
     form: heads('form') ? a.genes.form : b.genes.form,
@@ -70,8 +68,8 @@ export function breed(a: Genome, b: Genome, seed: number): BredGenome {
   // name — no branch per trait. `mix` is an independent [0,1) blend position; `drift` an
   // independent symmetric nudge; `clamp01` lands the sum in-bounds.
   const recombine = (axis: keyof TraitVector): number => {
-    const mix = unitFloat(`mix:${seed}:${axis}`)
-    const drift = (unitFloat(`drift:${seed}:${axis}`) - 0.5) * 2 * DRIFT_MAX
+    const mix = seedFloat(seed, 'mix', axis)
+    const drift = (seedFloat(seed, 'drift', axis) - 0.5) * 2 * DRIFT_MAX
     return clamp01(lerp(a.traits[axis], b.traits[axis], mix) + drift)
   }
   const traits: TraitVector = {
