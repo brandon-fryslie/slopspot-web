@@ -46,11 +46,17 @@ async function seedCritic(agentId: string, displayName: string): Promise<void> {
     })
 }
 
-// `1970-01-01T00:00:00.001Z` is the smallest distinct timestamp_ms; bumping by
-// 1ms per post in test setup is enough to disambiguate createdAt ordering
-// without making the test brittle to clock drift or system time.
+// Relative ordering anchor. The small `n` values (1000, 2000, …) only ever matter
+// relative to one another — bumping by 1ms per post disambiguates createdAt ordering
+// for the rank/tie-break contracts. They are anchored to a recent base (≈1h ago) rather
+// than the 1970 epoch so that posts seeded for the DEFAULT sort (Hot, which now carries a
+// candidate window — HOT_WINDOW_MS) fall INSIDE that window. The window is a CPU bound on
+// the default feed, orthogonal to the score/myVote/commentCount/ordering contracts these
+// tests pin; anchoring here keeps those contracts windowing-agnostic. The dedicated
+// window tests below pass their own absolute `now - X` timestamps and are unaffected.
+const MS_BASE = Date.now() - 60 * 60 * 1000
 function ms(n: number): Date {
-  return new Date(n)
+  return new Date(MS_BASE + n)
 }
 
 describe('app/db/feed.ts - getFeed', () => {

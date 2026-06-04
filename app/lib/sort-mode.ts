@@ -33,6 +33,17 @@ export const TOP_WINDOW_MS = {
 // D1 SQLite has no log10(); use log(x) * LOG10_E (= 1/ln(10)).
 export const HOTNESS_REFERENCE_EPOCH = 1_735_689_600 // Jan 1 2026 00:00:00 UTC, seconds
 export const HOTNESS_DECAY_S = 21_600 // 6h in seconds
+
+// [LAW:one-source-of-truth] Hot's candidate window. Hot is time-decayed: with a 6h
+// decay constant, a post 14 days old carries an age term of (14·24/6) = −56 against
+// any plausible log10(score), so it ranks far below anything recent and can never
+// surface in a 50-item feed. Bounding Hot's candidate set to this window is therefore
+// semantically a no-op on the *visible* result while bounding the per-post vote
+// aggregation and the temp sort to a recent slice instead of the whole posts table —
+// the difference between O(all posts) and O(recent posts) CPU on the free-tier 10ms
+// budget. 'top'/'all' stays all-time (its window param is the explicit knob); 'new'
+// stays time-ordered + limited. Calibrate alongside DECAY_CONSTANT as traffic grows.
+export const HOT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 // [LAW:one-source-of-truth] 1/ln(10) ≈ 0.4342944819032518; used to convert ln→log10
 // in SQLite expressions since D1 exposes only `log(x)` (natural log).
 const LOG10_E = 0.4342944819032518
@@ -128,7 +139,12 @@ export function windowFilter(sort: SortMode, createdAt: SQLWrapper, now: number)
         default: return assertNever(sort.window)
       }
     case 'new': return undefined
-    case 'hot': return undefined
+    // [LAW:one-source-of-truth] Hot's candidate window (HOT_WINDOW_MS). Unlike 'top',
+    // whose window is a user-facing choice surfaced in the URL, Hot's window is an
+    // internal bound: the time-decay already sinks anything this old below the visible
+    // 50, so restricting the candidate set changes no visible result — it only bounds
+    // the per-post aggregation + temp sort to a recent slice (the 1102-CPU fix).
+    case 'hot': return sql`${createdAt} >= ${now - HOT_WINDOW_MS}`
     default: return assertNever(sort)
   }
 }
