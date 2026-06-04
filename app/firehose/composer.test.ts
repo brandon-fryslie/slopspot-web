@@ -368,7 +368,8 @@ describe('composePrompt', () => {
       mockEnv('test-key'),
     )
     expect(sincereBody).toContain('Register')
-    expect(sincereBody).toContain('DROP every distancing device')
+    // SHOW-not-tell: the sincere steer carries concrete devotional acts, never a "no irony" negation.
+    expect(sincereBody).toContain('kneels before the thing')
 
     let ironicBody: string | undefined
     vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {

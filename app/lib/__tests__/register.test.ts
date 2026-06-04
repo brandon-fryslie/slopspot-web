@@ -51,11 +51,17 @@ describe('traitBias — commitment scales with distance from neutral (continuous
 })
 
 describe('traitBias — EARNESTNESS is the lever (drop-vs-add)', () => {
-  it('high earnestness DROPS the distancing devices and renders devotionally', () => {
+  // [LAW:dataflow-not-control-flow] SHOW, not TELL (CD's soul-read): the sincere pole reaches for
+  // concrete devotional ACTS (kneel, honor the wound, do not look away), never the abstract
+  // negation ("no irony") that Haiku echoed back as a declaration.
+  it('high earnestness SHOWS undefendedness — concrete devotional acts, never a negation', () => {
     const s = traitBias(at({ earnestness: 0.95 }))
-    expect(s).toContain('DROP every distancing device')
-    expect(s).toContain('devotionally')
     expect(s).toContain('do not look away')
+    expect(s).toContain('wound')
+    expect(s).toContain('kneels')
+    // The tell-not-show form is gone: no "no irony / no camp / drop the devices" meta-negation.
+    expect(s).not.toContain('DROP every distancing device')
+    expect(s.toLowerCase()).not.toContain('no irony')
   })
 
   it('low earnestness KEEPS the distancing devices and stays in on the joke', () => {
@@ -69,9 +75,9 @@ describe('traitBias — EARNESTNESS is the lever (drop-vs-add)', () => {
     const sincere = traitBias(at({ earnestness: 0.95 }))
     const ironic = traitBias(at({ earnestness: 0.05 }))
     expect(sincere).not.toBe(ironic)
-    // sincerity drops devices; irony keeps them — the steers must not collapse to the same register.
-    expect(sincere).toContain('DROP')
-    expect(ironic).toContain('KEEP')
+    // sincere SHOWS the face (kneels, the wound); ironic KEEPS the mask (camp, deadpan).
+    expect(sincere).toContain('kneels')
+    expect(ironic).toContain('KEEP the distancing devices')
   })
 
   it('sincere is MASK-vs-FACE, not warm-vs-cool — never reaches for pleasant/wholesome', () => {
