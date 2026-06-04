@@ -16,10 +16,6 @@ export default [
   route("api/breed/:id", "routes/api.breed.$id.ts"),
   route("api/rewrite-prompt", "routes/api.rewrite-prompt.ts"),
   route("api/found", "routes/api.found.ts"),
-  // Synthetic CPU-burn TEST AFFORDANCE (not a product path) for the CPU-budget
-  // closed-loop alarm test. Refuses to burn when SLOPSPOT_ENV === 'prod'.
-  // [LAW:single-enforcer] the one burn surface; gated inside the route.
-  route("api/cpuburn", "routes/api.cpuburn.ts"),
   // The one allegiance verb — back/unback a citizen. Addressed by handle (the
   // canonical /cast URL key); the single-enforcer writer resolves it to the
   // stable agentId it stores. [LAW:single-enforcer]

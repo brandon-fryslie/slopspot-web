@@ -15,7 +15,6 @@ export const ROUTE_PATTERNS = [
   "/api/breed/:id",
   "/api/rewrite-prompt",
   "/api/found",
-  "/api/cpuburn",
   "/api/cast/:handle/back",
   "/api/well",
   "/well",

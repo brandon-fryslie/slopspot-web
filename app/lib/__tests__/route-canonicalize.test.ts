@@ -49,7 +49,6 @@ describe('canonicalizeRoute', () => {
     ['/api/breed/p9', '/api/breed/:id'],
     ['/api/rewrite-prompt', '/api/rewrite-prompt'],
     ['/api/found', '/api/found'],
-    ['/api/cpuburn', '/api/cpuburn'],
     ['/api/cast/marble-faun/back', '/api/cast/:handle/back'],
     ['/api/well', '/api/well'],
     ['/well', '/well'],

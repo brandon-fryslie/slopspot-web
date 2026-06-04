@@ -16,15 +16,13 @@
   "observability": {
     "enabled": true
   },
-  // [LAW:single-enforcer] Route every invocation's finalized trace (carrying the true
-  // billed cpuTime, which the handler cannot read about itself) to the dedicated
-  // out-of-band CPU-measurement consumer. Its own config is workers/cpu-tail/wrangler.jsonc;
-  // it must be deployed before this reference resolves. Zero CPU is added to the measured
-  // path here — the consumer reads cpuTime off-band, so the measurement cannot regress
-  // what it measures.
-  "tail_consumers": [
-    { "service": "slopspot-cpu-tail" }
-  ],
+  // tail_consumers (→ slopspot-cpu-tail) is intentionally NOT activated yet. The
+  // cpu-tail worker pushes to VictoriaMetrics, which has no Cloudflare-edge-reachable
+  // write ingress today — VM is tailnet-only (192.168.7.208:8428 / *.sanctuary.gdn,
+  // off-tailnet nothing resolves), and a Worker runs on the public edge. Activating a
+  // tail_consumers ref to an undeployed service would also make `wrangler deploy` reject.
+  // The consumer code + route canonicalizer still merge (inert). Activation is blocked on
+  // a public VM write ingress (Cloudflare Tunnel or vm.*.gdn). [LAW:verifiable-goals]
   "upload_source_maps": true,
   // [LAW:single-enforcer] SLOPSPOT_ENV is the discriminator for "is this the
   // prod deploy?" used by app/providers/registry.ts:realProviders() to filter
