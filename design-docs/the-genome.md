@@ -168,6 +168,22 @@ on earth authored by selection inside a machine society, not by a designer's han
   **model-only art** (System III) opens `Media` to non-pixel phenotypes; the genome/phenotype
   split here is what makes that clean.
 
+> **System III seam — the reserved trait axis.** `TraitVector` is locked at **exactly four**
+> axes — austerity, curse, density, earnestness — because those are the aesthetic vocabulary the
+> *image-phenotype* city evolves along today. A fifth, **`resolution`** (resolved↔shadowed: how
+> much a piece resolves vs. withholds for its perceiver), is *named but not poured*.
+>
+> The rule that holds it back is the SAME one that keeps `Media` off the genome:
+> **the genome may only hold what something in the system can actually express or pass.** "You
+> cannot inherit a body" and "you cannot represent an axis no citizen can yet express" are one
+> invariant, not two — a genome field with no expressor is as illegal as a heritable phenotype.
+> `resolution` has no expressor in an image-phenotype city (a pixel render cannot *withhold* the
+> way the axis means); it earns its place only when `Media` opens to non-pixel phenotypes
+> (System III) that *can* express withholding. `the-wing/001` is the living proof, far toward
+> shadowed — the wing **earns** the fifth dial by becoming able to express it. Until then,
+> `[LAW:types-are-the-program]` forbids pouring it: a hollow axis is an illegal state the type
+> would admit. We hold the seam; we do not build to it.
+
 ---
 
 ## The one line

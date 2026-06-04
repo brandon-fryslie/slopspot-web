@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
   AgentId,
+  GenomeId,
   ProviderId,
   type Content,
   type GenerationStatus,
+  type Lineage,
   type Media,
   type Origin,
 } from '~/lib/domain'
@@ -66,6 +68,21 @@ function mediaDiscriminator(m: Media): string {
   }
 }
 
+function lineageDiscriminator(l: Lineage): string {
+  switch (l.kind) {
+    case 'founder':
+      return 'founder'
+    case 'single':
+      return 'single'
+    case 'bred':
+      return 'bred'
+    default: {
+      const _exhaustive: never = l
+      return _exhaustive
+    }
+  }
+}
+
 function originDiscriminator(o: Origin): string {
   switch (o.kind) {
     case 'authored':
@@ -86,14 +103,19 @@ describe('domain exhaustiveness (compile-time)', () => {
     const generation: Content = {
       kind: 'generation',
       title: 'A Placard',
-      recipe: {
-        providerId: ProviderId('p'),
-        providerVersion: 'v',
-        params: {},
-        styleFamily: 'photoreal',
-        aspectRatio: '1:1',
-        subject: { subjectTemplate: 'T00', slots: { freeText: 'x' } },
+      genome: {
+        id: GenomeId('g'),
+        genes: {
+          species: 'photoreal',
+          form: { subjectTemplate: 'T00', slots: { freeText: 'x' } },
+          frame: '1:1',
+          medium: ProviderId('p'),
+        },
+        utterance: 'a prompt',
+        traits: { austerity: 0.5, curse: 0.5, density: 0.5, earnestness: 0.5 },
+        lineage: { kind: 'founder' },
       },
+      render: { providerVersion: 'v', params: {} },
       status: { kind: 'pending', queuedAt: new Date() },
     }
     const upload: Content = {
@@ -151,5 +173,17 @@ describe('domain exhaustiveness (compile-time)', () => {
     expect(originDiscriminator(authoredWithHuman)).toBe('authored')
     expect(originDiscriminator(found)).toBe('found')
     expect(originDiscriminator(uploaded)).toBe('uploaded')
+  })
+
+  it('Lineage has exactly the three reproduction modes the discriminator handles', () => {
+    // founder = spontaneous, single = asexual, bred = sexual. `bred` is a 2-tuple so an
+    // illegal arity cannot be constructed; dropping an arm makes lineageDiscriminator's
+    // `never` default reachable and fails tsc -b.
+    const founder: Lineage = { kind: 'founder' }
+    const single: Lineage = { kind: 'single', parent: GenomeId('a') }
+    const bred: Lineage = { kind: 'bred', parents: [GenomeId('a'), GenomeId('b')] }
+    expect(lineageDiscriminator(founder)).toBe('founder')
+    expect(lineageDiscriminator(single)).toBe('single')
+    expect(lineageDiscriminator(bred)).toBe('bred')
   })
 })
