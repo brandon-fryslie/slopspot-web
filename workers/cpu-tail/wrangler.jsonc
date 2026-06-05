@@ -7,13 +7,20 @@
  * `slopspot-cpu-tail` service name below once activated. [LAW:one-source-of-truth] the
  * consumer's identity (name) lives here; the producer references it by that name.
  *
- * NOT ACTIVATED YET. VICTORIA_METRICS_ENDPOINT must be a full InfluxDB-line write URL
- * reachable FROM the Cloudflare edge. VM is tailnet-only today (the homelab
- * 192.168.7.208:8428 / *.sanctuary.gdn ingress does not resolve off-tailnet, and a
- * Worker has no tailnet access), so there is no endpoint to pin. Do NOT hardcode the
- * private IP — the Worker cannot reach it, so it would silently never ingest. Pin a
- * public ingress (Cloudflare Tunnel or vm.*.gdn) in the `vars` block here once one
- * exists, then activate `tail_consumers` in ../../wrangler.jsonc. [LAW:verifiable-goals]
+ * VICTORIA_METRICS_ENDPOINT is the public, Access-protected Cloudflare-Tunnel ingress
+ * fronting VM's InfluxDB-line write endpoint (vm-ingest.sanctuary.gdn, home-infra
+ * a5w.5.3). The edge Worker reaches it over the public internet; Cloudflare Access
+ * validates the service-token at the edge before the tunnel.
+ *
+ * SECRETS (NOT vars — set with `wrangler secret put -c workers/cpu-tail/wrangler.jsonc`):
+ *   CF_ACCESS_CLIENT_ID      — the CF Access service-token client id
+ *   CF_ACCESS_CLIENT_SECRET  — the CF Access service-token client secret
+ * Both are outputs of the cloudflare_access_service_token (home-infra), surfaced via
+ * Vault (secret/slopspot-cpu-tail). [LAW:single-enforcer] one auth enforcer, at the edge.
+ *
+ * DEPLOY: `pnpm exec wrangler deploy -c workers/cpu-tail/wrangler.jsonc` — deploy THIS
+ * worker (with the secrets set) BEFORE activating tail_consumers in ../../wrangler.jsonc,
+ * or the main worker's deploy rejects a ref to an undeployed service.
  */
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
@@ -23,5 +30,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "VICTORIA_METRICS_ENDPOINT": "https://vm-ingest.sanctuary.gdn/write"
   }
 }

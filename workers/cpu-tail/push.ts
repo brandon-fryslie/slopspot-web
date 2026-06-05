@@ -33,14 +33,24 @@ export function nowNs(): string {
 }
 
 // Push a batch of samples in one request — a TailEvent delivers many TraceItems at
-// once, so one write per batch keeps subrequest count low.
-export async function pushLines(endpoint: string, lines: string[]): Promise<void> {
+// once, so one write per batch keeps subrequest count low. `headers` carries the
+// Cloudflare Access service-token (CF-Access-Client-Id / -Secret) that authes the
+// write at the tunnel edge; the endpoint is the public, Access-protected ingress.
+export async function pushLines(
+  endpoint: string,
+  lines: string[],
+  headers: Record<string, string> = {},
+): Promise<void> {
   const resp = await fetch(endpoint, {
     method: 'POST',
     body: lines.join('\n'),
+    headers,
     signal: AbortSignal.timeout(5_000),
   })
   if (!resp.ok) {
+    // 403 here means Access rejected the token — a real, visible failure (not a
+    // silent drop): the cpu metric simply won't appear, and the VM-side absent()
+    // rule surfaces it. Log the status so the cause is locatable.
     console.warn('cpu-tail: push failed', { status: resp.status })
   }
 }
