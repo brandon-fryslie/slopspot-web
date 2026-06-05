@@ -5,7 +5,7 @@ import { recencyWeight } from '~/lib/recency'
 // monotonically decreasing, never negative, never amplifying (a future-dated act clamps to full).
 // The rate is the caller's; the SHAPE is what this pins.
 
-const HL = 30 * 24 * 60 * 60 * 1000 // 30 days, the genepool's rate — but any positive rate works
+const HL = 30 * 24 * 60 * 60 * 1000 // a sample rate — the leaf is rate-agnostic, each consumer sets its own
 
 describe('recencyWeight', () => {
   it('is 1 at age 0 (a just-cast act counts in full)', () => {

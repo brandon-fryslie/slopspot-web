@@ -100,7 +100,7 @@ describe('bloodline gradient — contestability (CD acceptance): the reign decay
   // from now it blesses only F's line (each new F-descendant, stamped at the current fire) and never
   // D again. Under recency, D's historical standing DECAYS while F's current blessings count full —
   // measure how the incumbent's lead collapses to parity.
-  function runOverthrow(dynastySize: number, budget: number) {
+  function runReignDecay(dynastySize: number, budget: number) {
     const sim = new Sim()
     const D = sim.founder('D'); sim.bless(D, 0)
     let prev = D
@@ -132,7 +132,7 @@ describe('bloodline gradient — contestability (CD acceptance): the reign decay
   // chosen model, by design, not a defect. Couples to genome .3 (Character With a Past), which owns
   // the temporal-decay mechanism at its own rate via the shared recency.ts leaf.
   it('an established dynasty\'s reign decays to PARITY with a fresh line within bounded fires (recency restores contestability)', () => {
-    const r = runOverthrow(15, 400)
+    const r = runReignDecay(15, 400)
     expect(r.initialLead).toBeGreaterThan(10) // the incumbent starts firmly dominant (≈16 vs 1)
     expect(r.parityFire).toBeGreaterThanOrEqual(0) // ...and the fresh line REACHES parity (never under RAW)
     expect(r.parityFire).toBeLessThan(400) // ...within the felt-contestable budget, not "eventually"
