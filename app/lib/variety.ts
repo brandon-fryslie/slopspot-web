@@ -16,6 +16,17 @@
 // (app/lib/__tests__/variety.test.ts) re-extracts placeholders from each phrase
 // and asserts they match TEMPLATE_SLOT_KEYS — so a drift between the phrase
 // text and its declared slots fails at test time, not at chooser-runtime.
+//
+// [LAW:one-type-per-behavior] THE PRIMORDIAL GENE POOL. Post-genome (System I),
+// this taxonomy is no longer the per-recipe generator — it is the *starting
+// alleles* a FOUNDER draws from. After founders, the pool evolves itself: breed
+// recombines these alleles into hybrid combinations no one hand-defined and drifts
+// the continuous traits, so the city's look becomes selection's, not a designer's.
+// The families/templates/frames here are DATA (alleles), never code paths — there
+// is no per-family branch anywhere, only Record-indexed lookup. PRIMORDIAL_ALLELES
+// (below) names that founding pool for the genes this module owns; the 4th gene,
+// medium, is the registry's allele-set (realProviders), cross-referenced — never
+// copied here (the registry is the single enforcer for providers).
 
 import { z } from 'zod'
 
@@ -190,6 +201,21 @@ export const STORED_SUBJECT_TEMPLATE_IDS = [
 export type StoredSubjectTemplateId = (typeof STORED_SUBJECT_TEMPLATE_IDS)[number]
 
 export const storedSubjectTemplateIdSchema = z.enum(STORED_SUBJECT_TEMPLATE_IDS)
+
+// [LAW:one-source-of-truth] The primordial gene pool — the founding alleles a founder's
+// genes draw from — for the three genes this module owns. REFERENCES the canonical arrays
+// above; it is a named VIEW of the founding pool, never a copy (editing a family edits the
+// allele set in exactly one place). `form` is the CHOOSER set (T01–T40) — T00 is a backfill
+// sentinel no founder can draw, so it is unrepresentable as a primordial form allele by type.
+// [LAW:one-way-deps] The 4th gene — `medium` — is the registry's allele-set (realProviders),
+// NOT listed here: variety.ts is a pure leaf and must not depend on the provider registry.
+// A consumer composing a full founding gene-tuple pulls medium from realProviders(env), the
+// registry being the single enforcer for which media exist in an environment.
+export const PRIMORDIAL_ALLELES = {
+  species: STYLE_FAMILIES,
+  form: CHOOSER_SUBJECT_TEMPLATE_IDS,
+  frame: ASPECT_RATIOS,
+} as const
 
 // Phrases verbatim from the doc's §Subject templates table. The chooser fills
 // {slot} placeholders with vocab values and the renderer normalizes any
