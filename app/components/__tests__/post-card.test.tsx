@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
-import { EternalMark, VerdictLine } from '~/components/post-card'
+import { EternalMark, Exchange, VerdictLine } from '~/components/post-card'
 import type { Crowning, Verdict } from '~/lib/domain'
 
 // [LAW:behavior-not-structure] Pin the RENDERED ROBE for both dispositions: the
@@ -30,6 +30,36 @@ describe('app/components/post-card.tsx - VerdictLine robe', () => {
     expect(html).toContain('border-profane/50')
     expect(html).not.toContain('✚')
     expect(html).not.toContain('text-gilt')
+  })
+})
+
+// [LAW:behavior-not-structure] The Feud Engine's back-and-forth (voice-w2v.2) renders by the exchange
+// ARRAY's LENGTH — the discriminator, never an isFeud flag: empty → no thread at all, ≥1 → the answers
+// the citizens traded, each a Verdict-shaped line reusing the verdict robe. Asserts the rendered
+// dataflow, not the component internals.
+describe('app/components/post-card.tsx - Exchange thread', () => {
+  const reply = (text: string, disposition: Verdict['disposition']): Verdict => ({
+    text,
+    critic: 'The Gremlin',
+    disposition,
+  })
+
+  it('renders NOTHING for an empty exchange (no opposing verdicts → no thread)', () => {
+    expect(renderToStaticMarkup(<Exchange exchange={[]} />)).toBe('')
+  })
+
+  it('renders the traded answers when the exchange is non-empty', () => {
+    const html = renderToStaticMarkup(
+      <Exchange
+        exchange={[reply('St. Vivian again. Of course.', 'buried'), reply('The Gremlin buries everything.', 'blessed')]}
+      />,
+    )
+    expect(html).toContain('St. Vivian again. Of course.')
+    expect(html).toContain('The Gremlin buries everything.')
+    expect(html).toContain('the exchange')
+    // each answer wears its speaker's disposition robe — the gilt-vs-profane argument is legible
+    expect(html).toContain('text-profane')
+    expect(html).toContain('text-gilt')
   })
 })
 

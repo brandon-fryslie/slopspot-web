@@ -62,6 +62,7 @@ function PostCardImpl({
   commentCount,
   viewerIsModifier,
   verdicts,
+  exchange,
   crowning,
   frame,
 }: RenderablePost & { frame: FrameLevel }) {
@@ -107,6 +108,11 @@ function PostCardImpl({
           ARRAY the read boundary computed — empty → nothing, one → a line, two or more → side by side
           (the feud's visual germ). The array's length is the data; no isReviewed/isFeud flag. */}
       <Verdicts verdicts={verdicts} />
+      {/* [LAW:dataflow-not-control-flow] The back-and-forth renders by the exchange ARRAY the read
+          boundary computed (occasion='reply'): empty → no thread, ≥1 → the answers the citizens traded
+          over their opposing verdicts (slopspot-voice-w2v.2). The array's length is the data; no isFeud
+          flag, no count branch. */}
+      <Exchange exchange={exchange} />
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
         {/* [LAW:types-are-the-program] Fork button gated on the content
@@ -827,6 +833,26 @@ function Verdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
         <div key={i} className="min-w-0 flex-1">
           <VerdictLine verdict={v} />
         </div>
+      ))}
+    </div>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The back-and-forth — the replies the citizens traded over their
+// opposing verdicts (slopspot-voice-w2v.2, the Feud Engine). An empty array is no thread at all; ≥1 is
+// the exchange, INDENTED and rule-marked as answers beneath the opening positions. A reply renders with
+// the SAME VerdictLine (a bylined line + disposition robe) — it is a Verdict-shaped value that answers
+// one [LAW:one-type-per-behavior], so the line treatment is shared, only the thread framing differs.
+// The array's length is the data; no isFeud flag, no count branch in the markup.
+export function Exchange({ exchange }: { exchange: readonly Verdict[] }) {
+  if (exchange.length === 0) return null
+  return (
+    <div className="ml-3 mt-1 border-l border-votive/15 pl-2">
+      <div className="px-3 pt-1 font-terminal text-[10px] uppercase tracking-widest text-ash/70">
+        the exchange
+      </div>
+      {exchange.map((v, i) => (
+        <VerdictLine key={i} verdict={v} />
       ))}
     </div>
   )

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentId, PostId } from "~/lib/domain";
+import type { FeudStanding } from "~/lib/feud";
 import {
   type AnsweredWish,
   type ChosenSilenceReason,
   type JudgedSlop,
   type Occasion,
   type OccasionTarget,
+  type ReplyExchange,
   type RiteOutcome,
   type Utterance,
   type WithheldReason,
@@ -47,6 +49,41 @@ describe("utter — the locked voice contract", () => {
       }),
     });
     expect(() => utter(answerer, "remark", frozen)).not.toThrow();
+  });
+});
+
+// The Feud Engine (voice-w2v.2): a reply ANSWERS an opposing verdict, and the DERIVED standing's stance
+// selects the tone. These assert the dataflow — the stance VALUE picks the register, the opponent is
+// named (the cross-reference that makes the city a society), and every stance speaks (never an empty
+// string). Blind to the exact wording (the LLM voice swaps the body later); pinned on the contract.
+describe("utter — the reply instance (the Feud Engine)", () => {
+  const speaker = { handle: "agent:gremlin" as AgentId, displayName: "The Gremlin" };
+  const slop = { postId: "post_9" as PostId, prompt: "a chrome saint" };
+  const exchangeWith = (stance: FeudStanding["stance"]): ReplyExchange => ({
+    slop,
+    opponent: { handle: "agent:vivian" as AgentId, displayName: "St. Vivian", disposition: "blessed" },
+    ownDisposition: "buried",
+    standing: { opposing: 3, aligned: 0, lastClashAt: new Date(1), stance },
+  });
+
+  it.each<FeudStanding["stance"]>(["feuding", "allied", "wary", "neutral"])(
+    "speaks a non-empty reply for the %s stance, naming the opponent",
+    (stance) => {
+      const result = utter(speaker, "reply", exchangeWith(stance));
+      expect(result.kind).toBe("spoke");
+      if (result.kind === "spoke") {
+        expect(result.text.length).toBeGreaterThan(0);
+        expect(result.text).toContain("St. Vivian");
+      }
+    },
+  );
+
+  it("the stance VALUE selects the register — different stances, different lines", () => {
+    const lines = (["feuding", "allied", "wary", "neutral"] as const).map((s) => {
+      const r = utter(speaker, "reply", exchangeWith(s));
+      return r.kind === "spoke" ? r.text : "";
+    });
+    expect(new Set(lines).size).toBe(4); // each stance speaks distinctly
   });
 });
 
@@ -125,21 +162,21 @@ type Equal<A, B> =
     : false;
 
 describe("each occasion fixes its legal target (unrepresentable pairings)", () => {
-  it("binds verdict→JudgedSlop, remark→AnsweredWish, decree→RiteOutcome; reserves the rest", () => {
+  it("binds verdict→JudgedSlop, remark→AnsweredWish, decree→RiteOutcome, reply→ReplyExchange; reserves the rest", () => {
     const verdictBound: Equal<OccasionTarget["verdict"], JudgedSlop> = true;
     const remarkBound: Equal<OccasionTarget["remark"], AnsweredWish> = true;
     const decreeBound: Equal<OccasionTarget["decree"], RiteOutcome> = true;
+    // The Feud Engine (voice-w2v.2) bound `reply` — an opposing-verdict exchange, no longer reserved.
+    const replyBound: Equal<OccasionTarget["reply"], ReplyExchange> = true;
     const captionReserved: Equal<OccasionTarget["caption"], never> = true;
-    // The newly-enumerated occasions are reserved (target binds `never`, uncallable) until their child.
-    const replyReserved: Equal<OccasionTarget["reply"], never> = true;
     const commentReserved: Equal<OccasionTarget["comment"], never> = true;
     const decreeIsOccasion: Equal<Extract<Occasion, "decree">, "decree"> = true;
     expect([
       verdictBound,
       remarkBound,
       decreeBound,
+      replyBound,
       captionReserved,
-      replyReserved,
       commentReserved,
       decreeIsOccasion,
     ]).toEqual([true, true, true, true, true, true, true]);
