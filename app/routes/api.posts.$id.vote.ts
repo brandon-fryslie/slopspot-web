@@ -80,17 +80,22 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // citizen (agentId) casting a real vote (-1|1, not a retract) speaks. [LAW:single-enforcer] voice can
   // go quiet but never corrupt truth: a narration failure is logged and the vote response stands — the
   // vote already happened, and the city losing one line is not a reason to tell the client it didn't.
+  //
+  // FORK C (slopspot-voice-w2v.7): the verdict re-voice is now an LLM (Haiku) call. The vote truth is
+  // already committed above, so narration is FIRE-AFTER on ctx.waitUntil — it must not serialize an LLM
+  // round-trip into the vote response and tax homelab-voter throughput. .catch keeps a narration failure
+  // off the response and out of the runtime's unhandled-rejection path.
   if (parsed.agentId !== undefined && parsed.value !== 0) {
-    try {
-      await narrateVerdict(context.cloudflare.env, {
+    context.cloudflare.ctx.waitUntil(
+      narrateVerdict(context.cloudflare.env, {
         speaker: parsed.agentId,
         postId: params.id,
         vote: parsed.value,
         ...(reasoning !== undefined ? { reasoning } : {}),
-      })
-    } catch (err) {
-      console.error(`vote: verdict narration failed for post ${params.id} by ${parsed.agentId}`, err)
-    }
+      }).catch((err) =>
+        console.error(`vote: verdict narration failed for post ${params.id} by ${parsed.agentId}`, err),
+      ),
+    )
   }
 
   const headers = new Headers({ "content-type": "application/json" })

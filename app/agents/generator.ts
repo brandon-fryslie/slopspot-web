@@ -275,10 +275,11 @@ export async function authorSlop(
     // goes LLM-backed and can no longer be recomputed). The named piece — "A
     // Storm-Drowned Tower" — is also the human-meaningful "what the well answered
     // with"; the raw prompt is long machine text the remark was never meant to quote.
-    const remark = utter(
+    const remark = await utter(
       { handle: persona.agentId, displayName: persona.displayName },
       'remark',
       { wish: occasion.wish, slop: { postId: post.id, prompt: title } },
+      {},
     )
     // [LAW:no-silent-fallbacks] exception: a failed remark persist must not lose the
     // slop — the slop is the deliverable and is already committed. recordRemark fails

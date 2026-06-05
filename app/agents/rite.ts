@@ -92,7 +92,7 @@ export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteRe
     // [LAW:no-silent-fallbacks] The Unmoved Day — crown nothing, and the Proprietor
     // says so, in voice. An honest empty altar, recorded as a metric and the decree
     // line; never a crowned mid filling the slot.
-    const decree = utter(speaker, 'decree', { kind: 'unmoved', riteTitle: def.title })
+    const decree = await utter(speaker, 'decree', { kind: 'unmoved', riteTitle: def.title }, {})
     emit('slopspot.rite.outcome', { lens: def.lens, outcome: 'unmoved' }, 1)
     console.log('[rite] unmoved', { riteDay, lens: def.lens, decree })
     return { kind: 'unmoved', lens: def.lens, decree }
@@ -108,10 +108,10 @@ export async function runRite(env: Env, scheduledTimeMs: number): Promise<RiteRe
     throw new Error(`rite: elected post ${election.postId} is not a resolvable generation`)
   }
 
-  const decree = utter(speaker, 'decree', {
+  const decree = await utter(speaker, 'decree', {
     kind: 'crowned',
     crowned: { riteTitle: def.title, postId: election.postId, placard: winnerPost.content.title },
-  })
+  }, {})
 
   const result = await recordCrowning(env, {
     postId: election.postId,

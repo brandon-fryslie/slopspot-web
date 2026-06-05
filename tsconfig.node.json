@@ -23,12 +23,13 @@
     // other source — a smoke test that doesn't compile is worse than no smoke test.
     "smoke/**/*.ts"
   ],
-  // The earnestness soul-test harness spans both contexts no single tsc project models: it
-  // imports app modules through `~/` and the Workers `Env` global (cloudflare project), AND uses
-  // node:fs/process (node project). It is a manual, live-Haiku tool — validated by EXECUTION via
+  // These live-Haiku harnesses span both contexts no single tsc project models: they import app
+  // modules through `~/` and the Workers `Env` global (cloudflare project), AND use node:fs/process
+  // (node project). They are manual / deploy-gate tools — validated by EXECUTION via
   // `tsx --tsconfig tsconfig.cloudflare.json`, which resolves both at runtime — not by `tsc -b`,
   // which can model neither span without polluting a project's types. Excluded from the build.
-  "exclude": ["scripts/earnestness-soul-test.ts"],
+  // (scripts/anthropic-key.ts is pure node — process.env + node:fs — so it stays in the build.)
+  "exclude": ["scripts/earnestness-soul-test.ts", "scripts/revoice-eval-gate.ts"],
   "compilerOptions": {
     "composite": true,
     "strict": true,
