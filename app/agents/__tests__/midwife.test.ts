@@ -297,8 +297,8 @@ describe('runBirth — daily, deterministic, observable', () => {
 describe('announceBirth — the Proprietor welcomes a newborn through the one Voice', () => {
   it('records exactly one birth utterance naming the newcomer, and surfaces it on the Pulse', async () => {
     const newcomer = { displayName: 'Sindri Cole', creed: 'Rust is a slow hymn.', medium: ProviderId('verse') }
-    const utterance = await announceBirth(env, newcomer)
-    expect(utterance.kind).toBe('spoke')
+    // The announce is a command — its truth is the persisted row + the Pulse event, asserted below.
+    await announceBirth(env, newcomer)
 
     // Exactly one post-less 'birth' utterance, in the Proprietor's voice, NAMING the newcomer.
     const rows = await db(env).select().from(utterances).where(eq(utterances.occasion, 'birth'))
@@ -311,5 +311,23 @@ describe('announceBirth — the Proprietor welcomes a newborn through the one Vo
     const born = (await getPulse(env)).filter((e) => e.kind === 'born')
     expect(born).toHaveLength(1)
     expect(born[0]!).toMatchObject({ kind: 'born', text: expect.stringContaining('Sindri Cole') })
+  })
+
+  // [LAW:no-silent-fallbacks] The isolation invariant: the welcome is best-effort NARRATION of a birth
+  // that already happened. A failure to voice it (here: the Proprietor not seated, so proprietorRef
+  // throws) must be CAUGHT and observable — never propagated as an exception that would un-birth a
+  // citizen the caller already wrote. announceBirth is TOTAL: it resolves, writes no utterance, and the
+  // failure is surfaced on slopspot.birth.announce (a loud log), not raised.
+  it('a welcome that cannot be voiced is isolated — resolves without throwing, writes no utterance', async () => {
+    // Remove the migration-seeded Proprietor (rolled back after this test by isolated storage) so the
+    // announce path hits a real failure inside announceBirth.
+    await db(env).delete(personas).where(eq(personas.handle, 'the-proprietor'))
+
+    await expect(
+      announceBirth(env, { displayName: 'Unwelcomed One', creed: 'No bell rang.', medium: ProviderId('verse') }),
+    ).resolves.toBeUndefined()
+
+    const births = await db(env).select().from(utterances).where(eq(utterances.occasion, 'birth'))
+    expect(births).toHaveLength(0)
   })
 })

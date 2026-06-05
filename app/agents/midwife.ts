@@ -24,7 +24,7 @@ import { recordUtterance } from '~/db/utterances'
 import { extractFirstJsonObject } from '~/firehose/composer'
 import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
 import { traitVectorSchema } from '~/lib/traits'
-import { utter, type Newcomer, type Utterance } from '~/lib/voice'
+import { utter, type Newcomer } from '~/lib/voice'
 import { emit } from '~/observability/metrics'
 import { realProviders } from '~/providers'
 
@@ -335,21 +335,35 @@ export type BirthResult =
 // birth that ALREADY happened: this runs only AFTER the persona row is written, so the announcement is
 // the consequence of a real birth, never its cause. Exported (not inlined) so the gate is verifiable
 // without the LLM author path — given a born citizen, this records exactly one welcome.
+//
+// [LAW:no-silent-fallbacks] ISOLATED + TOTAL: the birth (the persona row) is PRIMARY TRUTH; this welcome
+// is best-effort NARRATION. A failure here (the Proprietor unseated, a D1 write error) must NOT un-birth a
+// citizen, so it is caught and surfaced on its OWN signal (slopspot.birth.announce + a loud log) rather
+// than propagated as a birth failure. Never silent — the failed welcome is observable, and the deeper
+// re-attempt-on-absent-utterance idempotency is a filed follow-up. utter() itself never throws (speak()
+// degrades to Withheld{unavailable}); the catch covers proprietorRef + the recordUtterance D1 write.
 // [LAW:dataflow-not-control-flow] No double-announce is FREE: the caller gates this on createPersona's
 // `created` boolean, so a settled-day re-run (created:false) never reaches here — the announcement rides
 // the birth's OWN idempotency (the personas PK), never a second utterances-table dedup that could drift.
-export async function announceBirth(env: Env, newcomer: Newcomer): Promise<Utterance> {
-  const proprietor = await proprietorRef(env)
-  // A birth has no post target — the welcome is about a citizen, not a slop. utter() degrades any
-  // failure to Withheld{unavailable} (speak() in voice.ts), so recordUtterance always persists a real row.
-  const utterance = await utter(proprietor, 'birth', newcomer, {})
-  await recordUtterance(env, {
-    speaker: proprietor.handle,
-    occasion: 'birth',
-    targetPostId: null,
-    utterance,
-  })
-  return utterance
+export async function announceBirth(env: Env, newcomer: Newcomer): Promise<void> {
+  try {
+    const proprietor = await proprietorRef(env)
+    // A birth has no post target — the welcome is about a citizen, not a slop.
+    const utterance = await utter(proprietor, 'birth', newcomer, {})
+    await recordUtterance(env, {
+      speaker: proprietor.handle,
+      occasion: 'birth',
+      targetPostId: null,
+      utterance,
+    })
+    emit('slopspot.birth.announce', { outcome: utterance.kind }, 1)
+  } catch (err) {
+    emit('slopspot.birth.announce', { outcome: 'failed' }, 1)
+    console.error('[birth] welcome failed — citizen born but unannounced (observable, not an un-birth)', {
+      displayName: newcomer.displayName,
+      err,
+    })
+  }
 }
 
 // [LAW:single-enforcer] The one daily ceremony that grows the cast. Deterministic in its day:

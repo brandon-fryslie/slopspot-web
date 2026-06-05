@@ -67,14 +67,32 @@ describe("utter — the birth instance (The Birth Rite)", () => {
     medium: "verse" as ProviderId,
   };
 
-  it("welcomes the newcomer BY NAME in the Proprietor's register, with empty caps (no reVoice)", async () => {
+  it("welcomes the newcomer BY NAME, in the host's voice, carrying the creed (every frame)", async () => {
     const result = await utter(proprietor, "birth", newcomer, {});
     expect(result.kind).toBe("spoke");
     if (result.kind === "spoke") {
       expect(result.text).toContain("Idris Vane"); // the newcomer is named
       expect(result.text).toContain("The Proprietor"); // spoken in the host's voice
-      expect(result.text).toContain("The room remembers."); // the creed gives the welcome substance
+      expect(result.text).toContain("The room remembers."); // the creed (the personal core) is preserved
     }
+  });
+
+  it("is a deterministic floor — the same newcomer always selects the same frame", async () => {
+    const a = await utter(proprietor, "birth", newcomer, {});
+    const b = await utter(proprietor, "birth", newcomer, {});
+    expect(a).toEqual(b);
+  });
+
+  it("rotates through the Proprietor's repertoire by the birth's own hash (different births can differ)", async () => {
+    const names = ["Idris Vane", "Sindri Cole", "Marn Okoye", "Petra Voss", "Cass Ueda", "Bo Reyes", "Wren Adler"];
+    const frames = new Set<string>();
+    for (const displayName of names) {
+      const r = await utter(proprietor, "birth", { displayName, creed: "A creed.", medium: "verse" as ProviderId }, {});
+      // Normalize the newcomer's name out so we compare FRAMES, not the trivially-different names —
+      // two newcomers on the same frame collapse to one entry; distinct frames stay distinct.
+      if (r.kind === "spoke") frames.add(r.text.split(displayName).join("<n>"));
+    }
+    expect(frames.size).toBeGreaterThan(1); // the host has a repertoire, selected by data
   });
 });
 
