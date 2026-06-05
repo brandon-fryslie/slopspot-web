@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { Media, Origin, Actor, Content, Crowning, CrownMark, Genome, GenerationRender, GenerationStatus, HumanRole, Lineage, PersonaActor, Post, PostId, RenderablePost, RiteLens, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
-import { utter, type AnsweredWish, type PersonaRef } from "~/lib/voice"
+import { remarkFloor, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 
@@ -712,7 +712,10 @@ function SignedRemark({ ctx }: { ctx: WishContext }) {
     wish: ctx.wish,
     slop: { postId: ctx.postId, prompt: ctx.resultTitle },
   }
-  const utterance = utter(speaker, "remark", target)
+  // [LAW:one-source-of-truth] Render the deterministic remark floor SYNCHRONOUSLY via the shared
+  // remarkFloor — utter() went async for FORK C's verdict re-voice and a React render cannot await it.
+  // This recomputes the SAME line the act path recorded (pending remark_json wiring at the read boundary).
+  const utterance = remarkFloor(speaker, target)
   switch (utterance.kind) {
     case "spoke":
       return <RemarkQuote text={utterance.text} answerer={ctx.answerer} />
