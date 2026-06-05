@@ -4,6 +4,9 @@ import { runScheduled } from "~/firehose/scheduled"
 import { runGenJobs, type GenJob } from "~/firehose/gen-queue"
 import { runPortraitPass } from "~/agents/portrait"
 import { runRite } from "~/agents/rite"
+import { runBirth } from "~/agents/midwife"
+import { emit } from "~/observability/metrics"
+import { normalizeRoute } from "~/observability/route-normalizer"
 
 // [LAW:single-enforcer] Cloudflare bindings (env + ctx) enter the React Router
 // world here and only here. Loaders/actions read them via `context.cloudflare`.
@@ -25,9 +28,19 @@ const requestHandler = createRequestHandler(
 
 export default {
   async fetch(request, env, ctx) {
-    return requestHandler(request, {
+    // [LAW:single-enforcer] HTTP request and latency metrics are measured here — the single
+    // place where every request enters the app. emit() buffers them; ctx.waitUntil fires
+    // flushMetrics after the response so the push never adds latency to the serving path.
+    const startMs = Date.now()
+    const response = await requestHandler(request, {
       cloudflare: { env, ctx },
     })
+    const route = normalizeRoute(new URL(request.url).pathname)
+    const status = String(response.status)
+    const outcome = response.status < 400 ? 'success' : 'error'
+    emit('slopspot.http.request', { route, status }, 1)
+    emit('slopspot.http.latency_ms', { route, outcome }, Date.now() - startMs)
+    return response
   },
   // [LAW:single-enforcer] The cron entry point is here for the same reason
   // `fetch` is: this is the one place Cloudflare bindings cross into the
@@ -57,6 +70,14 @@ export default {
         await runRite(env, event.scheduledTime)
       } catch (err) {
         console.error('rite: unhandled error', { cron: event.cron }, err)
+      }
+      try {
+        // The Growing Cast: the midwife births one new citizen a day (the-growing-cast,
+        // slopspot-growing-cast-7ni.1) — folded onto the same daily tick, its own catch so a
+        // failed birth cannot abort the rite/portrait/bank-gen beside it.
+        await runBirth(env, event.scheduledTime)
+      } catch (err) {
+        console.error('birth: unhandled error', { cron: event.cron }, err)
       }
       return
     }

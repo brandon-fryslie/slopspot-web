@@ -8,6 +8,7 @@
     "build": "react-router build",
     "preview": "pnpm run build && vite preview",
     "deploy": "pnpm run build && wrangler deploy",
+    "deploy:staging": "node scripts/deploy-staging.mjs",
     "cf-typegen": "wrangler types",
     "postinstall": "wrangler types",
     "typecheck": "wrangler types && react-router typegen && tsc -b",
@@ -18,7 +19,8 @@
     "smoke:write": "vitest run --workspace vitest.smoke.workspace.ts smoke/write.smoke.ts",
     "smoke:prober": "node smoke/prober.mjs",
     "bootstrap": "tsx scripts/bootstrap-seed.ts",
-    "gen:routes": "tsx scripts/gen-route-patterns.ts"
+    "gen:routes": "tsx scripts/gen-route-patterns.ts",
+    "eval:revoice": "tsx --tsconfig tsconfig.cloudflare.json scripts/revoice-eval-gate.ts"
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",

@@ -1,8 +1,9 @@
 // [LAW:single-enforcer] One module emits all metrics; every call site in the app
 // goes through `emit`. There is no alternate console.log('metric.…') shape elsewhere
 // in the codebase. The puller in ~/code/home-infra reads Cloudflare Logs filtered
-// by the `[metric]` prefix; changing this module is the single point of contact
-// between the app and that pipeline.
+// by the `[metric]` prefix. `formatPrometheusMetrics()` exposes the same data as
+// Prometheus text for the /metrics scrape endpoint — same emission boundary, second
+// output channel.
 //
 // [LAW:types-are-the-program] Each metric has a fixed label shape. `emit` is
 // typed so the label record for `FIREHOSE_FIRE` (channel + outcome) cannot
@@ -21,6 +22,14 @@ import type { RiteLens } from '~/lib/domain'
 // The puller (homelab-side) parses log lines that start with `[metric]`. Changing
 // this prefix without coordinating with the puller will drop metrics silently.
 const LOG_PREFIX = '[metric]' as const
+
+// [LAW:one-source-of-truth] Single accumulator for both the console-log path (existing)
+// and the Prometheus scrape path (new). Per-isolate in-memory state — resets on cold start.
+// For SlopSpot's traffic pattern, the primary active isolate holds most metrics;
+// scrape intervals under Cloudflare's ~30s idle timeout reliably hit a warm instance.
+// VM push (InfluxDB line protocol) is blocked on a public write ingress — see wrangler.jsonc.
+type MetricEntry = { name: string; labels: Record<string, string | number>; value: number }
+const counters: Map<string, MetricEntry> = new Map()
 
 // [LAW:types-are-the-program] The shape that makes illegal emission unrepresentable:
 // every legal (metric, labels) pair is a key/value entry in one record; nothing
@@ -106,9 +115,41 @@ export type MetricLabels = {
     lens: RiteLens
     outcome: 'crowned' | 'unmoved' | 'already-crowned'
   }
+  // [LAW:single-enforcer] HTTP request counter — emitted from workers/app.ts after every
+  // fetch response. route is the normalizeRoute() label; status is the HTTP status code.
+  // Together they give request-rate and error-rate sliced by route without raw-URL cardinality.
+  'slopspot.http.request': {
+    route: string
+    status: string
+  }
+  // [LAW:single-enforcer] HTTP latency histogram — emitted alongside http.request. outcome
+  // collapses the status space to two actionable signals (success = 2xx/3xx, error = 4xx/5xx).
+  'slopspot.http.latency_ms': {
+    route: string
+    outcome: 'success' | 'error'
+  }
+  // [LAW:types-are-the-program] The daily Birth Engine's one outcome metric. The cadence is a
+  // TARGET (one citizen/day), not a guarantee — so a `skipped` day is a first-class, OBSERVABLE
+  // outcome, never a silent miss. `born` = a new citizen written; `already-born` = the day was
+  // settled (idempotent re-fire); `skipped-indistinct` = the midwife could not author a citizen
+  // distinct from the cast within the attempt budget (an honest no-birth over a polluting
+  // duplicate); `skipped-llm` = the LLM author failed every attempt. The two skips are LOGGED
+  // loudly at the call site so a missed-cadence day surfaces. [LAW:no-silent-fallbacks]
+  'slopspot.birth.outcome': {
+    outcome: 'born' | 'already-born' | 'skipped-indistinct' | 'skipped-llm'
+  }
 }
 
 export type MetricName = keyof MetricLabels
+
+// Stable key for a (name, labels) pair — used to deduplicate counter entries.
+function metricKey(name: string, labels: Record<string, string | number>): string {
+  const sorted = Object.entries(labels)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join(',')
+  return `${name};${sorted}`
+}
 
 // [LAW:single-enforcer] Every call site goes through `emit`. Disabling metrics
 // is configuration (drop the puller, or filter on the homelab side), never a
@@ -122,4 +163,33 @@ export function emit<K extends MetricName>(
   // structured field. The puller reads `message[0]` for the prefix+name and
   // `message[1]` for the labels+value object, so the shape here is the API.
   console.log(`${LOG_PREFIX} ${name}`, { ...labels, value })
+  // Accumulate into the in-process counter store — feeds /metrics scrape endpoint.
+  const key = metricKey(name, labels as Record<string, string | number>)
+  const existing = counters.get(key)
+  counters.set(key, existing ? { ...existing, value: existing.value + value } : { name, labels: labels as Record<string, string | number>, value })
+}
+
+// Formats accumulated counters as Prometheus text exposition format (version 0.0.4).
+// Metric names use underscores (Prometheus convention); label values are quoted strings.
+// Called by the /metrics resource route.
+export function formatPrometheusMetrics(): string {
+  const lines: string[] = []
+  for (const { name, labels, value } of counters.values()) {
+    const promName = name.replace(/\./g, '_')
+    const labelPairs = Object.entries(labels)
+      .map(([k, v]) => `${k}="${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+      .join(',')
+    lines.push(`${promName}{${labelPairs}} ${value}`)
+  }
+  return lines.join('\n')
+}
+
+// Test helper: returns a snapshot of current counters without mutating them.
+export function snapshotCountersForTesting(): ReadonlyMap<string, MetricEntry> {
+  return new Map(counters)
+}
+
+// Test helper: clears the counter store. Call in afterEach to prevent test pollution.
+export function resetCountersForTesting(): void {
+  counters.clear()
 }

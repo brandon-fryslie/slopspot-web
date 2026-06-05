@@ -211,6 +211,10 @@ export async function authorSlop(
       // the composer cannot receive both a wish and a self-portrait by construction.
       occasion: composerOccasionOf(occasion, persona.displayName),
       maxLength: provider.promptMaxLength,
+      // [LAW:single-enforcer] The medium the provider PRODUCES selects what Haiku is
+      // asked to compose — an image-prompt or a poem. Derived from capabilities so the
+      // provider is the single declaration site; no second medium field elsewhere.
+      medium: provider.capabilities.producesMedia.includes('text') ? 'verse' : 'image',
     },
     env,
   )
@@ -275,10 +279,11 @@ export async function authorSlop(
     // goes LLM-backed and can no longer be recomputed). The named piece — "A
     // Storm-Drowned Tower" — is also the human-meaningful "what the well answered
     // with"; the raw prompt is long machine text the remark was never meant to quote.
-    const remark = utter(
+    const remark = await utter(
       { handle: persona.agentId, displayName: persona.displayName },
       'remark',
       { wish: occasion.wish, slop: { postId: post.id, prompt: title } },
+      {},
     )
     // [LAW:no-silent-fallbacks] exception: a failed remark persist must not lose the
     // slop — the slop is the deliverable and is already committed. recordRemark fails
@@ -370,6 +375,7 @@ export async function authorBredSlop(
       traits: bred.traits,
       occasion: { kind: 'breed', parents: [a.genome.utterance, b.genome.utterance] },
       maxLength: provider.promptMaxLength,
+      medium: provider.capabilities.producesMedia.includes('text') ? 'verse' : 'image',
     },
     env,
   )
@@ -433,7 +439,10 @@ const GENE_POOL_SIZE = 64
 // founder arm is a loud misconfiguration, never a silent default author.
 export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promise<void> {
   const niche = await pickNiche(env, scheduledTimeMs)
-  const pool = await getNicheGenePool(env, niche, GENE_POOL_SIZE)
+  // scheduledTimeMs is the fire's "now" — the reference point recency decay measures vote age from,
+  // so the niche's CURRENT taste outweighs historical accumulation. Reproducible: same fire time →
+  // same decayed pool.
+  const pool = await getNicheGenePool(env, niche, GENE_POOL_SIZE, scheduledTimeMs)
   const plan = selectReproduction(pool, seedHash(scheduledTimeMs, 'reproduce'))
 
   // [LAW:types-are-the-program] Exhaustive over ReproductionPlan: a new reproduction mode forces a

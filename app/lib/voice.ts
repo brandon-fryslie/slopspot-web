@@ -18,6 +18,7 @@
 import { z } from "zod";
 import type { AgentId, PostId, TraitVector, VerdictDisposition, VoteValue } from "~/lib/domain";
 import type { FeudStanding } from "~/lib/feud";
+import { traitBias } from "~/lib/register";
 
 // --- who speaks -------------------------------------------------------------
 
@@ -29,13 +30,25 @@ import type { FeudStanding } from "~/lib/feud";
 //
 // `traits` is the REGISTER source: the same TraitVector that governs image composition, projected by
 // lib/register's `traitBias` into how the citizen speaks (sincere drops the mask, ironic keeps it).
-// Optional because only the occasions that have adopted the register lever resolve it onto the ref
-// (the verdict path does — it is THE register for a verdict); remark/decree carry just the identity
-// until their bodies read register. The authoritative value is always the personas.traits column.
+// `personaPrompt` is the citizen's authoring voice (the private character bible the composer steers
+// with). Both are optional on the BASE ref because not every occasion re-voices; the occasions that do
+// require the register-bearing `VoicedPersonaRef` below, which makes them non-optional. The
+// authoritative values are always the personas.traits / personas.persona_prompt columns.
 export interface PersonaRef {
   readonly handle: AgentId;
   readonly displayName: string;
   readonly traits?: TraitVector;
+  readonly personaPrompt?: string;
+}
+
+// [LAW:types-are-the-program] The register-bearing speaker — REQUIRED traits + personaPrompt, for the
+// occasions whose voice re-voices substance in the citizen's register (the verdict, FORK C). A verdict is
+// narrated only for a resolved agent-persona that HAS both, so the type encodes that: `composeVerdict`
+// reads `speaker.personaPrompt` / `speaker.traits` with no presence-guard, because the type forbids a
+// verdict speaker that lacks them. (slopspot-voice-w2v.7)
+export interface VoicedPersonaRef extends PersonaRef {
+  readonly traits: TraitVector;
+  readonly personaPrompt: string;
 }
 
 // --- what is spoken about (targets) -----------------------------------------
@@ -194,21 +207,54 @@ export const utteranceSchema: z.ZodType<Utterance> = z.discriminatedUnion("kind"
 
 // --- the act ----------------------------------------------------------------
 
-// A line-source for one occasion: persona + target -> utterance. The remark
-// voice below is a deterministic stub; the voice-layer session swaps in an
-// LLM-backed source with this same signature.
+// [LAW:one-way-deps][capabilities-over-context] The re-voice TRANSPORT, injected. voice.ts is a pure
+// lib leaf — it must not reach env or the Anthropic API. The agent layer (which holds env) binds a
+// `ReVoice` over the shared callHaiku leaf and hands it in via `caps`. This grants the ONE specific
+// ability the verdict voice needs (turn a prompt into a line), never the omniscient env. A `null` return
+// means the transport could not produce a line (no key, timeout, failure) — the voice degrades to its
+// verbatim floor, never silence. (slopspot-voice-w2v.7)
+export interface ReVoicePrompt {
+  readonly system: string;
+  readonly user: string;
+}
+export type ReVoice = (prompt: ReVoicePrompt) => Promise<string | null>;
+
+// [LAW:types-are-the-program] The speaker shape PER occasion: the verdict re-voices, so its speaker is
+// the register-bearing `VoicedPersonaRef` (traits + personaPrompt required); every other occasion takes
+// the base ref. Calling utter('verdict', …) with a speaker that lacks the register is a COMPILE error,
+// not a runtime guard.
+type SpeakerFor<O extends Occasion> = O extends "verdict" ? VoicedPersonaRef : PersonaRef;
+
+// [LAW:types-are-the-program] The capabilities PER occasion: the verdict REQUIRES the reVoice transport;
+// every other occasion takes none (the empty object). So the type forces the verdict caller to inject the
+// transport AND frees the sync callers (decree/remark) from constructing one they would never use —
+// CapsFor is what makes the injection land at exactly the right callers, no more.
+type CapsFor<O extends Occasion> = O extends "verdict"
+  ? { readonly reVoice: ReVoice }
+  : Record<string, never>;
+
+// A line-source for one occasion: persona + target + caps -> utterance (sync floors) or a Promise (the
+// LLM-backed verdict). `speak` awaits either, so a voice may be sync or async at will.
 type Voice<O extends Occasion> = (
-  speaker: PersonaRef,
+  speaker: SpeakerFor<O>,
   target: OccasionTarget[O],
-) => Utterance;
+  caps: CapsFor<O>,
+) => Utterance | Promise<Utterance>;
 
 // The remark instance (foundation.7). A pure, deterministic line about the gap
 // between what was wished and what answered. The LLM-backed voice replaces this
 // body later; the signature is unchanged.
-const composeRemark: Voice<"remark"> = (speaker, answered) =>
-  spoke(
-    `You asked for ${answered.wish}. The well answered with ${answered.slop.prompt}.`,
-  );
+// [LAW:single-enforcer][LAW:one-source-of-truth] The deterministic remark line, as a PURE sync function
+// returning Utterance. It is the ONE source of the remark text, with two consumers at two timings: the
+// act path records it through `utter('remark', …)` (async-wrapped like every act); the post-card renders
+// it SYNCHRONOUSLY at read time (a React render cannot await the now-async utter, and the card is not
+// enacting the remark — it is re-rendering a deterministic floor). Exposed sync so the render path needs
+// no await and no second copy of the line. (The eventual fix reads the persisted remark_json at the
+// generation read boundary; until that is wired, both paths share THIS function.)
+export function remarkFloor(speaker: PersonaRef, answered: AnsweredWish): Utterance {
+  return spoke(`You asked for ${answered.wish}. The well answered with ${answered.slop.prompt}.`);
+}
+const composeRemark: Voice<"remark"> = remarkFloor;
 
 // The decree instance (The Daily Rite). A pure, deterministic line in which the
 // Proprietor pronounces the night's outcome — a crowning, or the Unmoved Day. The
@@ -229,22 +275,50 @@ const composeDecree: Voice<"decree"> = (speaker, outcome) => {
   }
 };
 
-// The verdict instance (voice-w2v.1). A critic narrates its recorded vote on a slop.
+// [LAW:single-enforcer] The verdict re-voice PROMPT — built in ONE pure place so CI can prove its
+// shape deterministically (the grounding seam). SUBSTANCE is the critic's image-grounded observation
+// (`reasoning`); REGISTER is traitBias(traits) — the SAME lib/register projection the image composer
+// embeds (one vector, two consumers). The directive is the crux of FORK C's gate: re-voice DECORATES the
+// specific observations in the citizen's register; it must PRESERVE the this-slop-only specifics, never
+// launder them into blind-writable mush. (slopspot-voice-w2v.7)
+export function buildReVoicePrompt(
+  personaPrompt: string,
+  traits: TraitVector,
+  reasoning: string,
+): ReVoicePrompt {
+  const register = traitBias(traits);
+  const system = [
+    personaPrompt,
+    // [LAW:dataflow-not-control-flow] a neutral vector projects to '' → no register line (a value-shaped
+    // omission, the same way the composer drops the register line for a neutral genome).
+    register ? `Speak in this register: ${register}.` : null,
+    `You have just SEEN a slop and are delivering your verdict on it. Below is exactly what you observed in this image.`,
+    `Re-voice these observations as a single short verdict line in your own register. PRESERVE the specific, concrete things observed — the details that could ONLY come from having seen THIS image. Do not generalize them into mood or abstraction: a verdict that could have been written WITHOUT seeing the image has failed. Decorate the specifics in your register; never launder them away.`,
+    `Reply with ONLY the verdict line — no preamble, no quotation marks, no explanation.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return { system, user: reasoning };
+}
+
+// The verdict instance (voice-w2v.1 floor → FORK C re-voice, voice-w2v.7). A critic narrates its
+// recorded vote on a slop.
 //
-// [LAW:dataflow-not-control-flow] The critic's IMAGE-grounded `reasoning` is the substance; its
-// PRESENCE is the discriminator — a real take is Spoke, its absence is a characterful Withheld
-// (`indifferent` — the mid not even worth burying, the-cast.md). No guard skips an operation; the
-// data picks the arm.
+// [LAW:dataflow-not-control-flow] The critic's IMAGE-grounded `reasoning` is the substance; its PRESENCE
+// is the discriminator — a real take is Spoke, its absence a characterful Withheld (`indifferent` — the
+// mid not even worth burying, the-cast.md). No guard skips an operation; the data picks the arm.
 //
-// ⚠️ §D SEAM (held for CD's vision ruling, voice-w2v.1): this FLOOR voices the reasoning verbatim —
-// the image-grounded substance, register-neutral. FORK C swaps THIS body (only) to RE-VOICE the
-// substance in the speaker's register: `spoke(await haiku(personaPrompt + traitBias(speaker.traits!)
-// + reasoning))`, applying the SAME lib/register projection the image composer uses (constraint #2).
-// That makes utter() async (Promise<Utterance>, per the locked contract) — the conversion lands with
-// §D, not before. Until then the floor keeps the text behavior-identical to today's fetchVerdicts.
-const composeVerdict: Voice<"verdict"> = (_speaker, judged) => {
+// FORK C: the substance is RE-VOICED in the speaker's register via the injected reVoice transport. The
+// speaker is a VoicedPersonaRef (traits + personaPrompt REQUIRED by the type — no presence-guard), and
+// caps.reVoice is REQUIRED for the verdict occasion. [LAW:dataflow-not-control-flow] on a transport that
+// cannot speak (null — no key/timeout/failure) the value degrades to the verbatim FLOOR (`?? take`),
+// behavior-identical to w2v.1; the grounding is trivially preserved because the verbatim reasoning IS the
+// grounded observation. The register only renders when the LLM body answers.
+const composeVerdict: Voice<"verdict"> = async (speaker, judged, caps) => {
   const take = judged.reasoning?.trim();
-  return take !== undefined && take.length > 0 ? spoke(take) : withheld("indifferent");
+  return take === undefined || take.length === 0
+    ? withheld("indifferent")
+    : spoke((await caps.reVoice(buildReVoicePrompt(speaker.personaPrompt, speaker.traits, take))) ?? take);
 };
 
 // The disposition's verbs — the city's words for the two ways to judge. A total map over the closed
@@ -306,33 +380,35 @@ const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   birth: reserved,
 };
 
-// [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice
-// that throws (a real LLM-backed voice times out, the network fails, a reserved
-// occasion is reached via a type-lie) degrades to `Withheld{unavailable}` —
-// never an exception into the act path. Rendered as plain absence, never as a
-// chosen silence.
-export function speak(voice: () => Utterance): Utterance {
+// [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice that throws OR rejects (a
+// real LLM-backed voice times out, the network fails, a reserved occasion is reached via a type-lie)
+// degrades to `Withheld{unavailable}` — never an exception into the act path. Rendered as plain absence,
+// never as a chosen silence. `await` covers both sync floors and the async re-voice: awaiting a plain
+// value is a no-op, awaiting a rejected promise routes into the catch.
+export async function speak(voice: () => Utterance | Promise<Utterance>): Promise<Utterance> {
   try {
-    return voice();
+    return await voice();
   } catch {
     return withheld("unavailable");
   }
 }
 
-// utter(speaker, occasion, target) -> Utterance.
+// utter(speaker, occasion, target, caps) -> Promise<Utterance>.
 //
-// The locked contract. `occasion` selects the legal `target` (illegal pairings
-// are compile errors); the matching voice produces the utterance; `speak`
-// guarantees failure degrades to `Withheld{unavailable}` rather than throwing.
-// Reads a completed snapshot; never triggers or mutates the act.
+// The locked contract (async since FORK C). `occasion` selects the legal `target` AND the legal
+// `speaker`/`caps` shapes (illegal pairings are compile errors — a verdict demands a VoicedPersonaRef +
+// the reVoice transport; sync occasions take the empty caps); the matching voice produces the utterance;
+// `speak` guarantees failure degrades to `Withheld{unavailable}` rather than throwing. Reads a completed
+// snapshot; never triggers or mutates the act.
 export function utter<O extends Occasion>(
-  speaker: PersonaRef,
+  speaker: SpeakerFor<O>,
   occasion: O,
   target: OccasionTarget[O],
-): Utterance {
+  caps: CapsFor<O>,
+): Promise<Utterance> {
   // The voice for a generic occasion key narrows to a union of arms; the cast
   // resolves it to the single arm `occasion` actually selects (the standard TS
   // limitation on indexed access by a generic key). No runtime branch.
   const voice = VOICES[occasion] as Voice<O>;
-  return speak(() => voice(speaker, target));
+  return speak(() => voice(speaker, target, caps));
 }

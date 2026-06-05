@@ -3,13 +3,32 @@
 // act-layer truth) before this runs, and this only reads the snapshot + persists the utterance.
 // [LAW:one-way-deps] voice → domain (ids only); a narration failure can never corrupt the vote.
 
-import { utter, type JudgedSlop, type PersonaRef, type ReplyExchange, type SlopGist } from '~/lib/voice'
+import { utter, type JudgedSlop, type PersonaRef, type ReVoice, type ReplyExchange, type SlopGist, type VoicedPersonaRef } from '~/lib/voice'
 import { getPersona } from '~/agents/persona'
 import { getPostById } from '~/db/feed'
 import { db } from '~/db/client'
-import { coPresentVerdicts, recordUtterance } from '~/db/utterances'
+import { coPresentVerdicts, pruneRepliesExcept, recordUtterance } from '~/db/utterances'
 import { feudStandingBetween } from '~/db/feud'
+import { effectiveTraits } from '~/db/character'
+import { callHaiku } from '~/lib/haiku'
 import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
+
+// [LAW:one-way-deps][capabilities-over-context] The agent layer binds the re-voice TRANSPORT over the
+// shared callHaiku leaf, capturing env, and hands the ONE ability into the pure voice layer — voice.ts
+// never sees env or Anthropic. [LAW:dataflow-not-control-flow] a transport failure returns null (not a
+// throw), so composeVerdict degrades to its verbatim floor; the catch keeps a re-voice failure from
+// corrupting the surrounding narration. (slopspot-voice-w2v.7)
+const REVOICE_MAX_TOKENS = 200
+function makeReVoice(env: Env): ReVoice {
+  return async (prompt) => {
+    try {
+      return await callHaiku(env, { system: prompt.system, user: prompt.user, maxTokens: REVOICE_MAX_TOKENS })
+    } catch (err) {
+      console.error('verdict re-voice: Haiku call failed; falling back to verbatim reasoning', err)
+      return null
+    }
+  }
+}
 
 // The slop's authored prompt — what the critic's verdict is about. A generation's is its genome
 // utterance (the composed prompt); a found slop's is its title; an upload has no authored prompt.
@@ -46,10 +65,17 @@ export async function narrateVerdict(
   const post = await getPostById(env, PostId(input.postId))
   if (post === null) return // the slop vanished before narration (a race) — nothing to narrate
 
-  const ref: PersonaRef = {
+  // [LAW:dataflow-not-control-flow] The register the citizen speaks in is its ACCRETED character: base
+  // sensibility tinted by what it has blessed/buried over time (slopspot-voice-w2v.3). The historical
+  // vector replaces the static one as the DATA the verdict re-voice reads — no branch, no second voice
+  // path. [LAW:types-are-the-program] the verdict speaker is a VoicedPersonaRef: traits + personaPrompt
+  // REQUIRED, so the re-voice reads both with no presence-guard. This sits in the caller-try/caught
+  // narration, so a read failure logs and leaves the committed vote untouched.
+  const ref: VoicedPersonaRef = {
     handle: persona.agentId,
     displayName: persona.displayName,
-    traits: persona.traits,
+    traits: await effectiveTraits(db(env), input.speaker, persona.traits, new Date()),
+    personaPrompt: persona.personaPrompt,
   }
   const target: JudgedSlop = {
     slop: { postId: PostId(input.postId), prompt: gistPrompt(post.content) },
@@ -58,7 +84,9 @@ export async function narrateVerdict(
     ...(input.reasoning !== undefined ? { reasoning: input.reasoning } : {}),
   }
 
-  const utterance = utter(ref, 'verdict', target)
+  // FORK C (slopspot-voice-w2v.7): re-voice the verdict in the citizen's register via the injected Haiku
+  // transport; degrades to the verbatim floor when the transport cannot speak.
+  const utterance = await utter(ref, 'verdict', target, { reVoice: makeReVoice(env) })
   await recordUtterance(env, {
     speaker: input.speaker,
     occasion: 'verdict',
@@ -118,22 +146,34 @@ async function narrateExchange(
     ownDisposition: opponent.disposition,
     standing,
   }
+  // [LAW:dataflow-not-control-flow] The incumbent speaks in its OWN accreted register too (.3) — the
+  // same historical tint as the newcomer's ref above; both citizens in the exchange answer in the voice
+  // their record has shaped.
   const incumbentRef: PersonaRef = {
     handle: opponentPersona.agentId,
     displayName: opponentPersona.displayName,
-    traits: opponentPersona.traits,
+    traits: await effectiveTraits(db(env), opponent.speaker, opponentPersona.traits, new Date()),
   }
 
+  // The reply floor is register-NEUTRAL in .7 (FORK C re-voices the verdict only — acceptance: register
+  // read only in composeVerdict); reply takes the empty caps and stays the deterministic stance-tinted line.
   await recordUtterance(env, {
     speaker: newcomer.speaker.handle,
     occasion: 'reply',
     targetPostId: newcomer.slop.postId,
-    utterance: utter(newcomer.speaker, 'reply', newcomerReply),
+    utterance: await utter(newcomer.speaker, 'reply', newcomerReply, {}),
   })
   await recordUtterance(env, {
     speaker: opponent.speaker,
     occasion: 'reply',
     targetPostId: newcomer.slop.postId,
-    utterance: utter(incumbentRef, 'reply', incumbentReply),
+    utterance: await utter(incumbentRef, 'reply', incumbentReply, {}),
   })
+
+  // [LAW:single-enforcer] The exchange floor invariant (CD-ruled): one whole opposing pair per slop. A
+  // prior opponent's reply (e.g. an earlier clasher this newcomer's clash supersedes) would otherwise
+  // dangle as a half-conversation — answering an incumbent who has now turned to answer THIS newcomer.
+  // Prune every reply on the slop outside the current pair so the store holds only the whole current
+  // exchange. [LAW:dataflow-not-control-flow] the keep-set is the data; no per-case branch on critic count.
+  await pruneRepliesExcept(env, newcomer.slop.postId, [newcomer.speaker.handle, opponent.speaker])
 }

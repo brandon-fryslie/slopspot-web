@@ -71,6 +71,7 @@ describe('provider registry', () => {
         'fal-flux',
         'replicate-ideogram',
         'replicate-sdxl',
+        'verse',
       ])
     })
 
