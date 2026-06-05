@@ -6,8 +6,7 @@ import type { GenerationProvider } from "./types"
 // fal-flux-mock shares the real provider's *params shape* exactly (prompt + step
 // count) so callers can swap providerId without touching paramsSchema. The
 // canonical aspectRatio lives on GenerationInput, not in params; this mock
-// translates it the same way the real provider does — to (w,h) dimensions for
-// the deterministic picsum URL.
+// translates it to (w,h) dimensions the same way the real provider does.
 const params = z.object({
   prompt: z.string().min(1).max(500),
   steps: z.number().int().min(1).max(50),

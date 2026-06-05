@@ -20,12 +20,6 @@ const params = z.object({
 })
 type Params = z.infer<typeof params>
 
-function hash(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
-  return Math.abs(h)
-}
-
 export const replicateSdxlMock: GenerationProvider<Params> = {
   id: ProviderId("replicate-sdxl-mock"),
   kind: 'mock',
@@ -40,13 +34,9 @@ export const replicateSdxlMock: GenerationProvider<Params> = {
   },
   async generate({ params: p, aspectRatio }): Promise<Media> {
     const { w, h } = SDXL_DIMS[aspectRatio]
-    const seed = p.seed ?? hash(p.prompt)
-    return {
-      kind: "image",
-      url: `https://picsum.photos/seed/${seed}/${w}/${h}`,
-      w,
-      h,
-      alt: p.prompt,
-    }
+    // Minimal 1×1 PNG as a data: URI — hermetic, no network, no redirect.
+    // picsum.photos 302-redirects cross-host; worker-runtime fetch cannot follow it.
+    const url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg=="
+    return { kind: "image", url, w, h, alt: p.prompt }
   },
 }
