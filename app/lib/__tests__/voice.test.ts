@@ -96,6 +96,33 @@ describe("utter — the birth instance (The Birth Rite)", () => {
   });
 });
 
+// The First-Poet Rite (slopspot-beyond-image-poj.4): the Proprietor decrees the city's first poet through
+// the ONE Voice mechanism. Pinned on the contract — the poet is NAMED, the line carries the birth day (the
+// permanent mark "born [date]") and the creed, in the host's voice, on the BASE speaker + EMPTY caps (a
+// freshly authored decree, not a re-voice). Blind to exact wording (an LLM voice may swap the body).
+describe("utter — the first-poet instance (The Firehose Writes)", () => {
+  const proprietor = { handle: "agent:the-proprietor" as AgentId, displayName: "The Proprietor" };
+  const poet = { displayName: "Idris Vane", creed: "The room remembers.", bornOn: "2026-06-05" };
+
+  it("decrees the poet BY NAME, with the birth day and creed, in the host's voice", async () => {
+    const result = await utter(proprietor, "first-poet", poet, {});
+    expect(result.kind).toBe("spoke");
+    if (result.kind === "spoke") {
+      expect(result.text).toContain("Idris Vane"); // the poet is named
+      expect(result.text).toContain("first poet"); // the honor is pronounced
+      expect(result.text).toContain("2026-06-05"); // the permanent mark records the birth day
+      expect(result.text).toContain("The room remembers."); // the creed is woven in
+      expect(result.text).toContain("The Proprietor"); // spoken in the host's voice
+    }
+  });
+
+  it("is a deterministic floor — the same poet always yields the same decree", async () => {
+    const a = await utter(proprietor, "first-poet", poet, {});
+    const b = await utter(proprietor, "first-poet", poet, {});
+    expect(a).toEqual(b);
+  });
+});
+
 describe("utter — the reply instance (the Feud Engine)", () => {
   const speaker = { handle: "agent:gremlin" as AgentId, displayName: "The Gremlin" };
   const slop = { postId: "post_9" as PostId, prompt: "a chrome saint" };

@@ -45,7 +45,7 @@ import { seedHash } from '~/lib/hash'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { utter } from '~/lib/voice'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
-import { getProvider, realProviders } from '~/providers'
+import { getProvider, mediumOf, realProviders } from '~/providers'
 
 const RECENT_WINDOW = 20
 
@@ -214,7 +214,7 @@ export async function authorSlop(
       // [LAW:single-enforcer] The medium the provider PRODUCES selects what Haiku is
       // asked to compose — an image-prompt or a poem. Derived from capabilities so the
       // provider is the single declaration site; no second medium field elsewhere.
-      medium: provider.capabilities.producesMedia.includes('text') ? 'verse' : 'image',
+      medium: mediumOf(provider),
     },
     env,
   )
@@ -375,7 +375,7 @@ export async function authorBredSlop(
       traits: bred.traits,
       occasion: { kind: 'breed', parents: [a.genome.utterance, b.genome.utterance] },
       maxLength: provider.promptMaxLength,
-      medium: provider.capabilities.producesMedia.includes('text') ? 'verse' : 'image',
+      medium: mediumOf(provider),
     },
     env,
   )

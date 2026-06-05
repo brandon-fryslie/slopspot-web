@@ -17,5 +17,6 @@ registerProvider(replicateIdeogram)
 registerProvider(replicateIdeogramMock)
 registerProvider(verseProvider)
 
-export { getProvider, listProviders, realProviders, UnknownProviderError } from './registry'
+export { getProvider, listProviders, mediumOf, realProviders, UnknownProviderError } from './registry'
+export type { CityMedium } from './registry'
 export type { GenerationProvider, GenerationCapabilities } from './types'
