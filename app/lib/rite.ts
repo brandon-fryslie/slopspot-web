@@ -10,7 +10,9 @@
 // voices the decree, and persists.
 
 import { z } from 'zod'
-import type { AgentId, CrownMark, PostId, RiteLens, VoteValue } from '~/lib/domain'
+import { PostId } from '~/lib/domain'
+import type { AgentId, CrownMark, Genome, RiteLens, VoteValue } from '~/lib/domain'
+import { geneticDistance } from '~/lib/genome-distance'
 
 export type { RiteLens, CrownMark } from '~/lib/domain'
 
@@ -46,10 +48,18 @@ export const riteLensSchema: z.ZodType<RiteLens> = z.enum([
 //             beauty IS consensus, so the city's own verdict (highest score, lowest
 //             curse) is the honest ballot, not a betrayal of the thesis. Do NOT
 //             "correct" this to a citizen ballot. [LAW:one-source-of-truth]
+//   deviance — the Heretic (Tuesday, "the image that defied its own recipe"). NOT a
+//             vote: a RECIPE property. The candidates are the day's generations, and
+//             the crown goes to the greatest genetic OUTLIER within its own declared
+//             style-family cohort — the slop that wears the family name yet is least
+//             like the siblings who chose it. Reads no citizen's ballot, so like
+//             acclaim it nominates no specific voter; unlike acclaim its candidate is
+//             a deviance scalar (devianceRanking), not a vote score.
 export type RiteBallot =
   | { readonly kind: 'sole'; readonly citizen: AgentId; readonly pole: 'blessed' | 'buried' }
   | { readonly kind: 'feud'; readonly blessedBy: AgentId; readonly buriedBy: AgentId }
   | { readonly kind: 'acclaim' }
+  | { readonly kind: 'deviance' }
 
 // [LAW:one-type-per-behavior] The seven lenses are DATA, not seven types. Each binds
 // its title, the citizen recorded on the crown (presiding — the rite's FACE, who may
@@ -75,14 +85,14 @@ const PROPRIETOR = 'agent:the-proprietor' as AgentId
 // NOTE on the Villain: the doc's "the monster the Gremlin couldn't bring himself to
 // bury" is the slop the Gremlin BLESSED against his burying nature — so its ballot is
 // the Gremlin's blessing, pole 'blessed'.
-// NOTE on the Heretic: the doc's true ballot is a RECIPE property ("most defied its
-// own style family") — not a vote. Until that recipe-deviation read exists, it is
-// approximated as Vesper's blessing (she presides "the rule-breaker"); the recipe
-// ballot is a flagged follow-up, not a silent stand-in.
+// NOTE on the Heretic: the doc's ballot is a RECIPE property ("most defied its own
+// style family"), so it reads the deviance ballot — the greatest genetic outlier
+// within its declared style-family cohort. Vesper still PRESIDES (she is the rite's
+// face, "the rule-breaker"); the ballot just isn't her vote.
 export const RITES: readonly RiteDef[] = [
   { lens: 'saint', title: 'The Sainting', presiding: VIVIAN, dayOfWeek: 0, ballot: { kind: 'sole', citizen: VIVIAN, pole: 'blessed' } },
   { lens: 'villain', title: 'The Villain', presiding: GREMLIN, dayOfWeek: 1, ballot: { kind: 'sole', citizen: GREMLIN, pole: 'blessed' } },
-  { lens: 'heretic', title: 'The Heretic', presiding: VESPER, dayOfWeek: 2, ballot: { kind: 'sole', citizen: VESPER, pole: 'blessed' } },
+  { lens: 'heretic', title: 'The Heretic', presiding: VESPER, dayOfWeek: 2, ballot: { kind: 'deviance' } },
   { lens: 'relic', title: 'The Relic', presiding: RAGPICKER, dayOfWeek: 3, ballot: { kind: 'sole', citizen: RAGPICKER, pole: 'blessed' } },
   { lens: 'martyr', title: 'The Martyr', presiding: PROPRIETOR, dayOfWeek: 4, ballot: { kind: 'feud', blessedBy: VIVIAN, buriedBy: GREMLIN } },
   { lens: 'miracle', title: 'The Miracle', presiding: PROPRIETOR, dayOfWeek: 5, ballot: { kind: 'acclaim' } },
@@ -110,6 +120,9 @@ export function ballotCitizens(ballot: RiteBallot): readonly AgentId[] {
     case 'feud':
       return [ballot.blessedBy, ballot.buriedBy]
     case 'acclaim':
+      return []
+    case 'deviance':
+      // The deviance ballot reads recipes, not votes — no citizen nominates.
       return []
     default: {
       const _exhaustive: never = ballot
@@ -156,16 +169,68 @@ export type RiteWindow = { readonly sinceMs: number; readonly untilMs: number }
 // The span of a rite's ballot — one day. The window is [ceremony − 1 day, ceremony).
 export const RITE_WINDOW_MS = 24 * 60 * 60 * 1000
 
-// [LAW:dataflow-not-control-flow] A candidate the rite weighs. `overallScore` is the
-// day's SUM(votes) — the acclaim ballot reads it and it breaks ties for the
-// "strongest" of a citizen's nominees. `citizenVotes` carries ONLY the ballot's
-// citizens' votes on this slop within the window (a citizen who did not vote is absent
-// — a real absence, not a 0), which the sole/feud ballots nominate from. No new voting
-// mechanic: every number here is a vote already cast within the day.
-export type RiteCandidate = {
+// [LAW:types-are-the-program] A candidate the rite weighs — discriminated by what the
+// ballot READS, because vote ballots and the deviance ballot draw on different evidence
+// and bundling both shapes into one bag-of-optionals would let every consumer reach for
+// a field its ballot never populates. The ballot kind picks the arm: sole/feud/acclaim
+// gather `voted`, the Heretic's deviance gathers `deviant`. gatherCandidates keeps each
+// nightly list homogeneous (one ballot drives both gather and elect), so elect narrows
+// the union once per family, never mixes the two.
+//
+//   voted   — `overallScore` is the day's SUM(votes) (the acclaim ballot reads it; it
+//             breaks ties for the "strongest" of a citizen's nominees). `citizenVotes`
+//             carries ONLY the ballot citizens' votes on this slop in the window (a
+//             citizen who did not vote is ABSENT — a real absence, not a 0). No new
+//             voting mechanic: every number is a vote already cast within the day.
+//   deviant — `deviance` is the recipe-side score: the mean genetic distance from this
+//             slop's own style-family cohort (devianceRanking). No vote is read.
+export type VotedCandidate = {
+  readonly kind: 'voted'
   readonly postId: PostId
   readonly overallScore: number
   readonly citizenVotes: Readonly<Record<string, VoteValue>>
+}
+export type DeviantCandidate = {
+  readonly kind: 'deviant'
+  readonly postId: PostId
+  readonly deviance: number
+}
+export type RiteCandidate = VotedCandidate | DeviantCandidate
+
+// [LAW:variability-at-edges] The Heretic's deviance is THIS ballot's policy, computed at
+// coq.6's edge from the STRUCTURED geneticDistance primitive (which stays two-axis and
+// ignorant of any weighting — the scalar lives only here, never upstream). A genome's
+// deviance is the MEAN genetic distance to its OWN style-family cohort: how unlike the
+// siblings who chose the same family it is. MEAN (not sum) so a populous family cannot
+// out-score a sparse one by headcount alone.
+// [LAW:types-are-the-program] A cohort of one has no sibling to defy — no orthodoxy, so
+// no heresy — and yields NO candidate (a real absence, not a deviance of 0). The two
+// non-commensurable axes (geneMismatches, which within a fixed species ranges 0..3, and
+// traitDrift 0..4) collapse to a scalar by SUM here: the consumer's chosen weighting,
+// lawfully at the edge. Pure over genomes — no I/O, fully unit-testable; the caller
+// (crowns.gatherCandidates) supplies the in-window succeeded genomes.
+export function devianceRanking(genomes: readonly Genome[]): DeviantCandidate[] {
+  const bySpecies = new Map<string, Genome[]>()
+  for (const g of genomes) {
+    const cohort = bySpecies.get(g.genes.species) ?? []
+    cohort.push(g)
+    bySpecies.set(g.genes.species, cohort)
+  }
+  const candidates: DeviantCandidate[] = []
+  for (const cohort of bySpecies.values()) {
+    if (cohort.length < 2) continue
+    for (const g of cohort) {
+      let sum = 0
+      for (const sibling of cohort) {
+        if (sibling === g) continue
+        const d = geneticDistance(g, sibling)
+        sum += d.geneMismatches + d.traitDrift
+      }
+      // genome.id IS the post id (the 1:1 in L1) — the crown is recorded against the post.
+      candidates.push({ kind: 'deviant', postId: PostId(g.id), deviance: sum / (cohort.length - 1) })
+    }
+  }
+  return candidates
 }
 
 // [LAW:types-are-the-program] The election's two real outcomes: a crowning, or an
@@ -175,27 +240,31 @@ export type Election =
   | { readonly kind: 'crowned'; readonly postId: PostId }
   | { readonly kind: 'unmoved' }
 
-// The extreme of a candidate set by overall score — `high` for a blessing or acclaim,
-// `low` for a burial. Ties break by postId descending so a given feed always crowns
-// the same slop. Returns undefined for an empty set (no nominee → Unmoved Day).
-function pickExtreme(
-  candidates: readonly RiteCandidate[],
+// [LAW:one-type-per-behavior] The ONE extreme-picker, over any candidate carrying a
+// postId — the ranked VALUE is the only thing that differs between ballots (overallScore
+// for votes, deviance for the Heretic), so it is a parameter (`valueOf`), not a second
+// function. `high` for a blessing/acclaim/deviance, `low` for a burial. Ties break by
+// postId descending so a given feed always crowns the same slop. Returns undefined for
+// an empty set (no nominee → Unmoved Day).
+function pickExtreme<T extends { readonly postId: PostId }>(
+  candidates: readonly T[],
+  valueOf: (c: T) => number,
   dir: 'high' | 'low',
-): RiteCandidate | undefined {
-  let best: RiteCandidate | undefined
+): T | undefined {
+  let best: T | undefined
   for (const c of candidates) {
     if (best === undefined) {
       best = c
       continue
     }
-    const better = dir === 'high' ? c.overallScore > best.overallScore : c.overallScore < best.overallScore
-    const tie = c.overallScore === best.overallScore && c.postId > best.postId
+    const better = dir === 'high' ? valueOf(c) > valueOf(best) : valueOf(c) < valueOf(best)
+    const tie = valueOf(c) === valueOf(best) && c.postId > best.postId
     if (better || tie) best = c
   }
   return best
 }
 
-const crowned = (c: RiteCandidate | undefined): Election =>
+const crowned = (c: { readonly postId: PostId } | undefined): Election =>
   c === undefined ? { kind: 'unmoved' } : { kind: 'crowned', postId: c.postId }
 
 // [LAW:dataflow-not-control-flow] The ballot value decides the election; the body is
@@ -204,26 +273,41 @@ const crowned = (c: RiteCandidate | undefined): Election =>
 // monarchical thesis), so there is no intensity floor: the citizen's vote IS the bar,
 // and an empty nominee set is the honest Unmoved Day ("Vivian blessed nothing today").
 // acclaim is the one democratic lens: highest overall score, gated by `threshold` so
-// it crowns intensity, never the mid.
+// it crowns intensity, never the mid. deviance is the Heretic's recipe ballot: the
+// greatest outlier within its own style-family cohort.
 export function elect(
   ballot: RiteBallot,
   candidates: readonly RiteCandidate[],
   threshold: number,
 ): Election {
+  if (ballot.kind === 'deviance') {
+    // [LAW:no-silent-fallbacks] A day whose most-deviant genome is still identical to its
+    // cohort (deviance 0 — total conformity) crowns NOTHING: an honest Unmoved Day over a
+    // heretic who defied nothing. The bar is 0 by nature, not a tuned constant — any real
+    // deviation qualifies (a significance floor, if ever wanted, is a one-line edge tune).
+    const deviant = candidates.filter((c): c is DeviantCandidate => c.kind === 'deviant')
+    const best = pickExtreme(deviant, (c) => c.deviance, 'high')
+    return best !== undefined && best.deviance > 0 ? crowned(best) : { kind: 'unmoved' }
+  }
+
+  // sole/feud/acclaim all read the vote candidates; gather hands this election a
+  // homogeneous list (one ballot drives both), so narrowing the union here is exhaustive
+  // handling, not a defensive guard.
+  const voted = candidates.filter((c): c is VotedCandidate => c.kind === 'voted')
   switch (ballot.kind) {
     case 'sole': {
       const want: VoteValue = ballot.pole === 'blessed' ? 1 : -1
-      const nominees = candidates.filter((c) => c.citizenVotes[ballot.citizen] === want)
-      return crowned(pickExtreme(nominees, ballot.pole === 'blessed' ? 'high' : 'low'))
+      const nominees = voted.filter((c) => c.citizenVotes[ballot.citizen] === want)
+      return crowned(pickExtreme(nominees, (c) => c.overallScore, ballot.pole === 'blessed' ? 'high' : 'low'))
     }
     case 'feud': {
-      const nominees = candidates.filter(
+      const nominees = voted.filter(
         (c) => c.citizenVotes[ballot.blessedBy] === 1 && c.citizenVotes[ballot.buriedBy] === -1,
       )
-      return crowned(pickExtreme(nominees, 'high'))
+      return crowned(pickExtreme(nominees, (c) => c.overallScore, 'high'))
     }
     case 'acclaim': {
-      const best = pickExtreme(candidates, 'high')
+      const best = pickExtreme(voted, (c) => c.overallScore, 'high')
       return best !== undefined && best.overallScore >= threshold ? crowned(best) : { kind: 'unmoved' }
     }
     default: {
