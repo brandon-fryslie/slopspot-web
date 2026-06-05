@@ -18,6 +18,7 @@
 import { z } from 'zod'
 import { createPersona, creedOf, listAllPersonas, type NewPersona, type Persona } from '~/agents/persona'
 import { parseGeneratorConfig } from '~/agents/generator'
+import { getLineageDag } from '~/db/genome-dag'
 import { extractFirstJsonObject } from '~/firehose/composer'
 import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
 import { traitVectorSchema } from '~/lib/traits'
@@ -120,6 +121,86 @@ export function checkDistinct(spec: MidwifeSpec, cast: readonly Persona[]): Dist
   return { ok: true }
 }
 
+// [LAW:one-source-of-truth] The gap-bias reads ONE taste-landscape: the cast's sensibilities
+// (where citizens already live) against the art the city has actually made (where taste has been
+// cultivated). No parallel taste model — castTraits are persona traits, artTraits are genome traits
+// (getLineageDag nodes, the SAME reader the deviance ballot folds over). The trait-L1 metric is the
+// single one this module already owns.
+
+// Mean number of art points to average for the gap target — a small-K mean so one outlier art point
+// does not yank the target into a single freak region; the centroid of the most-radiated-into
+// corner is a steadier aim than its single furthest point.
+const GAP_STABILITY_K = 3
+
+// The L1 distance from a point to the NEAREST member of a set — "how far is this from the closest
+// thing already here." Infinity for an empty set (nothing to be near), which falls out of the data.
+function nearestL1(point: TraitVector, others: readonly TraitVector[]): number {
+  let min = Infinity
+  for (const o of others) {
+    const d = traitL1(point, o)
+    if (d < min) min = d
+  }
+  return min
+}
+
+// The component-wise centroid of trait vectors — stays in [0,1] because every input axis is. Caller
+// guarantees a non-empty input (the only caller slices a ranked non-empty list).
+function meanTraits(vectors: readonly TraitVector[]): TraitVector {
+  const out: TraitVector = { austerity: 0, curse: 0, density: 0, earnestness: 0 }
+  for (const v of vectors) for (const axis of TRAIT_AXES) out[axis] += v[axis]
+  for (const axis of TRAIT_AXES) out[axis] /= vectors.length
+  return out
+}
+
+// [LAW:types-are-the-program] The under-cultivated region of the taste cube, or `null` when there is
+// no landscape to read (no cast OR no art). PURE. The art point that radiated FURTHEST from every
+// citizen marks where taste was made but no citizen lives; the centroid of the top-K such points is
+// the steady aim. `null` is the honest "no bias possible" state — the prompt directive and the gate
+// both degrade through it by DATA, never by a skip branch in the caller.
+export function gapTarget(
+  castTraits: readonly TraitVector[],
+  artTraits: readonly TraitVector[],
+): TraitVector | null {
+  if (castTraits.length === 0 || artTraits.length === 0) return null
+  const ranked = artTraits
+    .map((art) => ({ art, d: nearestL1(art, castTraits) }))
+    .sort((a, b) => b.d - a.d)
+  return meanTraits(ranked.slice(0, GAP_STABILITY_K).map((r) => r.art))
+}
+
+function median(xs: readonly number[]): number {
+  const s = [...xs].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 === 0 ? (s[mid - 1]! + s[mid]!) / 2 : s[mid]!
+}
+
+// [LAW:single-enforcer] The "did the newborn actually land in a less-crowded region?" check, PURE,
+// returning the SAME verdict shape distinctness does so a clump folds into the same re-roll loop.
+// The bar: the newborn's distance to its nearest citizen must EXCEED the cast's median nearest-
+// neighbor distance — it must sit emptier than a typical citizen does. [LAW:dataflow-not-control-flow]
+// Two degenerate states resolve to a real verdict (ok, nothing to reject against), not a skipped
+// operation: `gap === null` means we never steered (no taste-landscape), so there is no gap to hold
+// the newborn to; fewer than two citizens means no crowding baseline exists to exceed. Both are data
+// states of the same always-running gate, not branches that skip it.
+export function gapGate(
+  newbornTraits: TraitVector,
+  castTraits: readonly TraitVector[],
+  gap: TraitVector | null,
+): DistinctnessResult {
+  if (gap === null || castTraits.length < 2) return { ok: true }
+  const baseline = median(
+    castTraits.map((c, i) => nearestL1(c, castTraits.filter((_, j) => j !== i))),
+  )
+  const newbornNearest = nearestL1(newbornTraits, castTraits)
+  if (newbornNearest <= baseline) {
+    return {
+      ok: false,
+      reason: `the sensibility clumps into an already-crowded region (nearest citizen ${newbornNearest.toFixed(2)} ≤ the city's typical crowding ${baseline.toFixed(2)}) — push further into the under-watched gap`,
+    }
+  }
+  return { ok: true }
+}
+
 // The UTC calendar day the birth fills, and the deterministic per-day citizen id derived from it.
 // The id encodes the day so the daily birth is idempotent BY CONSTRUCTION — two fires on the same
 // day collide on the personas PK (createPersona's onConflictDoNothing), exactly one citizen born.
@@ -159,6 +240,7 @@ export function buildNewPersona(spec: MidwifeSpec, agentId: AgentId): NewPersona
 export function buildMidwifePrompt(
   cast: readonly Persona[],
   media: readonly string[],
+  gap: TraitVector | null,
   priorReason: string | undefined,
 ): string {
   const roster = cast
@@ -174,6 +256,9 @@ export function buildMidwifePrompt(
     cast.length > 0 ? `The city's living cast (do not duplicate any of these):\n${roster}` : `The city is empty — this is the first citizen.`,
     `Its "medium" must be EXACTLY one of these provider ids: ${media.join(', ')}.`,
     `Its four trait axes are each a number in [0,1]: austerity (austere↔baroque), curse (clean↔cursed), density (sparse↔dense), earnestness (ironic↔sincere). Choose a vector that stakes out an UNFILLED region of that space.`,
+    gap
+      ? `You are BORN TO FILL A GAP. The city's art has been radiating toward a corner of taste that no citizen yet lives in: near austerity ${gap.austerity.toFixed(2)}, curse ${gap.curse.toFixed(2)}, density ${gap.density.toFixed(2)}, earnestness ${gap.earnestness.toFixed(2)}. Aim the newborn's trait vector NEAR there — you may vary, but lean hard into this under-watched region so the cast spreads across taste-space rather than clumping.`
+      : null,
     priorReason ? `Your previous attempt was rejected: ${priorReason}. Author a MORE distinct citizen this time.` : null,
     `Respond with ONLY minified JSON, no markdown fences, no preamble: {"displayName": "...", "handle": "lowercase-slug", "personaPrompt": "the citizen's private character bible — who they are, what they love, how they see — one rich paragraph", "creed": "one short punchy public line, a few words", "promptPrefix": "the citizen's authoring voice/tone, a short directive the composer steers by", "medium": "one of the provider ids above", "traits": {"austerity": 0.0, "curse": 0.0, "density": 0.0, "earnestness": 0.0}}`,
   ]
@@ -188,6 +273,7 @@ async function authorPersona(
   env: Env,
   cast: readonly Persona[],
   media: readonly string[],
+  gap: TraitVector | null,
   priorReason: string | undefined,
 ): Promise<string | null> {
   const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
@@ -195,7 +281,7 @@ async function authorPersona(
     console.warn('[birth] SLOPSPOT_ANTHROPIC_API_KEY not set — no citizen can be authored')
     return null
   }
-  const prompt = buildMidwifePrompt(cast, media, priorReason)
+  const prompt = buildMidwifePrompt(cast, media, gap, priorReason)
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -260,11 +346,21 @@ export async function runBirth(env: Env, scheduledTimeMs: number): Promise<Birth
   }
 
   const media = realProviders(env).map((p) => p.id)
+
+  // [LAW:one-source-of-truth] Read the taste-landscape on the authoring path only — a settled day
+  // already returned above and pays nothing for it. castTraits = where citizens live; artTraits =
+  // where the city's art has actually radiated (genome traits, the deviance ballot's reader). The
+  // gap is the under-cultivated corner both the prompt directive and the post-author gate steer by.
+  const dag = await getLineageDag(env)
+  const castTraits = cast.map((p) => p.traits)
+  const artTraits = [...dag.nodes.values()].map((g) => g.traits)
+  const gap = gapTarget(castTraits, artTraits)
+
   let llmFailed = false
   let lastReason: string | undefined
 
   for (let attempt = 1; attempt <= MIDWIFE_MAX_ATTEMPTS; attempt++) {
-    const text = await authorPersona(env, cast, media, lastReason)
+    const text = await authorPersona(env, cast, media, gap, lastReason)
     if (text === null) {
       llmFailed = true
       lastReason = undefined
@@ -283,6 +379,15 @@ export async function runBirth(env: Env, scheduledTimeMs: number): Promise<Birth
     const distinct = checkDistinct(spec, cast)
     if (!distinct.ok) {
       lastReason = distinct.reason
+      continue
+    }
+
+    // [LAW:dataflow-not-control-flow] The gap gate runs every attempt; whether it CAN reject is data
+    // (a null gap or a one-citizen city both yield ok with no special-case branch here). A clump is
+    // treated exactly like a near-duplicate — its reason feeds the next re-roll, sharing the budget.
+    const inGap = gapGate(spec.traits, castTraits, gap)
+    if (!inGap.ok) {
+      lastReason = inGap.reason
       continue
     }
 
