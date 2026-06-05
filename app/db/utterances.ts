@@ -5,7 +5,7 @@
 // RETIRING feed.ts's ad-hoc derivation from votes.reasoning — the utterance store is now the single
 // source for the rendered line. [LAW:one-source-of-truth]
 
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
 import { personas, utterances, votes } from '~/db/schema'
 import type { Occasion, Utterance } from '~/lib/voice'
@@ -62,25 +62,26 @@ function toDisposition(raw: number, postId: string): VerdictDisposition {
   throw new Error(`utterances: verdict vote value ${raw} for post ${postId} is outside the stored shape (-1 | 1)`)
 }
 
-// [LAW:single-enforcer] The batched phase-2 read of verdict lines for a set of visible posts — keyed by
-// postIds (≤ a page), NEVER per-post (no N+1), so getFeedPage's phase-1 keyset SEEK is untouched.
-// Replaces fetchVerdicts: the line + critic + disposition now come from the utterance record (text +
-// the speaker's persona name) JOINed to the vote (the disposition the verdict narrates), instead of
-// re-deriving from votes.reasoning.
+// [LAW:single-enforcer] The batched phase-2 read of spoken lines for a set of visible posts — keyed by
+// postIds (≤ a page), NEVER per-post (no N+1), so getFeedPage's phase-1 keyset SEEK is untouched. The
+// `occasion` is DATA, not two near-identical queries: a verdict (the opening position) and a reply (the
+// answer in the exchange) are the SAME read — a named critic's spoken line on a slop, JOINed to the vote
+// for its disposition — differing only by which occasion value flows in. [LAW:dataflow-not-control-flow]
 //
-// Returns up to CO_PRESENCE_CAP verdicts per post, newest first — the co-presence set. A spoke verdict
-// by a named critic surfaces; a withheld verdict is recorded but renders no line (its absence is the
-// occasion's silence-treatment, handled at the boundary by NOT selecting it here). The INNER JOINs make
-// a verdict a real critic's judgment of a real vote: an utterance whose speaker is not a persona, or
-// whose vote was retracted, has no line to show and falls out by construction.
-export async function verdictsForPosts(
+// Returns up to CO_PRESENCE_CAP lines per post, newest first — the co-presence set. A spoke line by a
+// named critic surfaces; a withheld one is recorded but renders nothing (its absence is the occasion's
+// silence-treatment, handled by NOT selecting it here). The INNER JOINs make a line a real critic's
+// judgment of a real vote: an utterance whose speaker is not a persona, or whose vote was retracted, has
+// no line to show and falls out by construction.
+function spokenLinesForPosts(
   database: DB,
   postIds: readonly string[],
+  occasion: Occasion,
 ): Promise<Map<string, Verdict[]>> {
-  if (postIds.length === 0) return new Map()
+  if (postIds.length === 0) return Promise.resolve(new Map())
 
-  // [LAW:no-silent-fallbacks] The critic must be NAMED — a blank displayName is no byline, so the
-  // verdict is excluded (the same gate fetchVerdicts applied), never rendered as `— `.
+  // [LAW:no-silent-fallbacks] The critic must be NAMED — a blank displayName is no byline, so the line
+  // is excluded (the same gate fetchVerdicts applied), never rendered as `— `.
   const named = sql`trim(${personas.displayName}) <> ''`
 
   const ranked = database
@@ -92,7 +93,84 @@ export async function verdictsForPosts(
       rank: sql<number>`row_number() over (
         partition by ${utterances.targetPostId}
         order by ${utterances.createdAt} desc, ${utterances.speaker} desc
-      )`.as('verdict_rank'),
+      )`.as('line_rank'),
+    })
+    .from(utterances)
+    .innerJoin(personas, eq(personas.agentId, utterances.speaker))
+    .innerJoin(
+      votes,
+      and(eq(votes.postId, utterances.targetPostId), eq(votes.voterId, utterances.speaker)),
+    )
+    .where(
+      and(
+        eq(utterances.occasion, occasion),
+        eq(utterances.kind, 'spoke'),
+        inArray(utterances.targetPostId, postIds),
+        named,
+      ),
+    )
+    .as('ranked_lines')
+
+  return database
+    .select({ postId: ranked.postId, text: ranked.text, critic: ranked.critic, value: ranked.value })
+    .from(ranked)
+    .where(lte(ranked.rank, CO_PRESENCE_CAP))
+    // [LAW:one-source-of-truth] rank 1 is the NEWEST (the window orders created_at desc), so ASC rank
+    // yields NEWEST-FIRST — the order RenderablePost.verdicts/exchange promise.
+    // (desc(rank) would render oldest-first, silently contradicting the contract.)
+    .orderBy(asc(ranked.rank))
+    .then((rows) => {
+      const byPost = new Map<string, Verdict[]>()
+      for (const r of rows) {
+        // targetPostId is non-null here (the WHERE filters to spoken rows in `postIds`); text is non-null
+        // by the kind='spoke' filter + the utterances_shape CHECK. Build the domain Verdict.
+        const postId = r.postId!
+        const verdict: Verdict = {
+          text: r.text!.trim(),
+          critic: r.critic.trim(),
+          disposition: toDisposition(r.value, postId),
+        }
+        const list = byPost.get(postId)
+        if (list === undefined) byPost.set(postId, [verdict])
+        else list.push(verdict)
+      }
+      return byPost
+    })
+}
+
+// The critics' opening positions — RETIRING feed.ts's ad-hoc derivation from votes.reasoning.
+export function verdictsForPosts(
+  database: DB,
+  postIds: readonly string[],
+): Promise<Map<string, Verdict[]>> {
+  return spokenLinesForPosts(database, postIds, 'verdict')
+}
+
+// The answers in the exchange — the back-and-forth the Feud Engine fires when verdicts oppose
+// (slopspot-voice-w2v.2). Same read, the `reply` occasion flowing in; rendered as a threaded exchange
+// beneath the verdicts (newest-first, same co-presence cap).
+export function repliesForPosts(
+  database: DB,
+  postIds: readonly string[],
+): Promise<Map<string, Verdict[]>> {
+  return spokenLinesForPosts(database, postIds, 'reply')
+}
+
+// [LAW:single-enforcer] The Feud Engine's trigger read: the spoken verdicts already standing on ONE slop,
+// each with its speaker's id + disposition + when it landed — newest-first. The newcomer's verdict scans
+// this for an OPPOSING incumbent to answer (app/agents/verdict.ts). Distinct from the render reads above:
+// it carries the speaker `AgentId` (the feud is between citizens, identified by handle) and the timestamp
+// (the most-recent opponent is the one answered), neither of which the rendered Verdict needs.
+export async function coPresentVerdicts(
+  database: DB,
+  postId: string,
+): Promise<{ speaker: string; displayName: string; disposition: VerdictDisposition; createdAt: Date }[]> {
+  const rows = await database
+    .select({
+      speaker: utterances.speaker,
+      displayName: personas.displayName,
+      value: votes.value,
+      createdAt: utterances.createdAt,
     })
     .from(utterances)
     .innerJoin(personas, eq(personas.agentId, utterances.speaker))
@@ -104,34 +182,16 @@ export async function verdictsForPosts(
       and(
         eq(utterances.occasion, 'verdict'),
         eq(utterances.kind, 'spoke'),
-        inArray(utterances.targetPostId, postIds),
-        named,
+        eq(utterances.targetPostId, postId),
+        sql`trim(${personas.displayName}) <> ''`,
       ),
     )
-    .as('ranked_verdicts')
+    .orderBy(desc(utterances.createdAt), desc(utterances.speaker))
 
-  const rows = await database
-    .select({ postId: ranked.postId, text: ranked.text, critic: ranked.critic, value: ranked.value })
-    .from(ranked)
-    .where(lte(ranked.rank, CO_PRESENCE_CAP))
-    // [LAW:one-source-of-truth] rank 1 is the NEWEST (the window orders created_at desc), so ASC rank
-    // yields NEWEST-FIRST — the order RenderablePost.verdicts promises and .2's Feud Engine inherits.
-    // (desc(rank) would render oldest-first, silently contradicting the contract.)
-    .orderBy(asc(ranked.rank))
-
-  const byPost = new Map<string, Verdict[]>()
-  for (const r of rows) {
-    // targetPostId is non-null here (the WHERE filters to verdict rows in `postIds`); text is non-null
-    // by the kind='spoke' filter + the utterances_shape CHECK. Build the domain Verdict.
-    const postId = r.postId!
-    const verdict: Verdict = {
-      text: r.text!.trim(),
-      critic: r.critic.trim(),
-      disposition: toDisposition(r.value, postId),
-    }
-    const list = byPost.get(postId)
-    if (list === undefined) byPost.set(postId, [verdict])
-    else list.push(verdict)
-  }
-  return byPost
+  return rows.map((r) => ({
+    speaker: r.speaker,
+    displayName: r.displayName.trim(),
+    disposition: toDisposition(r.value, postId),
+    createdAt: r.createdAt,
+  }))
 }

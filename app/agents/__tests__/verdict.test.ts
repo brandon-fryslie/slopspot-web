@@ -9,7 +9,8 @@ import { and, eq } from 'drizzle-orm'
 import { narrateVerdict } from '~/agents/verdict'
 import { db } from '~/db/client'
 import { personas, utterances } from '~/db/schema'
-import { seedPost } from '../../db/__tests__/helpers'
+import { seedPost, seedVote } from '../../db/__tests__/helpers'
+import { PostId, type VoteValue } from '~/lib/domain'
 
 // Seed a critic persona row (traits_json defaults to neutral). narrateVerdict resolves the speaker
 // through getPersona, so a real row must exist for a citizen to have a voice.
@@ -78,5 +79,76 @@ describe('narrateVerdict', () => {
     const rows = await rowsFor('agent:gremlin', id)
     expect(rows).toHaveLength(1)
     expect(rows[0].text).toBe('Fine. Up. Once.')
+  })
+})
+
+// [LAW:behavior-not-structure] The Feud Engine (voice-w2v.2): a verdict that lands OPPOSING an incumbent
+// verdict on the same slop fires a reply EXCHANGE — each citizen answers the other, the visible
+// back-and-forth. Aligned verdicts fire nothing; a lone verdict (no opponent) fires nothing. The reply
+// is a recorded utterance keyed (speaker, slop, 'reply'), derived from the records, not a stored status.
+async function replyRowFor(speaker: string, postId: string) {
+  const rows = await db(env)
+    .select()
+    .from(utterances)
+    .where(
+      and(
+        eq(utterances.speaker, speaker),
+        eq(utterances.targetPostId, postId),
+        eq(utterances.occasion, 'reply'),
+      ),
+    )
+  return rows[0]
+}
+
+// Mirror the production flow: the vote commits, THEN narrateVerdict narrates it (the vote route order).
+async function castVerdict(
+  speaker: string,
+  postId: PostId,
+  vote: VoteValue,
+  reasoning: string,
+  at: Date,
+): Promise<void> {
+  await seedVote(env, { postId, voterId: speaker, value: vote, reasoning, createdAt: at })
+  await narrateVerdict(env, { speaker, postId, vote, reasoning })
+}
+
+describe('narrateVerdict — the Feud Engine (reply exchange)', () => {
+  it('fires a reply for BOTH citizens when a verdict OPPOSES an incumbent, each naming the other', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const id = await seedPost(env, { id: 'feud-clash' })
+
+    // the incumbent blesses; no opponent yet → no exchange
+    await castVerdict('agent:vivian', id, 1, 'A small blessing.', new Date(1000))
+    expect(await replyRowFor('agent:vivian', id)).toBeUndefined()
+
+    // the newcomer buries — opposing → the exchange fires for both
+    await castVerdict('agent:gremlin', id, -1, 'Mid. Buried.', new Date(2000))
+
+    const gremlinReply = await replyRowFor('agent:gremlin', id)
+    const vivianReply = await replyRowFor('agent:vivian', id)
+    expect(gremlinReply?.kind).toBe('spoke')
+    expect(gremlinReply?.text).toContain('St. Vivian') // the newcomer addresses the incumbent
+    expect(vivianReply?.kind).toBe('spoke')
+    expect(vivianReply?.text).toContain('The Gremlin') // the incumbent answers the newcomer
+  })
+
+  it('fires NO reply when the verdicts ALIGN (same disposition is no clash)', async () => {
+    await seedCritic('agent:a', 'Critic A')
+    await seedCritic('agent:b', 'Critic B')
+    const id = await seedPost(env, { id: 'feud-aligned' })
+
+    await castVerdict('agent:a', id, 1, 'Lovely.', new Date(1000))
+    await castVerdict('agent:b', id, 1, 'Agreed, lovely.', new Date(2000))
+
+    expect(await replyRowFor('agent:a', id)).toBeUndefined()
+    expect(await replyRowFor('agent:b', id)).toBeUndefined()
+  })
+
+  it('fires NO reply for a lone verdict (no co-present opponent to answer)', async () => {
+    await seedCritic('agent:solo', 'The Lone Critic')
+    const id = await seedPost(env, { id: 'feud-lone' })
+    await castVerdict('agent:solo', id, -1, 'Buried, alone.', new Date(1000))
+    expect(await replyRowFor('agent:solo', id)).toBeUndefined()
   })
 })

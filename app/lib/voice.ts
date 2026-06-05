@@ -16,7 +16,8 @@
 // The Well does not get a bespoke remark field; it gets an instance of this.
 
 import { z } from "zod";
-import type { AgentId, PostId, TraitVector, VoteValue } from "~/lib/domain";
+import type { AgentId, PostId, TraitVector, VerdictDisposition, VoteValue } from "~/lib/domain";
+import type { FeudStanding } from "~/lib/feud";
 
 // --- who speaks -------------------------------------------------------------
 
@@ -86,6 +87,28 @@ export interface JudgedSlop {
   readonly reasoning?: string;
 }
 
+// The citizen a reply ANSWERS — the incumbent whose verdict opposes the speaker's on the same slop.
+// `disposition` is their lean (the gilt blessing vs the burial robe); `displayName` is the byline the
+// speaker addresses. This is the cross-reference that makes the city a society with grudges, not a set
+// of isolated captions (the-voice-layer.md — the Gremlin's "Vesper again. Of course.").
+export interface FeudOpponent {
+  readonly handle: AgentId;
+  readonly displayName: string;
+  readonly disposition: VerdictDisposition;
+}
+
+// The target of a `reply`: one citizen answers another's OPPOSING verdict on the same slop. `standing`
+// is the DERIVED relationship between the two citizens (app/db/feud — read from their shared vote
+// history, never stored), and its `stance` is the TONE source — a feud runs barbed, allies disagreeing
+// is a shock, the wary stay guarded. [LAW:dataflow-not-control-flow] the stance VALUE selects the reply
+// register; the reply is not a new code path but an occasion the opposing-verdict data fires.
+export interface ReplyExchange {
+  readonly slop: SlopGist;
+  readonly opponent: FeudOpponent;
+  readonly ownDisposition: VerdictDisposition;
+  readonly standing: FeudStanding;
+}
+
 // --- the moment (occasion) --------------------------------------------------
 
 // [LAW:no-mode-explosion][LAW:one-type-per-behavior] The CLOSED union of occasions (the-voice-layer.md
@@ -105,16 +128,17 @@ export type Occasion =
   | "birth";
 
 // The legal target for each occasion (design-docs/the-voice-layer.md pairing table). `verdict`
-// (voice-w2v.1), `remark` (foundation.7), and `decree` (The Daily Rite) are BOUND; the rest are
-// RESERVED — their target binds `never` (uncallable by type) until their child defines it. Reserving
-// the name, not the model, is the whole point of the seam: binding a reserved arm touches no caller.
+// (voice-w2v.1), `remark` (foundation.7), `decree` (The Daily Rite), and `reply` (the Feud Engine,
+// voice-w2v.2) are BOUND; the rest are RESERVED — their target binds `never` (uncallable by type) until
+// their child defines it. Reserving the name, not the model, is the whole point of the seam: binding a
+// reserved arm — as `reply` does here — touches no existing caller.
 export interface OccasionTarget {
   caption: never;
   verdict: JudgedSlop;
   remark: AnsweredWish;
   decree: RiteOutcome;
   chrome: never;
-  reply: never;
+  reply: ReplyExchange;
   comment: never;
   eulogy: never;
   birth: never;
@@ -223,6 +247,41 @@ const composeVerdict: Voice<"verdict"> = (_speaker, judged) => {
   return take !== undefined && take.length > 0 ? spoke(take) : withheld("indifferent");
 };
 
+// The disposition's verbs — the city's words for the two ways to judge. A total map over the closed
+// VerdictDisposition, so a third disposition breaks the reply lines at compile time.
+const DISPOSITION_VERB: Record<VerdictDisposition, { present: string; past: string }> = {
+  blessed: { present: "bless", past: "blessed" },
+  buried: { present: "bury", past: "buried" },
+};
+
+// The reply instance (the Feud Engine, voice-w2v.2). One citizen answers another's OPPOSING verdict, and
+// the tone is the DERIVED standing's stance — not a stored mood, the read of their shared history.
+//
+// [LAW:dataflow-not-control-flow] the stance VALUE selects the line via a total map over the closed
+// FeudStance union; a fifth stance breaks this literal at compile time. No `if (feuding)` chain — the
+// data picks the register, the same way the decree's outcome picks its arm.
+//
+// ⚠️ §D SEAM (mirrors composeVerdict): this FLOOR voices a deterministic, register-neutral line. The
+// LLM-backed Feud voice swaps THIS body (only) to author the answer in the speaker's register
+// (personaPrompt + traitBias(speaker.traits) + the standing) — the signature is unchanged, the seam
+// holds. Until then the floor proves the dataflow: opposing verdicts → a stance-tinted exchange.
+const composeReply: Voice<"reply"> = (speaker, exchange) => {
+  const them = exchange.opponent.displayName;
+  const own = DISPOSITION_VERB[exchange.ownDisposition];
+  const theirs = DISPOSITION_VERB[exchange.opponent.disposition];
+  const line: Record<FeudStanding["stance"], string> = {
+    // A standing grudge: barbed, the opponent named with weary contempt.
+    feuding: `${them} again. Of course they ${theirs.past} it. I ${own.present} it — that's the whole point.`,
+    // Allies splitting is the citywide shock the-city-talks.md promises.
+    allied: `Even ${them} and I part ways here. I ${own.present} it; they ${theirs.past} it. Shocking.`,
+    // An uneasy, complicated standing — guarded, no warmth offered.
+    wary: `${them} ${theirs.present}s it; I ${own.present} it. We rarely line up, and today is no exception.`,
+    // Strangers crossing for the first time — flat, sizing each other up.
+    neutral: `${them} ${theirs.past} it. I ${own.present} it. First time we have crossed.`,
+  };
+  return spoke(line[exchange.standing.stance]);
+};
+
 // A value the type proves cannot exist — the standard exhaustiveness marker.
 const assertNever = (x: never): never => {
   throw new Error(`unhandled variant: ${JSON.stringify(x)}`);
@@ -241,7 +300,7 @@ const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   remark: composeRemark,
   decree: composeDecree,
   chrome: reserved,
-  reply: reserved,
+  reply: composeReply,
   comment: reserved,
   eulogy: reserved,
   birth: reserved,
