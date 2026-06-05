@@ -422,6 +422,17 @@ export type Genealogy = {
   siblings: readonly GenealogyNode[]
 }
 
+// [LAW:types-are-the-program] A whole DYNASTY rooted at its founder(s) — one level UP from the
+// per-post Genealogy slice. `founders` is a LIST, not a single root: a bred post descends from
+// MULTIPLE founders (ancestralFounders returns a set — the honest DAG), so its dynasty view is the
+// small FOREST of every founding line it belongs to (slopspot-genome-p6z.2). Each founder is a
+// GenealogyNode whose `kin` is its WHOLE descendant tree (offspring-down), built from the same
+// lineage_edges source the per-post tree uses — no parallel ancestry store. An empty list is a post
+// with no resolvable founder (degenerate); the renderer shows nothing by data. [LAW:one-source-of-truth]
+export type Dynasty = {
+  founders: readonly GenealogyNode[]
+}
+
 // [LAW:types-are-the-program] Comments v1 are flat (no parentCommentId) and
 // anonymous-author (authorId is the opaque voter-cookie UUID — same shape as
 // votes.voterId, intentionally string-typed rather than UserId so a future auth
