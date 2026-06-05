@@ -1,0 +1,42 @@
+# [LAW:single-enforcer] The one automatic trigger that propagates a verified GitHub
+# master commit to Gitea — making homelab image builds (voter/discoverer/prober)
+# fire without a manual 'git push gitea master'. Fires only on push to master, which
+# branch protection already gates on CI green + approving review, so only verified
+# commits reach Gitea. (slopspot-infra-jaw)
+name: Gitea Sync
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  sync:
+    name: Mirror master to Gitea
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up SSH deploy key for Gitea
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GITEA_DEPLOY_KEY }}" > ~/.ssh/gitea_deploy
+          chmod 600 ~/.ssh/gitea_deploy
+          # [LAW:one-source-of-truth] Host key pinned from ssh-keyscan at setup time —
+          # the one place the Gitea host identity is declared; CI never accepts a TOFU
+          # prompt that could be intercepted by a MITM during the run.
+          echo "[gitea.sanctuary.gdn]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAVDnn+Ay3k+U8iykzrJ/oVDeo/fGg+lZCZgsw2dm5B6" >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<'EOF'
+          Host gitea.sanctuary.gdn
+            HostName gitea.sanctuary.gdn
+            Port 2222
+            User git
+            IdentityFile ~/.ssh/gitea_deploy
+            IdentitiesOnly yes
+          EOF
+
+      - name: Push master to Gitea
+        run: |
+          git remote add gitea ssh://git@gitea.sanctuary.gdn:2222/brandon-fryslie/slopspot-web.git
+          git push gitea HEAD:master
