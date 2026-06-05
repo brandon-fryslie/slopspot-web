@@ -8,11 +8,12 @@
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
 import { db } from '~/db/client'
-import { personas } from '~/db/schema'
+import { personas, utterances } from '~/db/schema'
 import { eq } from 'drizzle-orm'
 import { parseGeneratorConfig } from '~/agents/generator'
 import { createPersona, getPersona, type NewPersona, type Persona } from '~/agents/persona'
 import {
+  announceBirth,
   birthDayKey,
   bornAgentId,
   buildMidwifePrompt,
@@ -24,7 +25,8 @@ import {
   runBirth,
   type MidwifeSpec,
 } from '~/agents/midwife'
-import { AgentId, type TraitVector } from '~/lib/domain'
+import { getPulse } from '~/db/pulse'
+import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
 
 const NEUTRAL: TraitVector = { austerity: 0.5, curse: 0.5, density: 0.5, earnestness: 0.5 }
 
@@ -267,6 +269,13 @@ describe('runBirth — daily, deterministic, observable', () => {
     })
     // The settled-check returns the existing citizen WITHOUT authoring (no network touched).
     expect(await runBirth(env, ms)).toEqual({ kind: 'already-born', agentId: id })
+
+    // [LAW:dataflow-not-control-flow] The no-double-announce gate, deterministically: a settled-day
+    // re-run is created:false, so it NEVER reaches the announcement — no birth utterance is written.
+    // The unique index cannot dedup births (NULL target → distinct), so this `created`-gate IS the only
+    // thing preventing a second welcome, and this asserts it holds without needing the LLM author path.
+    const births = await db(env).select().from(utterances).where(eq(utterances.occasion, 'birth'))
+    expect(births).toHaveLength(0)
   })
 
   it('skips loudly (no fallback citizen) when no author is available', async () => {
@@ -276,5 +285,49 @@ describe('runBirth — daily, deterministic, observable', () => {
     expect(await runBirth(noKeyEnv, ms)).toEqual({ kind: 'skipped', reason: 'llm' })
     // The cadence miss wrote NO citizen for the day.
     expect(await getPersona(env, bornAgentId(birthDayKey(ms)))).toBeNull()
+  })
+})
+
+// [LAW:behavior-not-structure] The Birth Rite's contract against a real D1 isolate: the Proprietor (seeded
+// by migration, the SAME host the Daily Rite uses) welcomes a newborn through the ONE Voice mechanism —
+// one persisted 'birth' utterance NAMING the newcomer, surfaced on the Pulse as a 'born' event. This is
+// the announce path the LLM-gated runBirth calls; testing it directly is what makes the gate machine-
+// verifiable without the (egress-less in dev) author call. The no-double-announce half is pinned by the
+// settled-day runBirth test above (created:false → zero birth utterances).
+describe('announceBirth — the Proprietor welcomes a newborn through the one Voice', () => {
+  it('records exactly one birth utterance naming the newcomer, and surfaces it on the Pulse', async () => {
+    const newcomer = { displayName: 'Sindri Cole', creed: 'Rust is a slow hymn.', medium: ProviderId('verse') }
+    // The announce is a command — its truth is the persisted row + the Pulse event, asserted below.
+    await announceBirth(env, newcomer)
+
+    // Exactly one post-less 'birth' utterance, in the Proprietor's voice, NAMING the newcomer.
+    const rows = await db(env).select().from(utterances).where(eq(utterances.occasion, 'birth'))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.targetPostId).toBeNull()
+    expect(rows[0]!.kind).toBe('spoke')
+    expect(rows[0]!.text).toContain('Sindri Cole')
+
+    // Surfaced on the Pulse as a single 'born' event carrying the welcome line.
+    const born = (await getPulse(env)).filter((e) => e.kind === 'born')
+    expect(born).toHaveLength(1)
+    expect(born[0]!).toMatchObject({ kind: 'born', text: expect.stringContaining('Sindri Cole') })
+  })
+
+  // [LAW:no-silent-fallbacks] The isolation invariant: the welcome is best-effort NARRATION of a birth
+  // that already happened. A failure to voice it (here: the Proprietor not seated, so proprietorRef
+  // throws) must be CAUGHT and observable — never propagated as an exception that would un-birth a
+  // citizen the caller already wrote. announceBirth is TOTAL: it resolves, writes no utterance, and the
+  // failure is surfaced on slopspot.birth.announce (a loud log), not raised.
+  it('a welcome that cannot be voiced is isolated — resolves without throwing, writes no utterance', async () => {
+    // Remove the migration-seeded Proprietor (rolled back after this test by isolated storage) so the
+    // announce path hits a real failure inside announceBirth.
+    await db(env).delete(personas).where(eq(personas.handle, 'the-proprietor'))
+
+    await expect(
+      announceBirth(env, { displayName: 'Unwelcomed One', creed: 'No bell rang.', medium: ProviderId('verse') }),
+    ).resolves.toBeUndefined()
+
+    const births = await db(env).select().from(utterances).where(eq(utterances.occasion, 'birth'))
+    expect(births).toHaveLength(0)
   })
 })
