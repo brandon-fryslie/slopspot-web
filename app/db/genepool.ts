@@ -11,15 +11,35 @@
 // A line buried in niche X (fitness ≤ 0 there) dies in X but may be blessed in niche Y; death
 // is niche-LOCAL and emerges from non-selection, never a global predicate.
 //
-// [LAW:dataflow-not-control-flow] Always the same query shape; the niche VALUE picks the
-// voter-set predicate (one citizen's id, or every voter NOT a citizen). An empty result is
-// data (the niche has selected nothing breedable yet) and the fold degrades to founder with
-// no "first run" branch.
+// [LAW:one-source-of-truth] Fitness is the BLOODLINE AGGREGATE (genome-9zt.7): the niche's votes
+// summed across a candidate's WHOLE DESCENDANT LINE (bloodlineFitness over the lineage DAG), not
+// the one-off vote on that single post. This is the intra-niche GRADIENT L3 lacked — a founder
+// whose line a niche has consistently blessed outweighs a single upvote, so fitter LINES reproduce
+// more. RAW (no dampening): intra-niche amplification IS the niche's radiation; city-variety is
+// protected STRUCTURALLY (FOUNDER_RATE novelty injection + the untouched cross-niche populist-mean
+// guard), never by patching the fitness value. selectionWeight is the one edge where a soul-ruled
+// dampener could drop in [LAW:variability-at-edges].
+//
+// [LAW:dataflow-not-control-flow] The niche VALUE picks the voter-set predicate; an unengaged line
+// (zero bloodline votes) contributes no candidate row, the same shape the old direct-vote join
+// encoded. An empty pool degrades to founder with no "first run" branch.
 
-import { and, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
+import { eq, inArray, notInArray, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
-import { generations, posts, votes } from '~/db/schema'
-import { PostId } from '~/lib/domain'
+import { generations, votes } from '~/db/schema'
+import { GenomeId, PostId } from '~/lib/domain'
+import { getLineageDag } from '~/db/genome-dag'
+import { bloodlineFitness } from '~/lib/genealogy'
+import { recencyWeight } from '~/lib/recency'
+
+// [LAW:variability-at-edges] The recency half-life — the genepool's rate for the city's ONE decay
+// function (recency.ts). A vote halves in selection weight every 30 days, so a niche's CURRENT
+// taste outweighs a line's historical accumulation: an incumbent dynasty's reign decays to an
+// EARNED peer as the niche's blessings shift, rather than the past permanently out-voting the
+// present (genome-9zt.7, CD-ruled recency-to-parity). The sim proved the MECHANISM (decay restores
+// bounded contestability while preserving convergence); this rate is the felt taste-shift timescale,
+// a tunable named const here at the edge, not buried in a fold. genome .3 sets its own rate.
+const RECENCY_HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000
 
 // [LAW:types-are-the-program] A breedable candidate: a reference to a rendered genome and its
 // fitness as a selection WEIGHT — the net vote this niche cast on it. The full genome is loaded
@@ -51,24 +71,73 @@ function voterPredicate(niche: Niche) {
       : undefined
 }
 
-// The fittest `n` rendered genomes WITHIN this niche — succeeded generations the niche has voted
-// on, ordered by the niche's net vote. Only a SUCCEEDED generation is breedable (a pending/failed
-// genome has genes but no phenotype that could have received selection; only generations carry a
-// genome). Bounding to top `n` keeps the cron read cheap; id is the deterministic tie-breaker so
-// the snapshot is a function of DB state alone.
-export async function getNicheGenePool(env: Env, niche: Niche, n: number): Promise<FitnessCandidate[]> {
-  const fitness = sql<number>`sum(${votes.value})`
-  const rows = await db(env)
-    .select({ postId: posts.id, fitness })
-    .from(posts)
-    .innerJoin(generations, eq(generations.postId, posts.id))
-    .innerJoin(votes, eq(votes.postId, posts.id))
-    .where(and(eq(posts.contentKind, 'generation'), eq(generations.status, 'succeeded'), voterPredicate(niche)))
-    .groupBy(posts.id)
-    .orderBy(desc(fitness), desc(posts.id))
-    .limit(n)
+// [LAW:variability-at-edges] The bloodline-sum → selection-weight transform, isolated as the ONE
+// edge where a CD soul-ruling could drop a dampener (e.g. sign-preserving sqrt/log) before the .7
+// deploy — WITHOUT touching the {ref, fitness} seam, select.ts, or the candidate set. RAW today:
+// the honest "votes summed across the line." A dampener, if ruled in, must preserve sign so a
+// buried line (negative) stays buried; RAW is sign-preserving by being the identity.
+const selectionWeight = (bloodlineSum: number): number => bloodlineSum
 
-  return rows.map((row) => ({ ref: PostId(row.postId), fitness: Number(row.fitness) }))
+// The niche's RECENCY-WEIGHTED net vote on each genome it has touched, keyed by genome id. Each
+// individual vote is decayed by its age (nowMs − createdAt) through the city's one decay function,
+// then summed — so a fresh blessing counts in full while an ancient one fades. The bloodline fold
+// (genealogy.ts) is UNCHANGED: it still sums a weight-per-genome map over each candidate's line; the
+// recency lives entirely HERE, in how the weights are built. A populist niche with no known citizens
+// counts every voter (the `1=1` no-op filter).
+async function nicheVotesByGenome(env: Env, niche: Niche, nowMs: number): Promise<Map<GenomeId, number>> {
+  const pred = voterPredicate(niche)
+  const rows = await db(env)
+    .select({ postId: votes.postId, value: votes.value, createdAt: votes.createdAt })
+    .from(votes)
+    .where(pred ?? sql`1=1`)
+
+  const out = new Map<GenomeId, number>()
+  for (const row of rows) {
+    const id = GenomeId(row.postId)
+    const weight = row.value * recencyWeight(nowMs - row.createdAt.getTime(), RECENCY_HALF_LIFE_MS)
+    out.set(id, (out.get(id) ?? 0) + weight)
+  }
+  return out
+}
+
+// Every breedable genome's id — a SUCCEEDED generation (only a rendered phenotype can have received
+// selection; only a generation carries a genome). The candidate set; bloodline fitness weights them.
+async function succeededGenomeIds(env: Env): Promise<PostId[]> {
+  const rows = await db(env)
+    .select({ postId: generations.postId })
+    .from(generations)
+    .where(eq(generations.status, 'succeeded'))
+  return rows.map((row) => PostId(row.postId))
+}
+
+// The fittest `n` rendered genomes WITHIN this niche, weighted by RECENCY-DECAYED BLOODLINE fitness
+// — the niche's recently-weighted votes summed across each candidate's whole descendant line
+// (genome-9zt.7's intra-niche gradient, with living-relevance decay). A genome whose line the niche
+// never touched contributes no row, the same shape the old direct-vote join encoded; select.ts
+// filters the remaining negatives. `nowMs` is the decay reference (the fire's scheduled time).
+// Bounding to top `n` keeps the cron read manageable; id is the deterministic tie-breaker. The
+// whole-DAG fold + per-vote decay is a cron-path cost (off a5w's hot-read budget), a flagged future
+// materialization candidate.
+export async function getNicheGenePool(
+  env: Env,
+  niche: Niche,
+  n: number,
+  nowMs: number,
+): Promise<FitnessCandidate[]> {
+  const [dag, nicheVotes, succeeded] = await Promise.all([
+    getLineageDag(env),
+    nicheVotesByGenome(env, niche, nowMs),
+    succeededGenomeIds(env),
+  ])
+
+  const candidates: FitnessCandidate[] = []
+  for (const ref of succeeded) {
+    const raw = bloodlineFitness(dag, nicheVotes, GenomeId(ref))
+    if (raw === 0) continue
+    candidates.push({ ref, fitness: selectionWeight(raw) })
+  }
+  candidates.sort((a, b) => b.fitness - a.fitness || (a.ref < b.ref ? 1 : a.ref > b.ref ? -1 : 0))
+  return candidates.slice(0, n)
 }
 
 // [LAW:single-enforcer] The niche-pick's read-side dependency: how many votes each cast citizen

@@ -433,7 +433,10 @@ const GENE_POOL_SIZE = 64
 // founder arm is a loud misconfiguration, never a silent default author.
 export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promise<void> {
   const niche = await pickNiche(env, scheduledTimeMs)
-  const pool = await getNicheGenePool(env, niche, GENE_POOL_SIZE)
+  // scheduledTimeMs is the fire's "now" — the reference point recency decay measures vote age from,
+  // so the niche's CURRENT taste outweighs historical accumulation. Reproducible: same fire time →
+  // same decayed pool.
+  const pool = await getNicheGenePool(env, niche, GENE_POOL_SIZE, scheduledTimeMs)
   const plan = selectReproduction(pool, seedHash(scheduledTimeMs, 'reproduce'))
 
   // [LAW:types-are-the-program] Exhaustive over ReproductionPlan: a new reproduction mode forces a
