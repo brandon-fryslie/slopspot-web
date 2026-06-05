@@ -6,7 +6,7 @@
 // click to watch the fight. Self-portraits and the BACK-HIM verb are follow-ups.
 
 import { Link, useLoaderData } from 'react-router'
-import { creedOf, guildOf, listAllPersonas, type Guild } from '~/agents/persona'
+import { creedOf, guildOf, listAllPersonas, newcomerAgentIds, NEWCOMER_WINDOW_MS, type Guild } from '~/agents/persona'
 import { feudsFor, getCitizenStat, signatureStat } from '~/db/citizens'
 import { getBackings } from '~/db/backings'
 import { readVoterId } from '~/lib/voter-cookie'
@@ -37,6 +37,11 @@ const GUILD_SECTIONS: ReadonlyArray<{ guild: Guild; label: string; tagline: stri
 export async function loader({ context, request }: Route.LoaderArgs) {
   const env = context.cloudflare.env
   const personas = await listAllPersonas(env)
+
+  // [LAW:locality-or-seam] Newcomer-ness lives at the seam that needs it — one focused read of who was
+  // born this week, derived into a per-card flag by set membership. The shared Persona type stays
+  // un-widened; only the roll-call carries the distinction (the-roll-call.md "blank-slate standing").
+  const newcomers = await newcomerAgentIds(env, Date.now() - NEWCOMER_WINDOW_MS)
 
   // [LAW:single-enforcer] One batched backing read for the whole roster — the
   // derived count + this viewer's backed-state per citizen, keyed by agentId, in a
@@ -77,6 +82,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
       // The derived backer count + this viewer's backed-state. Defaulted from the
       // batch read (un-backed citizens default to {0,false}). [LAW:one-source-of-truth]
       backing: backings.get(p.agentId) ?? { backerCount: 0, viewerBacks: false },
+      // [LAW:dataflow-not-control-flow] Born within the newcomer window — a derived flag (set membership),
+      // never a stored "is_new" column that would drift. The card reads it to mark a blank-slate arrival.
+      isNewcomer: newcomers.has(p.agentId),
     })),
   )
 
@@ -111,6 +119,14 @@ function CitizenCard({ citizen }: { citizen: Citizen }) {
         <PortraitFrame portrait={citizen.portrait} displayName={citizen.displayName} />
       </div>
       <CitizenName citizen={citizen} />
+      {/* [LAW:dataflow-not-control-flow] The newcomer badge is one data-driven element — a blank-slate
+          arrival the city is "watching to see what they make"; a settled citizen renders no badge at all,
+          the same empty-by-data render the feud flags use. */}
+      {citizen.isNewcomer && (
+        <p className="mt-1.5 inline-block rounded-sm border border-votive/40 bg-votive/10 px-1.5 py-0.5 font-terminal text-[10px] uppercase tracking-[0.2em] text-votive">
+          ✶ new — just arrived
+        </p>
+      )}
       <p className="mt-2 line-clamp-3 border-l-2 border-votive/15 pl-3 font-placard text-sm italic leading-snug text-bone/75">
         {citizen.creed}
       </p>
