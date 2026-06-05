@@ -64,6 +64,8 @@ function PostCardImpl({
   verdicts,
   exchange,
   crowning,
+  generationDepth,
+  descendantCount,
   frame,
 }: RenderablePost & { frame: FrameLevel }) {
   // [LAW:dataflow-not-control-flow] The wished-slop reveal is EMERGENT, not a mode:
@@ -133,6 +135,14 @@ function PostCardImpl({
                 discriminator; no "is this a fork" flag. */}
             {post.content.genome.lineage.kind !== "founder" && (
               <ForkedFromBadge lineage={post.content.genome.lineage} />
+            )}
+            {/* [LAW:dataflow-not-control-flow] Generation depth and the most-bred count render by the
+                NUMBER the read boundary derived from lineage_edges — a founder is gen 0 / 0 bred and
+                shows NEITHER (the absence is the data), never an isRoot flag. "gen N" is the longest
+                path to a founder; "N bred" is how many genomes descend from this slop. */}
+            {generationDepth > 0 && <LineageStatBadge label={`gen ${generationDepth}`} />}
+            {descendantCount > 0 && (
+              <LineageStatBadge label={descendantCount === 1 ? "1 bred" : `${descendantCount} bred`} />
             )}
           </>
         )}
@@ -971,6 +981,13 @@ function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "singl
       {verb} {label}
     </span>
   )
+}
+
+// [LAW:one-type-per-behavior] One badge for both lineage scalars — "gen N" and "N bred" are the same
+// shape (a small terminal-styled chip), so they share one component, differing only in the label DATA.
+// The caller decides WHICH to render by the number (0 → omitted); this just draws the chip.
+function LineageStatBadge({ label }: { label: string }) {
+  return <span className="rounded bg-bone/5 px-1.5 py-0.5 font-terminal text-ash">{label}</span>
 }
 
 function StatusBadge({ status }: { status: GenerationStatus }) {

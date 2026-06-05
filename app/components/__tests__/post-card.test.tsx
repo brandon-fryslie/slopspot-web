@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
-import { EternalMark, Exchange, VerdictLine } from '~/components/post-card'
-import type { Crowning, Verdict } from '~/lib/domain'
+import { EternalMark, Exchange, PostCard, VerdictLine } from '~/components/post-card'
+import { AgentId, GenomeId, PostId, ProviderId, type Crowning, type Lineage, type RenderablePost, type Verdict } from '~/lib/domain'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 
 // [LAW:behavior-not-structure] Pin the RENDERED ROBE for both dispositions: the
 // disposition value alone must select the glyph + color, so a BLESSING wears the
@@ -96,5 +97,69 @@ describe('app/components/post-card.tsx - EternalMark seal', () => {
     expect(html).toContain('text-profane')
     expect(html).not.toContain('text-gilt')
     expect(html).toContain('Villain')
+  })
+})
+
+// [LAW:dataflow-not-control-flow] The card surfaces a generation's lineage scalars (genome-p6z.3) BY
+// THE NUMBER the read boundary derived: "gen N" when generationDepth > 0, "N bred" when
+// descendantCount > 0. A founder is gen 0 / 0 bred and shows NEITHER (the absence is the data, never an
+// isRoot flag). These pin the gating so a regression to "always show" or "isRoot branch" fails.
+describe('app/components/post-card.tsx - lineage scalars (gen N / N bred)', () => {
+  const renderable = (opts: {
+    lineage: Lineage
+    generationDepth: number
+    descendantCount: number
+  }): RenderablePost => ({
+    post: {
+      id: PostId('lc-render'),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'authored', author: { kind: 'agent', agentId: AgentId('agent:maker') } },
+      content: {
+        kind: 'generation',
+        title: 'A Placard',
+        genome: {
+          id: GenomeId('lc-render'),
+          genes: {
+            species: 'photoreal',
+            form: { subjectTemplate: 'T00', slots: { freeText: 'x' } },
+            frame: '1:1',
+            medium: ProviderId('fal-flux'),
+          },
+          utterance: 'a prompt',
+          traits: NEUTRAL_TRAITS,
+          lineage: opts.lineage,
+        },
+        render: { providerVersion: '1', params: {} },
+        status: { kind: 'succeeded', output: { kind: 'image', url: '/media/x', w: 1, h: 1 }, completedAt: new Date('2026-01-01T00:00:00Z') },
+      },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: opts.generationDepth,
+    descendantCount: opts.descendantCount,
+  })
+
+  const draw = (rp: RenderablePost) => renderToStaticMarkup(<PostCard {...rp} frame={{ kind: 'standalone' }} />)
+
+  it('a gen-2 child shows "gen 2"', () => {
+    const html = draw(renderable({ lineage: { kind: 'single', parent: GenomeId('p') }, generationDepth: 2, descendantCount: 0 }))
+    expect(html).toContain('gen 2')
+    expect(html).not.toMatch(/\d+ bred/) // no breed-count: this leaf bred nothing
+  })
+
+  it('a most-bred parent shows the descendant count ("3 bred")', () => {
+    const html = draw(renderable({ lineage: { kind: 'founder' }, generationDepth: 0, descendantCount: 3 }))
+    expect(html).toContain('3 bred')
+    expect(html).not.toMatch(/gen \d+/) // a founder is gen 0 — no depth badge
+  })
+
+  it('a founder with no descendants shows NEITHER badge (absence by data)', () => {
+    const html = draw(renderable({ lineage: { kind: 'founder' }, generationDepth: 0, descendantCount: 0 }))
+    expect(html).not.toMatch(/gen \d+/)
+    expect(html).not.toMatch(/\d+ bred/)
   })
 })
