@@ -4,11 +4,12 @@
 // fallbackTitle are the fallback only when the Haiku call fails. No other module
 // composes prompt or title text.
 //
-// [LAW:one-way-deps] composer.ts → Anthropic API (outbound HTTP), variety.ts
+// [LAW:one-way-deps] composer.ts → ~/lib/haiku (Anthropic transport leaf), variety.ts
 // (pure). No back-edge from the chooser or the DB layer.
 
 import { z } from 'zod'
 import type { TraitVector } from '~/lib/domain'
+import { AnthropicHttpError, MissingApiKeyError, callHaiku } from '~/lib/haiku'
 import { traitBias } from '~/lib/register'
 import { emit } from '~/observability/metrics'
 import {
@@ -22,19 +23,6 @@ import {
   type StyleFamily,
 } from '~/lib/variety'
 
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
-const REQUEST_TIMEOUT_MS = 15_000
-
-// [LAW:types-are-the-program] Carry the upstream status ON the thrown value so the
-// catch classifies the fallback reason from DATA, not by re-parsing a formatted
-// message string. A 401/403 (auth — the key is dead/expired) is operator-actionable
-// and distinct from a transient 5xx or a network throw; the discriminator must travel
-// to the place that decides the metric reason, not be reconstructed there.
-class AnthropicHttpError extends Error {
-  constructor(readonly status: number, body: string) {
-    super(`Anthropic ${status}: ${body}`)
-  }
-}
 // Room for the prompt plus the short title and the JSON envelope around both.
 const MAX_TOKENS = 400
 
@@ -154,7 +142,6 @@ export type ComposerInput = {
 // failed call leaves neither an orphan prompt nor an orphan name.
 export async function composePrompt(input: ComposerInput, env: Env): Promise<ComposedSlop> {
   const { styleFamily, subject, aspectRatio, promptPrefix, occasion, maxLength, traits } = input
-  const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
 
   // [LAW:single-enforcer] Cap the embedded wish at the request boundary the
   // composer owns. slice is a pure transform applied to the value — when the
@@ -205,12 +192,6 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     occasion?.kind === 'self-portrait' ? capPlacard(occasion.displayName) : fallbackTitle(subject)
   const fallback: ComposedSlop = { prompt: capPrompt(fallbackPrompt), title: fallbackName }
 
-  if (!apiKey) {
-    console.warn('composer: SLOPSPOT_ANTHROPIC_API_KEY not set; using recipe fallback (prompt + title)')
-    emit('slopspot.composer.result', { outcome: 'fallback', reason: 'missing_key' }, 1)
-    return fallback
-  }
-
   // [LAW:one-source-of-truth] ASPECT_RATIO_LABELS is the shared mapping.
   const aspectLabel = ASPECT_RATIO_LABELS[aspectRatio]
 
@@ -256,39 +237,8 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     .filter(Boolean)
     .join(' ')
 
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: HAIKU_MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [{ role: 'user', content: metaPrompt }],
-      }),
-      signal: controller.signal,
-    })
-
-    if (!resp.ok) {
-      const body = await resp.text()
-      throw new AnthropicHttpError(resp.status, body)
-    }
-
-    type AnthropicMessage = { content: Array<{ type: string; text?: string }> }
-    const data = (await resp.json()) as AnthropicMessage
-    const text = data.content
-      .filter((b) => b.type === 'text' && b.text)
-      .map((b) => b.text!)
-      .join('')
-      .trim()
-
-    if (!text) throw new Error('empty text block in Anthropic response')
+    const text = await callHaiku(env, { user: metaPrompt, maxTokens: MAX_TOKENS })
 
     // [LAW:types-are-the-program] Parse the LLM JSON at the trust boundary. Haiku
     // routinely wraps the object in a ```json … ``` markdown fence despite the
@@ -318,9 +268,11 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     // network throw, malformed JSON) is the self-healing `api_error`. The fallback
     // itself is unchanged: composition still degrades to the recipe-only pair.
     const reason =
-      err instanceof AnthropicHttpError && (err.status === 401 || err.status === 403)
-        ? 'auth_error'
-        : 'api_error'
+      err instanceof MissingApiKeyError
+        ? 'missing_key'
+        : err instanceof AnthropicHttpError && (err.status === 401 || err.status === 403)
+          ? 'auth_error'
+          : 'api_error'
     console.error('composer: Haiku call failed; using recipe fallback (prompt + title)', {
       styleFamily,
       subjectTemplate: subject.subjectTemplate,
@@ -329,7 +281,5 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     })
     emit('slopspot.composer.result', { outcome: 'fallback', reason }, 1)
     return fallback
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
