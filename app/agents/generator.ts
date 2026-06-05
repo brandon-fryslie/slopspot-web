@@ -211,6 +211,10 @@ export async function authorSlop(
       // the composer cannot receive both a wish and a self-portrait by construction.
       occasion: composerOccasionOf(occasion, persona.displayName),
       maxLength: provider.promptMaxLength,
+      // [LAW:single-enforcer] The medium the provider PRODUCES selects what Haiku is
+      // asked to compose — an image-prompt or a poem. Derived from capabilities so the
+      // provider is the single declaration site; no second medium field elsewhere.
+      medium: provider.capabilities.producesMedia.includes('text') ? 'verse' : 'image',
     },
     env,
   )
@@ -371,6 +375,7 @@ export async function authorBredSlop(
       traits: bred.traits,
       occasion: { kind: 'breed', parents: [a.genome.utterance, b.genome.utterance] },
       maxLength: provider.promptMaxLength,
+      medium: provider.capabilities.producesMedia.includes('text') ? 'verse' : 'image',
     },
     env,
   )
