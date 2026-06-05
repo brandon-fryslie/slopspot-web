@@ -13,7 +13,7 @@
 
 import { eq, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
-import { comments, found, generations, lineageEdges, posts, uploads, votes } from '~/db/schema'
+import { comments, found, generations, lineageEdges, posts, uploads, utterances, votes } from '~/db/schema'
 import {
   AgentId,
   PostId,
@@ -292,6 +292,35 @@ export async function seedVote(
       })
       .where(eq(posts.id, opts.postId)),
   ])
+}
+
+// Seed a first-class utterance row directly (controllable createdAt for ordering, like seedVote).
+// Provide `text` for a spoke utterance OR `withheldReason` for a withheld one — the kind follows the
+// data, mirroring the utterances_shape CHECK. Defaults to the verdict occasion (the only one .1 reads).
+export async function seedUtterance(
+  env: Env,
+  opts: {
+    speaker: string
+    targetPostId: string | null
+    occasion?: 'caption' | 'verdict' | 'remark' | 'decree' | 'chrome' | 'reply' | 'comment' | 'eulogy' | 'birth'
+    text?: string
+    withheldReason?: 'characteristic-silence' | 'indifferent' | 'beneath-comment' | 'unavailable'
+    createdAt?: Date
+  },
+): Promise<void> {
+  const isSpoke = opts.text !== undefined
+  await db(env)
+    .insert(utterances)
+    .values({
+      id: crypto.randomUUID(),
+      speaker: opts.speaker,
+      occasion: opts.occasion ?? 'verdict',
+      targetPostId: opts.targetPostId,
+      kind: isSpoke ? 'spoke' : 'withheld',
+      text: isSpoke ? opts.text! : null,
+      withheldReason: isSpoke ? null : (opts.withheldReason ?? 'indifferent'),
+      createdAt: opts.createdAt ?? new Date('2026-01-01T00:00:00Z'),
+    })
 }
 
 export async function seedComment(

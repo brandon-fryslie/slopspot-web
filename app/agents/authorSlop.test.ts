@@ -12,6 +12,7 @@
 // difference is DATA (the occasion), not a forked pipeline.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 
 const createPostMock = vi.fn()
 const recordRemarkMock = vi.fn()
@@ -47,6 +48,7 @@ const persona: Persona = {
   personaPrompt: 'an austere maker',
   modelId: 'claude-haiku-4-5',
   config: { medium: 'fal-flux-mock' },
+  traits: NEUTRAL_TRAITS,
 }
 
 const wisher: HumanRef = { kind: 'anon', label: 'anon-abc123' }

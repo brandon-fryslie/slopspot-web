@@ -25,7 +25,7 @@ import type { SortMode } from '~/lib/sort-mode'
 import { fallbackTitle } from '~/lib/variety'
 import { db } from '~/db/client'
 import { personas } from '~/db/schema'
-import { seedComment, seedPost, seedVote } from './helpers'
+import { seedComment, seedPost, seedUtterance, seedVote } from './helpers'
 
 // [LAW:behavior-not-structure] These contract tests assert one PAGE of the feed reader — score,
 // myVote, commentCount, ordering, content arms, verdicts — so they read getFeedPage's `items`. The
@@ -804,200 +804,118 @@ describe('app/db/feed.ts - getPostById', () => {
   })
 })
 
-// [LAW:behavior-not-structure] These pin the verdict CONTRACT: given seeded votes
-// with reasoning by a known critic, the feed item carries that critic's displayName
-// and verdict text; and the documented selection/absence rules hold. Blind to the
-// fetchVerdicts decomposition (window rank, trim predicate) — a refactor that keeps
-// the contract intact must not require editing these.
-describe('app/db/feed.ts - verdict', () => {
-  it('carries the critic displayName + reasoning for a post with an agent-reasoned vote', async () => {
+
+// [LAW:behavior-not-structure] The verdict CONTRACT under the Voice layer (voice-w2v.1): a critic's
+// SPOKEN verdict utterance (the utterances store, NOT votes.reasoning) renders as a bylined line in the
+// feed, with the disposition derived from the vote it narrates; co-present verdicts on one slop surface
+// together (the feud germ); a withheld verdict is recorded but shows no line; a nameless critic is
+// excluded. Blind to verdictsForPosts' decomposition.
+describe('app/db/feed.ts - verdict (voice layer)', () => {
+  it('renders a spoke verdict utterance as a bylined line; disposition from the vote it narrates', async () => {
     await seedCritic('agent:vivian', 'St. Vivian')
     const id = await seedPost(env, { id: 'post-verdict', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:vivian',
-      value: 1,
-      reasoning: 'Four steps and it still found the void. Devastating. I wept.',
+    await seedVote(env, { postId: id, voterId: 'agent:vivian', value: 1 })
+    await seedUtterance(env, {
+      speaker: 'agent:vivian',
+      targetPostId: id,
+      text: 'Four steps and it still found the void. Devastating. I wept.',
     })
 
     const [item] = await feedItems()
-    expect(item.verdict).toEqual({
-      critic: 'St. Vivian',
-      text: 'Four steps and it still found the void. Devastating. I wept.',
-      disposition: 'blessed',
-    })
+    expect(item.verdicts).toEqual([
+      {
+        critic: 'St. Vivian',
+        text: 'Four steps and it still found the void. Devastating. I wept.',
+        disposition: 'blessed',
+      },
+    ])
   })
 
-  it('derives the disposition from the representative vote sign: +1 blessed, -1 buried', async () => {
+  it('derives the disposition from the vote sign: +1 blessed, -1 buried', async () => {
     await seedCritic('agent:vivian', 'St. Vivian')
     await seedCritic('agent:gremlin', 'The Gremlin')
     const blessed = await seedPost(env, { id: 'post-disp-bless', createdAt: ms(1000) })
     const buried = await seedPost(env, { id: 'post-disp-bury', createdAt: ms(2000) })
-    await seedVote(env, { postId: blessed, voterId: 'agent:vivian', value: 1, reasoning: 'Canonized.' })
-    await seedVote(env, { postId: buried, voterId: 'agent:gremlin', value: -1, reasoning: 'Buried.' })
+    await seedVote(env, { postId: blessed, voterId: 'agent:vivian', value: 1 })
+    await seedUtterance(env, { speaker: 'agent:vivian', targetPostId: blessed, text: 'Canonized.' })
+    await seedVote(env, { postId: buried, voterId: 'agent:gremlin', value: -1 })
+    await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: buried, text: 'Buried.' })
 
     const items = await feedItems()
-    expect(items.find((i) => i.post.id === blessed)?.verdict?.disposition).toBe('blessed')
-    expect(items.find((i) => i.post.id === buried)?.verdict?.disposition).toBe('buried')
+    expect(items.find((i) => i.post.id === blessed)?.verdicts[0]?.disposition).toBe('blessed')
+    expect(items.find((i) => i.post.id === buried)?.verdicts[0]?.disposition).toBe('buried')
   })
 
-  it('leaves verdict undefined when no vote carries reasoning', async () => {
+  it('CO-PRESENCE: two critics on one slop surface side by side (the feud germ)', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const id = await seedPost(env, { id: 'post-copresent', createdAt: ms(1000) })
+    // The Gremlin buries, St. Vivian blesses the SAME slop — opposite poles, both present.
+    await seedVote(env, { postId: id, voterId: 'agent:gremlin', value: -1 })
+    await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: id, text: 'Mid. Buried.', createdAt: ms(2000) })
+    await seedVote(env, { postId: id, voterId: 'agent:vivian', value: 1 })
+    await seedUtterance(env, { speaker: 'agent:vivian', targetPostId: id, text: 'Holy. Blessed.', createdAt: ms(3000) })
+
+    const [item] = await feedItems()
+    // [LAW:types-are-the-program] Pin the ORDER directly (no .sort()) — RenderablePost.verdicts is
+    // NEWEST-FIRST, and .2's Feud Engine inherits that order, so the contract must have teeth. Vivian's
+    // blessing (ms 3000) is newer than the Gremlin's burial (ms 2000), so it leads; both dispositions
+    // present is the visual collision the co-presence is for.
+    expect(item.verdicts).toEqual([
+      { critic: 'St. Vivian', text: 'Holy. Blessed.', disposition: 'blessed' },
+      { critic: 'The Gremlin', text: 'Mid. Buried.', disposition: 'buried' },
+    ])
+  })
+
+  it('a slop with no utterance has an empty verdicts array (no critic spoke)', async () => {
     await seedPost(env, { id: 'post-no-verdict', createdAt: ms(1000) })
-    // A human anon vote (no reasoning, no persona row) must not mint a verdict.
+    // A human anon vote (no persona, no utterance) mints no verdict.
     await seedVote(env, { postId: PostId('post-no-verdict'), voterId: 'anon-cookie', value: 1 })
 
     const [item] = await feedItems()
-    expect(item.verdict).toBeUndefined()
+    expect(item.verdicts).toEqual([])
   })
 
-  it('never mints an empty-string verdict from a blank/whitespace reasoning', async () => {
-    await seedCritic('agent:blankcritic', 'The Blank')
-    const id = await seedPost(env, { id: 'post-blank-verdict', createdAt: ms(1000) })
-    // [LAW:no-silent-fallbacks] A whitespace-only reasoning is excluded by the trim
-    // predicate — it is no verdict, not an empty one.
-    await seedVote(env, { postId: id, voterId: 'agent:blankcritic', value: -1, reasoning: '   ' })
-
-    const [item] = await feedItems()
-    expect(item.verdict).toBeUndefined()
-  })
-
-  it('selects the MOST RECENT meaningful critic line when several exist', async () => {
-    await seedCritic('agent:vivian', 'St. Vivian')
+  it('a WITHHELD verdict is recorded but renders no line (silence, not a blank)', async () => {
     await seedCritic('agent:gremlin', 'The Gremlin')
-    const id = await seedPost(env, { id: 'post-multi-verdict', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:vivian',
-      value: 1,
-      reasoning: 'An older blessing.',
-      createdAt: ms(2000),
-    })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:gremlin',
-      value: -1,
-      reasoning: 'Mid. Aggressively mid. Buried.',
-      createdAt: ms(3000),
-    })
+    const id = await seedPost(env, { id: 'post-withheld', createdAt: ms(1000) })
+    await seedVote(env, { postId: id, voterId: 'agent:gremlin', value: -1 })
+    // The critic voted but withheld a line (beneath comment) — recorded, but no rendered verdict.
+    await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: id, withheldReason: 'beneath-comment' })
 
     const [item] = await feedItems()
-    expect(item.verdict).toEqual({ critic: 'The Gremlin', text: 'Mid. Aggressively mid. Buried.', disposition: 'buried' })
+    expect(item.verdicts).toEqual([])
   })
 
-  it('surfaces an older meaningful line when the newest vote has blank reasoning', async () => {
-    await seedCritic('agent:vivian', 'St. Vivian')
-    await seedCritic('agent:gremlin', 'The Gremlin')
-    const id = await seedPost(env, { id: 'post-shadow-verdict', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:vivian',
-      value: 1,
-      reasoning: 'The sixth finger reaches. Canonized.',
-      createdAt: ms(2000),
-    })
-    // Newer, but blank — must not shadow the real verdict into silence.
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:gremlin',
-      value: -1,
-      reasoning: '  ',
-      createdAt: ms(3000),
-    })
-
-    const [item] = await feedItems()
-    expect(item.verdict).toEqual({
-      critic: 'St. Vivian',
-      text: 'The sixth finger reaches. Canonized.',
-      disposition: 'blessed',
-    })
-  })
-
-  it('trims surrounding whitespace from the stored reasoning', async () => {
-    await seedCritic('agent:vivian', 'St. Vivian')
-    const id = await seedPost(env, { id: 'post-trim-verdict', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:vivian',
-      value: 1,
-      reasoning: '   Blessed be the cursed.   ',
-    })
-
-    const [item] = await feedItems()
-    expect(item.verdict?.text).toBe('Blessed be the cursed.')
-  })
-
-  it('excludes a critic whose displayName is blank — no empty byline', async () => {
-    // [LAW:types-are-the-program] A verdict has no fallback byline, so a blank critic
-    // name is no verdict at all (the mirror of a blank reasoning), never a `— ` byline.
+  it('excludes a verdict whose critic displayName is blank — no bylineless line', async () => {
     await seedCritic('agent:nameless', '   ')
     const id = await seedPost(env, { id: 'post-nameless-critic', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:nameless',
-      value: 1,
-      reasoning: 'A line with no one to sign it.',
-    })
+    await seedVote(env, { postId: id, voterId: 'agent:nameless', value: 1 })
+    await seedUtterance(env, { speaker: 'agent:nameless', targetPostId: id, text: 'A line with no one to sign it.' })
 
     const [item] = await feedItems()
-    expect(item.verdict).toBeUndefined()
+    expect(item.verdicts).toEqual([])
   })
 
-  it('surfaces an older well-named critic when the newest critic is blank-named', async () => {
-    await seedCritic('agent:vivian', 'St. Vivian')
-    await seedCritic('agent:nameless', '  ')
-    const id = await seedPost(env, { id: 'post-name-shadow', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:vivian',
-      value: 1,
-      reasoning: 'A blessing that keeps its name.',
-      createdAt: ms(2000),
-    })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:nameless',
-      value: -1,
-      reasoning: 'Newer, but the critic is nameless.',
-      createdAt: ms(3000),
-    })
-
-    const [item] = await feedItems()
-    expect(item.verdict).toEqual({
-      critic: 'St. Vivian',
-      text: 'A blessing that keeps its name.',
-      disposition: 'blessed',
-    })
-  })
-
-  it('trims surrounding whitespace from the critic byline', async () => {
+  it('trims surrounding whitespace from the verdict text and the critic byline', async () => {
     await seedCritic('agent:padded', '  The Gremlin  ')
-    const id = await seedPost(env, { id: 'post-padded-byline', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:padded',
-      value: -1,
-      reasoning: 'Buried.',
-    })
+    const id = await seedPost(env, { id: 'post-padded', createdAt: ms(1000) })
+    await seedVote(env, { postId: id, voterId: 'agent:padded', value: -1 })
+    await seedUtterance(env, { speaker: 'agent:padded', targetPostId: id, text: '   Buried.   ' })
 
     const [item] = await feedItems()
-    expect(item.verdict?.critic).toBe('The Gremlin')
+    expect(item.verdicts[0]).toEqual({ critic: 'The Gremlin', text: 'Buried.', disposition: 'buried' })
   })
 
-  it('attaches the verdict on the permalink reader (getFeedItemById) too', async () => {
+  it('attaches verdicts on the permalink reader (getFeedItemById) too', async () => {
     await seedCritic('agent:gremlin', 'The Gremlin')
     const id = await seedPost(env, { id: 'post-permalink-verdict', createdAt: ms(1000) })
-    await seedVote(env, {
-      postId: id,
-      voterId: 'agent:gremlin',
-      value: -1,
-      reasoning: 'Another forest. The trees won. Buried.',
-    })
+    await seedVote(env, { postId: id, voterId: 'agent:gremlin', value: -1 })
+    await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: id, text: 'Another forest. The trees won. Buried.' })
 
     const item = await getFeedItemById(env, id)
-    expect(item?.verdict).toEqual({
-      critic: 'The Gremlin',
-      text: 'Another forest. The trees won. Buried.',
-      disposition: 'buried',
-    })
+    expect(item?.verdicts).toEqual([
+      { critic: 'The Gremlin', text: 'Another forest. The trees won. Buried.', disposition: 'buried' },
+    ])
   })
 })

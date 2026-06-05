@@ -343,13 +343,13 @@ export type RenderablePost = {
   myVote: VoteValue | null
   commentCount: number
   viewerIsModifier: boolean
-  // [LAW:dataflow-not-control-flow] The verdict is optional BY DATA: a slop that no
-  // critic has voted on with reasoning simply has no verdict, and the card renders it
-  // or not by its presence — never an `isReviewed` flag the card must consult. The
-  // read boundary (feed.ts) picks the ONE representative critic by a documented
-  // deterministic rule; its absence is a real discriminated absence, handled by
-  // structure, not a sentinel empty string.
-  verdict?: Verdict
+  // [LAW:dataflow-not-control-flow] The critics who SPOKE on this slop — each a first-class verdict
+  // utterance (slopspot-voice-w2v.1), newest-first, capped at the co-presence cap. The COUNT is the
+  // data the card renders by: 0 → no critic line, 1 → a single verdict, ≥2 → co-present side by side
+  // (the feud's visual germ — the Gremlin's burial beside Vivian's blessing of the same slop). Never an
+  // `isReviewed` flag; the array's length is the discriminator. Read from the utterances store
+  // (verdictsForPosts), not re-derived from votes.reasoning. [LAW:one-source-of-truth]
+  verdicts: readonly Verdict[]
   // [LAW:dataflow-not-control-flow] The eternal mark is optional BY DATA: an
   // uncrowned post simply has no Crowning, and the card renders the mark by its
   // presence — never an `isCrowned` flag the card must consult. Derived at read

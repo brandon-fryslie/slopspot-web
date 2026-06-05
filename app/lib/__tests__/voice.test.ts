@@ -4,6 +4,7 @@ import type { AgentId, PostId } from "~/lib/domain";
 import {
   type AnsweredWish,
   type ChosenSilenceReason,
+  type JudgedSlop,
   type Occasion,
   type OccasionTarget,
   type RiteOutcome,
@@ -124,18 +125,23 @@ type Equal<A, B> =
     : false;
 
 describe("each occasion fixes its legal target (unrepresentable pairings)", () => {
-  it("binds remark→AnsweredWish and decree→RiteOutcome, reserves caption/verdict", () => {
+  it("binds verdict→JudgedSlop, remark→AnsweredWish, decree→RiteOutcome; reserves the rest", () => {
+    const verdictBound: Equal<OccasionTarget["verdict"], JudgedSlop> = true;
     const remarkBound: Equal<OccasionTarget["remark"], AnsweredWish> = true;
     const decreeBound: Equal<OccasionTarget["decree"], RiteOutcome> = true;
     const captionReserved: Equal<OccasionTarget["caption"], never> = true;
-    const verdictReserved: Equal<OccasionTarget["verdict"], never> = true;
+    // The newly-enumerated occasions are reserved (target binds `never`, uncallable) until their child.
+    const replyReserved: Equal<OccasionTarget["reply"], never> = true;
+    const commentReserved: Equal<OccasionTarget["comment"], never> = true;
     const decreeIsOccasion: Equal<Extract<Occasion, "decree">, "decree"> = true;
     expect([
+      verdictBound,
       remarkBound,
       decreeBound,
       captionReserved,
-      verdictReserved,
+      replyReserved,
+      commentReserved,
       decreeIsOccasion,
-    ]).toEqual([true, true, true, true, true]);
+    ]).toEqual([true, true, true, true, true, true, true]);
   });
 });
