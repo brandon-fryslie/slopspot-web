@@ -13,3 +13,9 @@ SLOPSPOT_ENV=dev
 # Admin dashboard key. Set any secret value for local dev.
 # In prod: wrangler secret put ADMIN_KEY
 ADMIN_KEY=
+
+# --- Smoke test env vars (not used by the Worker itself, only by `pnpm smoke:write`) ---
+# Tier-2 write smoke target. Points at the staging Worker (SLOPSPOT_ENV=dev, own
+# D1+R2, mock providers). NEVER set to slopspot.ai — writes pollute the live feed.
+# Staging URL: https://slopspot-web-staging.brandon-fryslie-signup.workers.dev
+SMOKE_WRITE_BASE_URL=

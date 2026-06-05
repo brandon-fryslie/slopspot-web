@@ -133,5 +133,55 @@
       "id": "5b77072453964f4d84c0b5ea043ff8f1",
       "preview_id": "ec82192cc8dc478e9b70d607c7f26637"
     }
-  ]
+  ],
+  // [LAW:one-source-of-truth] Staging config lives here, not in a parallel file.
+  // The staging env is the Tier-2 write-smoke target: SLOPSPOT_ENV=dev so mock
+  // providers run free, own D1+R2+KV so writes are disposable, no cron triggers
+  // so the firehose never fires, no custom domain so slopspot.ai is unaffected.
+  // [LAW:single-enforcer] realProviders(env) uses SLOPSPOT_ENV to gate mock access —
+  // setting it here (baked into the deploy) is the single enforcement point; no
+  // secondary check is needed in the smoke tests or the Worker logic.
+  "env": {
+    "staging": {
+      "vars": {
+        "SLOPSPOT_ENV": "dev"
+      },
+      // No cron triggers: the firehose must never run against the staging D1/R2.
+      "triggers": {
+        "crons": []
+      },
+      // No custom domain: staging is workers.dev only, never slopspot.ai.
+      "routes": [],
+      "workers_dev": true,
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "slopspot-staging-db",
+          "database_id": "369b711a-30c4-4c88-ac59-62bf238050d3",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "slopspot-staging-media"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "CHALLENGE_BANK",
+          "id": "946cd9d4632845e882cdc85242ab111b"
+        }
+      ],
+      // Producer binding keeps GEN_QUEUE in the Env type (required by workers/app.ts).
+      // No consumer: staging has no crons so nothing enqueues, and omitting the
+      // consumer prevents staging from competing with prod's max_concurrency:1 consumer.
+      "queues": {
+        "producers": [
+          { "binding": "GEN_QUEUE", "queue": "slopspot-gen" }
+        ],
+        "consumers": []
+      }
+    }
+  }
 }
