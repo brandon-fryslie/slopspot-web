@@ -364,6 +364,18 @@ export type RenderablePost = {
   // time from the crowns table alone (feed.ts crowningsForPosts), the same shape
   // score=SUM(votes) takes — no stored mark to drift. [LAW:one-source-of-truth]
   crowning?: Crowning
+  // [LAW:types-are-the-program] Depth over a two-parent breeding DAG is NOT single-valued, so the
+  // definition is FIXED in the type: the LONGEST path to any founder ("deepest bloodline"). A founder
+  // is `0` — the card renders "gen N" by the NUMBER ([LAW:dataflow-not-control-flow]: 0 → no badge,
+  // never an `isRoot` branch). Derived from lineage_edges alone (feed.ts), no stored gen column —
+  // the same discipline as score=SUM(votes). [LAW:one-source-of-truth]
+  generationDepth: number
+  // [LAW:dataflow-not-control-flow] How many genomes this slop has bred — the "most-bred" signal,
+  // the count of lineage_edges pointing at it. The card shows "N bred" by the NUMBER (0 → no badge).
+  // Derived with the SAME `count(*) from lineage_edges where parent_genome_id` fold the Cast page's
+  // most-bred uses (app/db/citizens.ts) — one source, one derivation, no stored childCount column.
+  // [LAW:one-source-of-truth]
+  descendantCount: number
 }
 
 // [LAW:one-type-per-behavior] A FeedItem IS a RenderablePost plus a list
