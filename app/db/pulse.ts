@@ -15,16 +15,21 @@
 // data; nothing branches on whether to surface an event — the list it builds is
 // the list it returns.
 
-import { desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import { db } from '~/db/client'
-import { found, personas, posts, votes } from '~/db/schema'
+import { found, personas, posts, utterances, votes } from '~/db/schema'
 import { PostId } from '~/lib/domain'
 
+// [LAW:types-are-the-program] A `born` event is POST-LESS — a birth welcomes a citizen, not a slop — so
+// it carries no postId (the renderer links the others to /p/:id; this one is an unlinked announcement).
+// Its `text` is the Proprietor's stored welcome line, which already NAMES the newcomer (the names were
+// baked at utter time — an utterance is a historical quote), so no read-time persona resolution is needed.
 export type PulseEvent =
   | { kind: 'posted'; ts: number; persona: string; postId: PostId; title: string }
   | { kind: 'rescued'; ts: number; persona: string; postId: PostId }
   | { kind: 'blessed'; ts: number; persona: string; postId: PostId; title: string; reasoning: string }
   | { kind: 'buried'; ts: number; persona: string; postId: PostId; title: string; reasoning: string }
+  | { kind: 'born'; ts: number; text: string }
 
 const PULSE_LIMIT = 12
 
@@ -139,6 +144,25 @@ export async function getPulse(env: Env): Promise<PulseEvent[]> {
     })
   }
 
+  // [LAW:single-enforcer] The Birth Rite's welcomes — the Proprietor's birth utterances (occasion='birth',
+  // post-less so targetPostId is null). Read straight off the utterances store; the line already names the
+  // newcomer (baked at utter time), so unlike a vote there is no agentId to resolve — the text IS the event.
+  const birthRows = await database
+    .select({ text: utterances.text, createdAt: utterances.createdAt })
+    .from(utterances)
+    .where(and(eq(utterances.occasion, 'birth'), eq(utterances.kind, 'spoke')))
+    .orderBy(desc(utterances.createdAt))
+    .limit(PULSE_LIMIT)
+
+  // [LAW:no-silent-fallbacks] kind='spoke' guarantees a non-null text (utterances_shape CHECK); a null
+  // here is a storage-integrity violation, so fail loud rather than render an empty welcome.
+  const bornEvents: PulseEvent[] = birthRows.map((r) => {
+    if (r.text === null) {
+      throw new Error('pulse: birth utterance has kind=spoke but null text')
+    }
+    return { kind: 'born', ts: r.createdAt.getTime(), text: r.text }
+  })
+
   const agentIds = new Set<string>()
   for (const c of candidates) if (c.agentId !== null) agentIds.add(c.agentId)
   const names = await resolveNames(database, [...agentIds])
@@ -146,7 +170,7 @@ export async function getPulse(env: Env): Promise<PulseEvent[]> {
   // [LAW:dataflow-not-control-flow] Only named residents are representable on the
   // ticker — an unresolved agentId (sys:slop-cron, an unseeded id) drops out by
   // data, not by a special case. Sort the merged stream and keep the most recent.
-  return candidates
+  const namedEvents = candidates
     .map((c): PulseEvent | null => {
       const persona = c.agentId === null ? undefined : names.get(c.agentId)
       if (persona === undefined) return null
@@ -161,6 +185,11 @@ export async function getPulse(env: Env): Promise<PulseEvent[]> {
       }
     })
     .filter((e): e is PulseEvent => e !== null)
+
+  // [LAW:dataflow-not-control-flow] Births merge into the one stream as data — a born event sorts by its
+  // ts alongside posts and votes, no separate ticker. Both sources already capped at PULSE_LIMIT; the
+  // merge re-sorts and re-caps so the most recent civic acts win regardless of which source produced them.
+  return [...namedEvents, ...bornEvents]
     .sort((a, b) => b.ts - a.ts)
     .slice(0, PULSE_LIMIT)
 }
