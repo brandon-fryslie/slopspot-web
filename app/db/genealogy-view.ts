@@ -47,6 +47,25 @@ function reachable(adj: ReadonlyMap<string, string[]>, start: string): string[] 
   return out
 }
 
+// [LAW:one-type-per-behavior] Siblings are a PEER relation, not a direction in the tree — the
+// same-parent peers of `start`, sorted for a stable list. A sibling shares AT LEAST ONE parent
+// (half-siblings included); `start` itself is excluded, and a full sibling reached through two
+// shared parents is collected once (the Set). A founder (no parents) has none — the empty
+// adjacency entry yields an empty set, no first-run branch. [LAW:dataflow-not-control-flow]
+function siblingsOf(
+  childToParents: ReadonlyMap<string, string[]>,
+  parentToChildren: ReadonlyMap<string, string[]>,
+  start: string,
+): string[] {
+  const out = new Set<string>()
+  for (const parent of childToParents.get(start) ?? []) {
+    for (const child of parentToChildren.get(parent) ?? []) {
+      if (child !== start) out.add(child)
+    }
+  }
+  return [...out].sort()
+}
+
 // [LAW:dataflow-not-control-flow] One tree-builder for both directions — `adj` is the parents map
 // for ancestry, the children map for offspring; the node shape and recursion are identical, only
 // the data differs. A node's subtree is expanded once (the `expanded` set bounds work to O(nodes)
@@ -99,8 +118,11 @@ export async function getGenealogy(env: Env, postId: PostId): Promise<Genealogy>
 
   const ancestorIds = reachable(childToParents, postId)
   const offspringIds = reachable(parentToChildren, postId)
-  const nodeIds = [...new Set([...ancestorIds, ...offspringIds])]
-  if (nodeIds.length === 0) return { ancestors: [], offspring: [] }
+  // Siblings are peers, NOT reachable up or down, so their ids must join the phenotype slice
+  // explicitly — otherwise a sibling tile would render blank for want of its thumbnail read.
+  const siblingIds = siblingsOf(childToParents, parentToChildren, postId)
+  const nodeIds = [...new Set([...ancestorIds, ...offspringIds, ...siblingIds])]
+  if (nodeIds.length === 0) return { ancestors: [], offspring: [], siblings: [] }
 
   // Read only the slice's phenotypes, chunked under D1's bind cap. A node id with no generations
   // row is storage corruption — a lineage edge endpoint that is not a genome (only a generation is
@@ -127,5 +149,8 @@ export async function getGenealogy(env: Env, postId: PostId): Promise<Genealogy>
   return {
     ancestors: buildTree(childToParents, postId, phenotype),
     offspring: buildTree(parentToChildren, postId, phenotype),
+    // Flat peers: each sibling is a leaf here (kin:[]) — its own ancestry/offspring belong to
+    // ITS genealogy, not this post's. Thumbnail read from the same slice; null if unrendered.
+    siblings: siblingIds.map((id) => ({ postId: PostId(id), thumbnail: phenotype.get(id) ?? null, kin: [] })),
   }
 }
