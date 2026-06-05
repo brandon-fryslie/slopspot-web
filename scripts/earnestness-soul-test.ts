@@ -19,28 +19,12 @@
 //   pnpm exec tsx --tsconfig tsconfig.cloudflare.json scripts/earnestness-soul-test.ts [N]
 // Reads SLOPSPOT_ANTHROPIC_API_KEY from env or --key, falling back to ../../.dev.vars (main repo).
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { composePrompt, type ComposedSlop, type ComposerInput } from '~/firehose/composer'
 import { seedHash } from '~/lib/hash'
 import type { TraitVector } from '~/lib/domain'
 import type { RecipeSubject } from '~/lib/variety'
-
-// --- the key (env, else the main repo's .dev.vars) ---------------------------------------------
-function resolveKey(): string {
-  const fromEnv = process.env.SLOPSPOT_ANTHROPIC_API_KEY
-  if (fromEnv && fromEnv.length > 0) return fromEnv
-  // The worktree's .dev.vars has an empty key; the main repo carries the real one.
-  for (const path of ['.dev.vars', '../../.dev.vars', '/Users/bmf/code/slopspot-web/.dev.vars']) {
-    try {
-      const line = readFileSync(path, 'utf8').split('\n').find((l) => l.startsWith('SLOPSPOT_ANTHROPIC_API_KEY='))
-      const val = line?.slice('SLOPSPOT_ANTHROPIC_API_KEY='.length).trim().replace(/^["']|["']$/g, '')
-      if (val && val.length > 0) return val
-    } catch {
-      // try the next path
-    }
-  }
-  throw new Error('No SLOPSPOT_ANTHROPIC_API_KEY in env or any .dev.vars')
-}
+import { resolveAnthropicKey } from './anthropic-key'
 
 // --- the constant genome (only earnestness varies) ---------------------------------------------
 const SAINT: RecipeSubject = {
@@ -87,7 +71,7 @@ const countHits = (text: string, lexicon: string[]): number => {
 // --- run -----------------------------------------------------------------------------------------
 async function main() {
   const N = Math.max(1, Number(process.argv[2] ?? 8))
-  const key = resolveKey()
+  const key = resolveAnthropicKey()
   const env = { SLOPSPOT_ANTHROPIC_API_KEY: key } as unknown as Env
 
   console.log(`[soul-test] composing ${N} pairs (saint with too many fingers, curse=0.9, earnestness 0.9 vs 0.1)…`)
