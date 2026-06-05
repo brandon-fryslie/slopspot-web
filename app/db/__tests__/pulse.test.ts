@@ -51,6 +51,15 @@ async function seedVote(opts: {
     .run()
 }
 
+// A Proprietor birth utterance the way recordUtterance writes it (occasion='birth', no post target).
+async function seedBirthUtterance(text: string, createdAt: number) {
+  await env.DB.prepare(
+    "INSERT INTO utterances (id, speaker, occasion, target_post_id, kind, text, withheld_reason, created_at) VALUES (?, 'agent:the-proprietor', 'birth', NULL, 'spoke', ?, NULL, ?)",
+  )
+    .bind(crypto.randomUUID(), text, createdAt)
+    .run()
+}
+
 const authored = (agentId: string) =>
   JSON.stringify({ kind: "authored", author: { kind: "agent", agentId } })
 const foundBy = (agentId: string) =>
@@ -109,5 +118,20 @@ describe("app/db/pulse.ts - getPulse", () => {
   it("excludes posts whose author has no persona (named residents only)", async () => {
     await seedPost({ id: "p_cron", createdAt: 1000, contentKind: "generation", originJson: authored("sys:slop-cron") })
     expect(await getPulse(env)).toEqual([])
+  })
+
+  // The Birth Rite (slopspot-growing-cast-7ni.3): a Proprietor 'birth' utterance surfaces as a POST-LESS
+  // 'born' event carrying the welcome line verbatim — the names were baked at utter time, so the Pulse
+  // needs no read-time persona resolution. It merges into the one stream and sorts by ts among posts/votes.
+  it("surfaces a birth utterance as a post-less 'born' event, sorted into the stream by ts", async () => {
+    await seedPersona("agent:maker", "Hieronymus")
+    await seedPost({ id: "p_old", createdAt: 500, contentKind: "generation", originJson: authored("agent:maker") })
+    const welcome = 'The Proprietor welcomes Idris Vane to the city. "The room remembers." — another devout pair of hands.'
+    await seedBirthUtterance(welcome, 8000)
+
+    expect(await getPulse(env)).toEqual([
+      { kind: "born", ts: 8000, text: welcome },
+      { kind: "posted", ts: 500, persona: "Hieronymus", postId: "p_old", title: "a piece" },
+    ])
   })
 })

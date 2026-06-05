@@ -14,7 +14,10 @@ import type { PulseEvent } from "~/db/pulse"
 // scavenger drags one in; an eighth pulse kind would break this literal at compile time.
 type Doing = "generating" | "judging" | "scavenging"
 
-const DOING_OF: Record<PulseEvent["kind"], Doing> = {
+// [LAW:dataflow-not-control-flow] Keyed by the kinds that are a citizen's own ACT — `Exclude` drops the
+// post-less 'born' (an announcement names no working citizen), while still forcing any future ACT kind
+// into the table at compile time. A birth puts the NEWCOMER on the roster only once it ACTS (that is .4).
+const DOING_OF: Record<Exclude<PulseEvent["kind"], "born">, Doing> = {
   posted: "generating",
   rescued: "scavenging",
   blessed: "judging",
@@ -36,6 +39,9 @@ export type CitizenAtWork = { persona: string; doing: Doing }
 export function castAtWork(events: readonly PulseEvent[]): CitizenAtWork[] {
   const seen = new Map<string, Doing>()
   for (const e of events) {
+    // A birth is an announcement, not an act — it names no working citizen, so it falls out of the
+    // roster by its KIND (selection from a mixed stream), not a hidden guard.
+    if (e.kind === "born") continue
     if (!seen.has(e.persona)) seen.set(e.persona, DOING_OF[e.kind])
   }
   return [...seen.entries()].map(([persona, doing]) => ({ persona, doing }))

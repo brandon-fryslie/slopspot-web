@@ -18,10 +18,13 @@
 import { z } from 'zod'
 import { createPersona, creedOf, listAllPersonas, type NewPersona, type Persona } from '~/agents/persona'
 import { parseGeneratorConfig } from '~/agents/generator'
+import { proprietorRef } from '~/agents/rite'
 import { getLineageDag } from '~/db/genome-dag'
+import { recordUtterance } from '~/db/utterances'
 import { extractFirstJsonObject } from '~/firehose/composer'
 import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
 import { traitVectorSchema } from '~/lib/traits'
+import { utter, type Newcomer, type Utterance } from '~/lib/voice'
 import { emit } from '~/observability/metrics'
 import { realProviders } from '~/providers'
 
@@ -327,6 +330,28 @@ export type BirthResult =
   | { kind: 'already-born'; agentId: AgentId }
   | { kind: 'skipped'; reason: 'indistinct' | 'llm' }
 
+// [LAW:single-enforcer] The Birth Rite — the Proprietor welcomes a newborn through the ONE Voice
+// mechanism (utter → recordUtterance), the same way the Daily Rite voices its decree. Voice NARRATES a
+// birth that ALREADY happened: this runs only AFTER the persona row is written, so the announcement is
+// the consequence of a real birth, never its cause. Exported (not inlined) so the gate is verifiable
+// without the LLM author path — given a born citizen, this records exactly one welcome.
+// [LAW:dataflow-not-control-flow] No double-announce is FREE: the caller gates this on createPersona's
+// `created` boolean, so a settled-day re-run (created:false) never reaches here — the announcement rides
+// the birth's OWN idempotency (the personas PK), never a second utterances-table dedup that could drift.
+export async function announceBirth(env: Env, newcomer: Newcomer): Promise<Utterance> {
+  const proprietor = await proprietorRef(env)
+  // A birth has no post target — the welcome is about a citizen, not a slop. utter() degrades any
+  // failure to Withheld{unavailable} (speak() in voice.ts), so recordUtterance always persists a real row.
+  const utterance = await utter(proprietor, 'birth', newcomer, {})
+  await recordUtterance(env, {
+    speaker: proprietor.handle,
+    occasion: 'birth',
+    targetPostId: null,
+    utterance,
+  })
+  return utterance
+}
+
 // [LAW:single-enforcer] The one daily ceremony that grows the cast. Deterministic in its day:
 // same scheduledTime → same per-day citizen id → at most one birth. Settled-check first (the rite
 // pattern) so an already-born day spends no LLM call; otherwise author → validate → distinctness →
@@ -400,6 +425,16 @@ export async function runBirth(env: Env, scheduledTimeMs: number): Promise<Birth
     const { created } = await createPersona(env, persona)
     emit('slopspot.birth.outcome', { outcome: created ? 'born' : 'already-born' }, 1)
     console.log('[birth] citizen', { agentId, handle: persona.handle, displayName: persona.displayName, day, created })
+    // [LAW:dataflow-not-control-flow] The Proprietor announces a birth that HAPPENED — `created` is the
+    // birth's own truth (the personas PK won the insert). A re-fire that lost the insert (created:false)
+    // is not a birth, so there is nothing to narrate; no second welcome, by construction.
+    if (created) {
+      await announceBirth(env, {
+        displayName: persona.displayName,
+        creed: spec.creed,
+        medium: ProviderId(spec.medium),
+      })
+    }
     return created
       ? { kind: 'born', agentId, handle: persona.handle }
       : { kind: 'already-born', agentId }

@@ -16,7 +16,7 @@
 // The Well does not get a bespoke remark field; it gets an instance of this.
 
 import { z } from "zod";
-import type { AgentId, PostId, TraitVector, VerdictDisposition, VoteValue } from "~/lib/domain";
+import type { AgentId, PostId, ProviderId, TraitVector, VerdictDisposition, VoteValue } from "~/lib/domain";
 import type { FeudStanding } from "~/lib/feud";
 import { traitBias } from "~/lib/register";
 
@@ -122,6 +122,22 @@ export interface ReplyExchange {
   readonly standing: FeudStanding;
 }
 
+// The target of a `birth`: the new citizen the Proprietor welcomes into the city (The Birth Rite,
+// slopspot-growing-cast-7ni.3). The voice NARRATES a birth that ALREADY happened — the midwife writes the
+// persona row first, THEN the Proprietor announces it; this snapshot never creates the citizen.
+// [LAW:one-way-deps] voice -> persona identity (the name to announce + the creed that gives the welcome
+// its substance), never the live persona row. Both are non-optional: a newborn always has a name and a
+// creed (the midwife authors both), so the welcome line reads them with no presence-guard.
+export interface Newcomer {
+  readonly displayName: string;
+  readonly creed: string;
+  // The newcomer's medium (its provider id) — an honest attribute of the citizen, carried so the
+  // announcement path can DERIVE a first-of-medium distinction later (poj.4: the first verse-citizen is
+  // decreed "the city's first poet") without reshaping this target. composeBirth is medium-agnostic
+  // today; the field is the citizen's real medium, not speculative scaffolding. [LAW:one-source-of-truth]
+  readonly medium: ProviderId;
+}
+
 // --- the moment (occasion) --------------------------------------------------
 
 // [LAW:no-mode-explosion][LAW:one-type-per-behavior] The CLOSED union of occasions (the-voice-layer.md
@@ -154,7 +170,7 @@ export interface OccasionTarget {
   reply: ReplyExchange;
   comment: never;
   eulogy: never;
-  birth: never;
+  birth: Newcomer;
 }
 
 // --- the result (utterance) -------------------------------------------------
@@ -275,6 +291,18 @@ const composeDecree: Voice<"decree"> = (speaker, outcome) => {
   }
 };
 
+// The birth instance (The Birth Rite, slopspot-growing-cast-7ni.3). The Proprietor welcomes a newborn
+// citizen — a daily rite in the city's liturgy. A pure, deterministic line that NAMES the newcomer in the
+// Proprietor's register (the host's deadpan welcome — reverent about garbage, proprietorial about the
+// relics); the LLM-backed Proprietor voice can replace this body later, the signature unchanged.
+// [LAW:dataflow-not-control-flow] the newcomer VALUE is the line — birth never branches on "did a birth
+// happen": the caller utters ONLY for a real birth (gated on createPersona's `created`), so the voice is
+// handed a newcomer that exists. Mirrors composeDecree: same Proprietor, same deterministic-floor shape.
+const composeBirth: Voice<"birth"> = (speaker, newcomer) =>
+  spoke(
+    `${speaker.displayName} welcomes ${newcomer.displayName} to the city. "${newcomer.creed}" — another devout pair of hands. Mind the relics.`,
+  );
+
 // [LAW:single-enforcer] The verdict re-voice PROMPT — built in ONE pure place so CI can prove its
 // shape deterministically (the grounding seam). SUBSTANCE is the critic's image-grounded observation
 // (`reasoning`); REGISTER is traitBias(traits) — the SAME lib/register projection the image composer
@@ -377,7 +405,7 @@ const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   reply: composeReply,
   comment: reserved,
   eulogy: reserved,
-  birth: reserved,
+  birth: composeBirth,
 };
 
 // [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice that throws OR rejects (a
