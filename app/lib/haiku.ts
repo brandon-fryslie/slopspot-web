@@ -1,8 +1,11 @@
 // [LAW:single-enforcer] The one Anthropic Haiku transport leaf. Every module that
 // calls Haiku consumes this — the composer (prompt authoring) and verdict re-voice
-// (w2v.7). Timeout, error types, and response-extraction logic all live here exactly
-// once. Callers never touch the Anthropic REST API directly.
+// (w2v.7). Timeout, error types, response-extraction logic, AND account-health
+// classification all live here exactly once. Callers never touch the Anthropic
+// REST API directly.
 // [LAW:one-way-deps] Pure outbound HTTP + env — no back-edge.
+
+import type { AccountHealthPayload } from '~/observability/metrics'
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const REQUEST_TIMEOUT_MS = 15_000
@@ -36,6 +39,20 @@ export type HaikuOptions = {
   system?: string
   user: string
   maxTokens: number
+}
+
+// [LAW:single-enforcer] The ONE classifier for Anthropic call outcomes → account-health axis.
+// Callers pass any caught error; this returns the typed payload for emitAccountHealth.
+// [LAW:dataflow-not-control-flow] the error value drives the classification; no caller
+// re-implements this mapping.
+export function classifyAnthropicHealth(err: unknown): AccountHealthPayload {
+  if (err instanceof MissingApiKeyError) return { status: 'down', reason: 'auth' }
+  if (err instanceof AnthropicHttpError) {
+    if (err.status === 401 || err.status === 403) return { status: 'down', reason: 'auth' }
+    if (err.status === 402) return { status: 'down', reason: 'payment' }
+    if (err.status === 429) return { status: 'down', reason: 'quota' }
+  }
+  return { status: 'degraded' }
 }
 
 // [LAW:single-enforcer] One Haiku call: env + options → raw text response. Throws

@@ -1,5 +1,6 @@
 import { z } from "zod"
 import type { AspectRatio } from "~/lib/domain"
+import type { AccountHealthPayload } from "~/observability/metrics"
 
 // Shared trust-boundary code for the Replicate prediction API. Replicate's
 // `/v1/predictions` envelope is identical for every model — only `output`'s
@@ -10,6 +11,26 @@ import type { AspectRatio } from "~/lib/domain"
 // [LAW:one-source-of-truth] One Replicate envelope shape, one place it's
 // declared. SDXL returns `output: string[]`, Ideogram returns `output: string`
 // — that genuine variance stays in each provider's own response parser.
+
+// [LAW:types-are-the-program] Carry the HTTP status ON the thrown value — same pattern as
+// AnthropicHttpError in lib/haiku.ts — so classifyReplicateHealth reads from DATA, not a
+// parsed message string. Both createPrediction and pollPrediction throw this on non-ok HTTP.
+export class ReplicateHttpError extends Error {
+  constructor(readonly status: number, body: string) {
+    super(`Replicate ${status}: ${body}`)
+  }
+}
+
+// [LAW:single-enforcer] The ONE classifier for Replicate call outcomes → account-health axis.
+// Mirrors classifyAnthropicHealth in lib/haiku.ts; same payload type, different error source.
+export function classifyReplicateHealth(err: unknown): AccountHealthPayload {
+  if (err instanceof ReplicateHttpError) {
+    if (err.status === 401 || err.status === 403) return { status: 'down', reason: 'auth' }
+    if (err.status === 402) return { status: 'down', reason: 'payment' }
+    if (err.status === 429) return { status: 'down', reason: 'quota' }
+  }
+  return { status: 'degraded' }
+}
 
 // [LAW:one-source-of-truth] Canonical (w,h) per AspectRatio for Replicate-family
 // providers. SDXL consumes these as the explicit `width`/`height` it sends to
@@ -68,7 +89,7 @@ export async function createPrediction(opts: {
     body: JSON.stringify({ version: opts.version, input: opts.input }),
   })
   if (!res.ok) {
-    throw new Error(`Replicate create failed: ${res.status} ${await res.text()}`)
+    throw new ReplicateHttpError(res.status, await res.text())
   }
   return predictionSchema.parse(await res.json())
 }
@@ -90,7 +111,7 @@ export async function pollPrediction(prediction: Prediction, token: string): Pro
       headers: { Authorization: `Bearer ${token}` },
     })
     if (!res.ok) {
-      throw new Error(`Replicate poll failed: ${res.status} ${await res.text()}`)
+      throw new ReplicateHttpError(res.status, await res.text())
     }
     current = predictionSchema.parse(await res.json())
     polls += 1
