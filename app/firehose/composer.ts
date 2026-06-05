@@ -9,9 +9,9 @@
 
 import { z } from 'zod'
 import type { TraitVector } from '~/lib/domain'
-import { AnthropicHttpError, MissingApiKeyError, callHaiku } from '~/lib/haiku'
+import { AnthropicHttpError, MissingApiKeyError, callHaiku, classifyAnthropicHealth } from '~/lib/haiku'
 import { traitBias } from '~/lib/register'
-import { emit } from '~/observability/metrics'
+import { emit, emitAccountHealth } from '~/observability/metrics'
 import {
   ASPECT_RATIO_LABELS,
   STYLE_FAMILY_PROMPT_SEEDS,
@@ -304,6 +304,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     // capPrompt / capPlacard are the shared length enforcers, identical to the
     // fallback path.
     emit('slopspot.composer.result', { outcome: 'haiku' }, 1)
+    emitAccountHealth('anthropic', { status: 'ok' })
     return { prompt: capPrompt(composed.prompt), title: capPlacard(composed.title) }
   } catch (err) {
     // [LAW:no-silent-fallbacks][LAW:dataflow-not-control-flow] The status carried on
@@ -324,6 +325,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
       err,
     })
     emit('slopspot.composer.result', { outcome: 'fallback', reason }, 1)
+    emitAccountHealth('anthropic', classifyAnthropicHealth(err))
     return fallback
   }
 }

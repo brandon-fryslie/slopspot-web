@@ -163,9 +163,42 @@ export type MetricLabels = {
   'slopspot.firstpoet.decree': {
     outcome: 'decreed' | 'already-decreed' | 'no-poet'
   }
+  // [LAW:no-silent-fallbacks][LAW:dataflow-not-control-flow] Typed account-health signal. Fired
+  // unconditionally at every external-account trust boundary (Anthropic, fal, Replicate) — the DATA
+  // (ok/down/degraded) decides whether the vmalert rule fires. Classification is per-account (each service
+  // has a different error taxonomy); the status+reason are the output type of that classification.
+  //
+  // [LAW:single-enforcer] Alertmanager is the ONE alerter — dedup/grouping/repeat-interval live there.
+  // This metric is the stream; the vmalert rule `status="down"` is the gate. `ok` on every successful call
+  // enables alertmanager auto-resolve (the alert fires on down, clears on next ok).
+  //
+  // [LAW:types-are-the-program] Discriminated union: `reason` is REQUIRED when status=down
+  // and ABSENT otherwise — a down-with-no-reason or an ok-with-reason cannot be expressed.
+  'slopspot.account.health':
+    | { account: string; status: 'ok' | 'degraded' }
+    | { account: string; status: 'down'; reason: 'auth' | 'payment' | 'quota' }
 }
 
 export type MetricName = keyof MetricLabels
+
+// [LAW:types-are-the-program] The account-health payload without the account label — what each
+// account-boundary classifier returns. The account string is added at the emit call site.
+// Exported so classifiers in haiku.ts and replicate-helpers.ts can return this type without
+// importing the full MetricLabels union.
+export type AccountHealthPayload =
+  | { status: 'ok' | 'degraded' }
+  | { status: 'down'; reason: 'auth' | 'payment' | 'quota' }
+
+// [LAW:single-enforcer] The discriminated-union spread `{ account, ...payload }` does not compose
+// cleanly in TypeScript (union spreads produce intersections, not unions). This helper applies the
+// discriminant switch once so every call site remains terse and compile-time-checked.
+export function emitAccountHealth(account: string, payload: AccountHealthPayload): void {
+  if (payload.status === 'down') {
+    emit('slopspot.account.health', { account, status: 'down', reason: payload.reason }, 1)
+  } else {
+    emit('slopspot.account.health', { account, status: payload.status }, 1)
+  }
+}
 
 // Stable key for a (name, labels) pair — used to deduplicate counter entries.
 function metricKey(name: string, labels: Record<string, string | number>): string {

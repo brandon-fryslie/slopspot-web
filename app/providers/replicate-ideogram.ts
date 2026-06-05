@@ -4,10 +4,12 @@ import { ProviderId, type AspectRatio, type Media, type StyleFamily } from "~/li
 import type { GenerationProvider } from "./types"
 import {
   REPLICATE_CANONICAL_DIMS,
+  classifyReplicateHealth,
   createPrediction,
   pollPrediction,
   predictionSchema,
 } from "./replicate-helpers"
+import { emitAccountHealth } from "~/observability/metrics"
 
 // Real Replicate Ideogram v2-turbo provider. The "third aesthetic signature"
 // for the variety epic — ideogram's strength is typography-in-image and
@@ -136,12 +138,19 @@ export const replicateIdeogram: GenerationProvider<Params> = {
       ...(p.styleType !== undefined ? { style_type: p.styleType } : {}),
       ...(p.magicPromptOption !== undefined ? { magic_prompt_option: p.magicPromptOption } : {}),
     }
-    const initial = await createPrediction({
-      version: IDEOGRAM_MODEL_VERSION,
-      input,
-      token: env.SLOPSPOT_REPLICATE_API_KEY,
-    })
-    const terminal = await pollPrediction(initial, env.SLOPSPOT_REPLICATE_API_KEY)
-    return parseReplicateIdeogramResponse(terminal, { alt: p.prompt, w, h })
+    try {
+      const initial = await createPrediction({
+        version: IDEOGRAM_MODEL_VERSION,
+        input,
+        token: env.SLOPSPOT_REPLICATE_API_KEY,
+      })
+      const terminal = await pollPrediction(initial, env.SLOPSPOT_REPLICATE_API_KEY)
+      const result = parseReplicateIdeogramResponse(terminal, { alt: p.prompt, w, h })
+      emitAccountHealth('replicate', { status: 'ok' })
+      return result
+    } catch (err) {
+      emitAccountHealth('replicate', classifyReplicateHealth(err))
+      throw err
+    }
   },
 }

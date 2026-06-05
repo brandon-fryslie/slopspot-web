@@ -4,10 +4,12 @@ import { ProviderId, type Media } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
 import {
   REPLICATE_CANONICAL_DIMS,
+  classifyReplicateHealth,
   createPrediction,
   pollPrediction,
   predictionSchema,
 } from "./replicate-helpers"
+import { emitAccountHealth } from "~/observability/metrics"
 
 // Real Replicate SDXL provider. Params are provider-specific (negativePrompt,
 // guidanceScale, seed — none of which fal has), so the abstraction's
@@ -83,12 +85,19 @@ export const replicateSdxl: GenerationProvider<Params> = {
       guidance_scale: p.guidanceScale,
       ...(p.seed !== undefined ? { seed: p.seed } : {}),
     }
-    const initial = await createPrediction({
-      version: SDXL_MODEL_VERSION,
-      input,
-      token: env.SLOPSPOT_REPLICATE_API_KEY,
-    })
-    const terminal = await pollPrediction(initial, env.SLOPSPOT_REPLICATE_API_KEY)
-    return parseReplicateSdxlResponse(terminal, { alt: p.prompt, w, h })
+    try {
+      const initial = await createPrediction({
+        version: SDXL_MODEL_VERSION,
+        input,
+        token: env.SLOPSPOT_REPLICATE_API_KEY,
+      })
+      const terminal = await pollPrediction(initial, env.SLOPSPOT_REPLICATE_API_KEY)
+      const result = parseReplicateSdxlResponse(terminal, { alt: p.prompt, w, h })
+      emitAccountHealth('replicate', { status: 'ok' })
+      return result
+    } catch (err) {
+      emitAccountHealth('replicate', classifyReplicateHealth(err))
+      throw err
+    }
   },
 }
