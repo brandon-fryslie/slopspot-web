@@ -138,6 +138,14 @@ export type MetricLabels = {
   'slopspot.birth.outcome': {
     outcome: 'born' | 'already-born' | 'skipped-indistinct' | 'skipped-llm'
   }
+  // [LAW:no-silent-fallbacks] The Birth RITE's own signal — separate from birth.outcome because the birth
+  // (the persona row) is PRIMARY TRUTH and the Proprietor's welcome is best-effort NARRATION of it. The
+  // welcome can fail without un-birthing a citizen, so its outcome is observable here on its own axis:
+  // `spoke`/`withheld` = the welcome was recorded (a line, or a meant silence); `failed` = it could not be
+  // voiced or persisted (citizen born but unannounced — surfaced loudly so an operator sees it).
+  'slopspot.birth.announce': {
+    outcome: 'spoke' | 'withheld' | 'failed'
+  }
 }
 
 export type MetricName = keyof MetricLabels

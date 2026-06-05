@@ -18,6 +18,7 @@
 import { z } from "zod";
 import type { AgentId, PostId, ProviderId, TraitVector, VerdictDisposition, VoteValue } from "~/lib/domain";
 import type { FeudStanding } from "~/lib/feud";
+import { seedHash } from "~/lib/hash";
 import { traitBias } from "~/lib/register";
 
 // --- who speaks -------------------------------------------------------------
@@ -291,17 +292,37 @@ const composeDecree: Voice<"decree"> = (speaker, outcome) => {
   }
 };
 
+// [LAW:dataflow-not-control-flow][LAW:one-type-per-behavior] The Proprietor's REPERTOIRE of welcome
+// frames — the host has more than one way to open the door. Each frame names the speaker + the newcomer
+// and wraps the newcomer's ALWAYS-VARYING creed (the personal core); the signature refrain "Mind the
+// relics" RECURS across several (a host has a catchphrase). The frame is selected by DATA (the birth's
+// own hash), never a branch and never an LLM — so this stays a pure deterministic floor.
+const BIRTH_FRAMES: ReadonlyArray<(host: string, newcomer: string, creed: string) => string> = [
+  (host, newcomer, creed) =>
+    `${host} welcomes ${newcomer} to the city. "${creed}" — another devout pair of hands. Mind the relics.`,
+  (host, newcomer, creed) =>
+    `${host} unlatches the back door for ${newcomer}, who swears "${creed}". The city is one soul larger.`,
+  (host, newcomer, creed) =>
+    `New blood. ${host} seats ${newcomer} at the long table; their creed runs "${creed}". Mind the relics.`,
+  (host, newcomer, creed) =>
+    `${host} rings the bell for ${newcomer}. "${creed}", they say — and for now the city believes them.`,
+  (host, newcomer, creed) =>
+    `Make room: ${newcomer} has arrived, preaching "${creed}". ${host} nods them in. Mind the relics.`,
+];
+
 // The birth instance (The Birth Rite, slopspot-growing-cast-7ni.3). The Proprietor welcomes a newborn
-// citizen — a daily rite in the city's liturgy. A pure, deterministic line that NAMES the newcomer in the
-// Proprietor's register (the host's deadpan welcome — reverent about garbage, proprietorial about the
-// relics); the LLM-backed Proprietor voice can replace this body later, the signature unchanged.
-// [LAW:dataflow-not-control-flow] the newcomer VALUE is the line — birth never branches on "did a birth
-// happen": the caller utters ONLY for a real birth (gated on createPersona's `created`), so the voice is
-// handed a newcomer that exists. Mirrors composeDecree: same Proprietor, same deterministic-floor shape.
-const composeBirth: Voice<"birth"> = (speaker, newcomer) =>
-  spoke(
-    `${speaker.displayName} welcomes ${newcomer.displayName} to the city. "${newcomer.creed}" — another devout pair of hands. Mind the relics.`,
-  );
+// citizen — a daily rite in the city's liturgy. A pure, deterministic floor that NAMES the newcomer in
+// the Proprietor's register (the host's deadpan welcome — reverent about garbage, proprietorial about the
+// relics) and rotates through his repertoire by the birth's own hash; the LLM-backed Proprietor voice can
+// replace this body later, the signature unchanged.
+// [LAW:dataflow-not-control-flow] the newcomer VALUE selects the frame (seedHash over its name — the same
+// reproducible hash the chooser/scheduler use, so the welcome is deterministic + stable on re-render) AND
+// supplies the line; birth never branches on "did a birth happen": the caller utters ONLY for a real
+// birth (gated on createPersona's `created`). [LAW:one-source-of-truth] reuses lib/hash, no second FNV-1a.
+const composeBirth: Voice<"birth"> = (speaker, newcomer) => {
+  const frame = BIRTH_FRAMES[seedHash(0, newcomer.displayName) % BIRTH_FRAMES.length]!;
+  return spoke(frame(speaker.displayName, newcomer.displayName, newcomer.creed));
+};
 
 // [LAW:single-enforcer] The verdict re-voice PROMPT — built in ONE pure place so CI can prove its
 // shape deterministically (the grounding seam). SUBSTANCE is the critic's image-grounded observation
