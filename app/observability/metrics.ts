@@ -146,6 +146,15 @@ export type MetricLabels = {
   'slopspot.birth.announce': {
     outcome: 'spoke' | 'withheld' | 'failed'
   }
+  // [LAW:no-silent-fallbacks] The newcomer's DEBUT — its first act, fired at birth so it acts within its
+  // first cycle BY CONSTRUCTION (make-it-impossible; a firehose hash-pick is only ~likely). Its own axis,
+  // separate from the birth (primary truth) and the welcome: `authored` = the first slop was made;
+  // `skipped-budget` = the daily spend cap was hit (a deliberate city pause — the newcomer still acts later
+  // via the firehose pool, also gated); `failed` = the provider/write failed (born, not yet acted —
+  // observable, never an un-birth or a crash of the birth ceremony).
+  'slopspot.birth.debut': {
+    outcome: 'authored' | 'skipped-budget' | 'failed'
+  }
 }
 
 export type MetricName = keyof MetricLabels
