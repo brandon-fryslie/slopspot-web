@@ -212,6 +212,11 @@ export type HumanModifier = { role: HumanRole; by: HumanRef }
 //               human, when present, is an optional MODIFIER. "A human author with no
 //               persona" is structurally impossible: the human only ever appears inside
 //               `human`, and `author` is non-optional and persona-typed.
+//               `crossedFrom` is set ONLY for interspecies hybrids: when a bloodline
+//               is bred through a DIFFERENT citizen's medium, `author` becomes the
+//               crossing citizen (whose medium produced the result) and `crossedFrom`
+//               records the lineage citizen. Attribution: "out of [crossedFrom] by
+//               [author]". [RECONCILE C] — the explicit exception to provider==medium.
 //   found     — a slop SUBMITTED from elsewhere (Reddit-style outbound link). The actor
 //               FOUND it; nobody authored the image here, so there is no author slot at
 //               all — a finder is not an author. The finder may be a persona (the
@@ -220,7 +225,7 @@ export type HumanModifier = { role: HumanRole; by: HumanRef }
 //   uploaded  — raw bytes a participant contributed. The `uploader` is the actor; as
 //               with found, no authorship over the bytes is claimed.
 export type Origin =
-  | { kind: 'authored'; author: PersonaActor; human?: HumanModifier }
+  | { kind: 'authored'; author: PersonaActor; crossedFrom?: PersonaActor; human?: HumanModifier }
   | { kind: 'found'; finder: Actor }
   | { kind: 'uploaded'; uploader: Actor }
 

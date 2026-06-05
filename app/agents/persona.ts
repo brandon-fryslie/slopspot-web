@@ -12,7 +12,7 @@
 // registry. Prompt tuning and config adjustments happen via SQL without a
 // redeploy.
 
-import { asc, eq, gte } from 'drizzle-orm'
+import { asc, and, eq, gte, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
 import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
@@ -308,6 +308,28 @@ export async function createPersona(env: Env, p: NewPersona): Promise<{ created:
     .onConflictDoNothing({ target: personas.agentId })
     .returning({ agentId: personas.agentId })
   return { created: inserted.length > 0 }
+}
+
+// [LAW:single-enforcer] Resolve which generator citizen claims a given provider as
+// their medium. Used by the breed API to detect interspecies crossings: when the
+// chosen provider belongs to a different citizen than the parent's author, the
+// new slop records the crossing via Origin.authored.crossedFrom. [RECONCILE C]
+// Returns null when no generator persona owns that medium (e.g. mock providers).
+export async function getPersonaByMedium(
+  env: Env,
+  providerId: string,
+): Promise<Persona | null> {
+  const rows = await db(env)
+    .select()
+    .from(personas)
+    .where(
+      and(
+        eq(personas.role, 'generator'),
+        sql`json_extract(${personas.configJson}, '$.medium') = ${providerId}`,
+      ),
+    )
+    .limit(1)
+  return rows.length === 0 ? null : rowToPersona(rows[0])
 }
 
 // [LAW:single-enforcer] The only writer for persona config. All config updates
