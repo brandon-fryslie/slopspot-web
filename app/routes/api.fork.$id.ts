@@ -5,11 +5,12 @@ import { createPost, InvalidParamsError } from "~/db/posts"
 import { getPostById } from "~/db/feed"
 import { checkBudget } from "~/firehose/budget"
 import { getProvider, realProviders, UnknownProviderError } from "~/providers"
+import { getPersonaByMedium } from "~/agents/persona"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
-import { GenomeId, PostId, ProviderId, type AuthoredOrigin } from "~/lib/domain"
+import { GenomeId, PostId, ProviderId, type AuthoredOrigin, type PersonaActor } from "~/lib/domain"
 import { aspectRatioSchema, fallbackTitle, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 
@@ -150,14 +151,25 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     throw new Error(`forkable generation ${parent.id} has non-authored origin`)
   }
 
-  // [LAW:types-are-the-program] A bred slop is AUTHORED by its bloodline's persona:
-  // the fork INHERITS the parent's author (lineage, not house-assignment policy — that
-  // seam is owned elsewhere). The human who bred it is the optional `breeder` MODIFIER,
-  // never the author. The raw voter UUID never crosses the wire; authorLabel is the
-  // single redaction enforcer, so the breeder byline is the same `anon-XXXXXX` shape.
+  // [RECONCILE C] Interspecies detection: when the chosen provider is a different
+  // citizen's medium than the parent's author, the crossing is recorded. The crossing
+  // persona becomes the new `author` (they shaped the result); the parent's author
+  // becomes `crossedFrom` (the lineage). For same-citizen breeds and provider-less
+  // selections (mock providers), the author is simply inherited from the parent.
+  const crossingPersona = await getPersonaByMedium(context.cloudflare.env, chosenProviderId)
+  const isInterspecies =
+    crossingPersona !== null && crossingPersona.agentId !== parent.origin.author.agentId
+
+  const author: PersonaActor = isInterspecies
+    ? { kind: "agent", agentId: crossingPersona.agentId }
+    : parent.origin.author
+
   const origin: AuthoredOrigin = {
     kind: "authored",
-    author: parent.origin.author,
+    author,
+    ...(isInterspecies
+      ? { crossedFrom: { kind: "agent", agentId: parent.origin.author.agentId } }
+      : {}),
     human: { role: "breeder", by: { kind: "anon", label: authorLabel(voter.voterId) } },
   }
 

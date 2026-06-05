@@ -551,6 +551,25 @@ describe('app/db/feed.ts - getFeedPage', () => {
       })
     })
 
+    it('preserves crossedFrom on an interspecies hybrid origin', async () => {
+      const origin: Origin = {
+        kind: 'authored',
+        author: { kind: 'agent', agentId: AgentId('crossing-citizen') },
+        crossedFrom: { kind: 'agent', agentId: AgentId('firehose-cron-v1') },
+        human: { role: 'breeder', by: { kind: 'anon', label: 'anon-6a6255' } },
+      }
+      await seedPost(env, { id: 'post-hybrid', origin })
+
+      const items = (await getFeedPage(env, {})).items
+      const item = items.find(i => i.post.id === 'post-hybrid')!
+      expect(item.post.origin).toEqual({
+        kind: 'authored',
+        author: { kind: 'agent', agentId: 'crossing-citizen' },
+        crossedFrom: { kind: 'agent', agentId: 'firehose-cron-v1' },
+        human: { role: 'breeder', by: { kind: 'anon', label: 'anon-6a6255' } },
+      })
+    })
+
     it('reconstructs a found slop as a finder origin (no author)', async () => {
       const origin: Origin = {
         kind: 'found',

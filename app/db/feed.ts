@@ -478,6 +478,10 @@ function storedHuman(raw: unknown): HumanModifier | undefined {
   return (raw as { human?: HumanModifier }).human
 }
 
+function storedCrossedFrom(raw: unknown): PersonaActor | undefined {
+  return (raw as { crossedFrom?: PersonaActor }).crossedFrom
+}
+
 function toOrigin(contentKind: Content['kind'], raw: unknown, postId: string): Origin {
   const actor = storedPrincipal(raw)
   switch (contentKind) {
@@ -491,9 +495,13 @@ function toOrigin(contentKind: Content['kind'], raw: unknown, postId: string): O
         )
       }
       const human = storedHuman(raw)
-      return human !== undefined
-        ? { kind: 'authored', author: actor, human }
-        : { kind: 'authored', author: actor }
+      const crossedFrom = storedCrossedFrom(raw)
+      return {
+        kind: 'authored',
+        author: actor,
+        ...(crossedFrom !== undefined ? { crossedFrom } : {}),
+        ...(human !== undefined ? { human } : {}),
+      }
     }
     case 'found':
       return { kind: 'found', finder: actor }
@@ -554,13 +562,17 @@ function enrichActor(actor: Actor, refs: Map<string, CitizenRef>): Actor {
 // [LAW:one-type-per-behavior] One enricher per origin arm: the author (a persona,
 // always), the finder (any actor — a persona-finder gets the same face the author
 // does), the uploader. The human modifier's `by` is a HumanRef (never a persona), so
-// it carries no agentId to resolve.
+// it carries no agentId to resolve. `crossedFrom` is also a PersonaActor and is
+// enriched the same way as `author` when present.
 function enrichOrigin(origin: Origin, refs: Map<string, CitizenRef>): Origin {
   switch (origin.kind) {
     case 'authored':
-      return origin.human !== undefined
-        ? { kind: 'authored', author: enrichPersona(origin.author, refs), human: origin.human }
-        : { kind: 'authored', author: enrichPersona(origin.author, refs) }
+      return {
+        kind: 'authored',
+        author: enrichPersona(origin.author, refs),
+        ...(origin.crossedFrom !== undefined ? { crossedFrom: enrichPersona(origin.crossedFrom, refs) } : {}),
+        ...(origin.human !== undefined ? { human: origin.human } : {}),
+      }
     case 'found':
       return { kind: 'found', finder: enrichActor(origin.finder, refs) }
     case 'uploaded':
@@ -573,14 +585,16 @@ function enrichPost(post: Post, refs: Map<string, CitizenRef>): Post {
 }
 
 // [LAW:single-enforcer] One pass collecting every agentId that needs a CitizenRef: the
-// author of an authored slop, and a persona finder/uploader. Human modifiers reference
-// no persona, so they contribute nothing.
+// author of an authored slop (plus crossedFrom for hybrids), and a persona finder/
+// uploader. Human modifiers reference no persona, so they contribute nothing.
 function collectAgentIds(posts: readonly Post[]): string[] {
   const ids = new Set<string>()
   for (const p of posts) {
     const o = p.origin
-    if (o.kind === 'authored') ids.add(o.author.agentId)
-    else if (o.kind === 'found' && o.finder.kind === 'agent') ids.add(o.finder.agentId)
+    if (o.kind === 'authored') {
+      ids.add(o.author.agentId)
+      if (o.crossedFrom !== undefined) ids.add(o.crossedFrom.agentId)
+    } else if (o.kind === 'found' && o.finder.kind === 'agent') ids.add(o.finder.agentId)
     else if (o.kind === 'uploaded' && o.uploader.kind === 'agent') ids.add(o.uploader.agentId)
   }
   return [...ids]

@@ -638,7 +638,9 @@ const HUMAN_ROLE_PHRASE: Record<HumanRole, string> = {
 // viewer-aware: when the viewer IS that human (viewerIsModifier), the subject becomes
 // "you" — "from a wish by you" lands the personal hijack — otherwise the human's own
 // label. A stranger never reads "you". [LAW:dataflow-not-control-flow] the subject is
-// the VALUE the read boundary computed, not a branch this surface decides.
+// the VALUE the read boundary computed, not a branch this surface decides. For interspecies
+// hybrids, `crossedFrom` is the bloodline and `author` the crossing citizen: "out of
+// [lineage]" precedes "by [crossing]". [RECONCILE C]
 function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier: boolean }) {
   switch (origin.kind) {
     case "authored": {
@@ -646,6 +648,12 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
       const makerClass = "font-civic text-sm font-medium text-votive"
       return (
         <div className="px-3 pt-1 pb-1">
+          {origin.crossedFrom !== undefined && (
+            <p className="mb-0.5 font-terminal text-[11px] text-ash">
+              out of{" "}
+              <span className="text-bone/60">{actorLabel(origin.crossedFrom).label}</span>
+            </p>
+          )}
           <span className="font-civic text-sm text-ash">by </span>
           {/* [LAW:dataflow-not-control-flow] href decides anchor-vs-span; the citizen's
               name is always shown, linked only when their handle is minted. */}
