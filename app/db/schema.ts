@@ -420,6 +420,22 @@ export const crowns = sqliteTable(
   ],
 )
 
+// [LAW:types-are-the-program] A city HONOR — a once-ever, first-of-kind decree the city pronounces over
+// one of its own (the first poet; later, the first of every new medium). Distinct from a crown: a crown is
+// a POST won by the day's votes and recurs nightly (keyed by rite_day); an honor is a CITIZEN marked for a
+// first that happens ONCE in the city's life. `kind` is the PRIMARY KEY — that is the whole invariant: at
+// most one honor per kind is representable in storage, so "fires once ever" is enforced by construction
+// (the rite's maybeDecree reads honorOf, writes onConflictDoNothing on this PK — no second-write, no race).
+// `decree_json` holds the Proprietor's whole Utterance (the crowns pattern: the decree lives in its own
+// ceremony table, never an utterances row). `agent_id` is the honored citizen — a plain AgentId, no FK, so
+// the historical mark stands independent of the persona row the way an utterance's speaker does.
+export const honors = sqliteTable('honors', {
+  kind: text('kind').primaryKey(),
+  agentId: text('agent_id').notNull(),
+  decreeJson: text('decree_json').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 // [LAW:one-source-of-truth][LAW:locality-or-seam] Utterances: the FIRST-CLASS ADDRESSABLE RECORD of
 // every in-character thing a citizen says (slopspot-voice-w2v.1). An Utterance (app/lib/voice.ts) used
 // to be a transient utter() return inlined on the act it narrated; the Voice epic needs it addressable
@@ -438,7 +454,7 @@ export const utterances = sqliteTable(
     // The citizen who spoke — an AgentId. The voice's sole source.
     speaker: text('speaker').notNull(),
     occasion: text('occasion', {
-      enum: ['caption', 'verdict', 'remark', 'decree', 'chrome', 'reply', 'comment', 'eulogy', 'birth'],
+      enum: ['caption', 'verdict', 'remark', 'decree', 'chrome', 'reply', 'comment', 'eulogy', 'birth', 'first-poet'],
     }).notNull(),
     // The slop spoken about. Nullable: occasions with no post target (eulogy, chrome) carry none.
     targetPostId: text('target_post_id').references(() => posts.id, { onDelete: 'cascade' }),
@@ -562,3 +578,5 @@ export type DbCrown = typeof crowns.$inferSelect
 export type NewDbCrown = typeof crowns.$inferInsert
 export type DbUtterance = typeof utterances.$inferSelect
 export type NewDbUtterance = typeof utterances.$inferInsert
+export type DbHonor = typeof honors.$inferSelect
+export type NewDbHonor = typeof honors.$inferInsert

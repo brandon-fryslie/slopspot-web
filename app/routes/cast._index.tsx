@@ -7,6 +7,8 @@
 
 import { Link, useLoaderData } from 'react-router'
 import { creedOf, guildOf, listAllPersonas, newcomerAgentIds, NEWCOMER_WINDOW_MS, type Guild } from '~/agents/persona'
+import { FIRST_POET_KIND } from '~/agents/firstPoet'
+import { honorOf } from '~/db/honors'
 import { feudsFor, getCitizenStat, signatureStat } from '~/db/citizens'
 import { getBackings } from '~/db/backings'
 import { readVoterId } from '~/lib/voter-cookie'
@@ -42,6 +44,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
   // born this week, derived into a per-card flag by set membership. The shared Persona type stays
   // un-widened; only the roll-call carries the distinction (the-roll-call.md "blank-slate standing").
   const newcomers = await newcomerAgentIds(env, Date.now() - NEWCOMER_WINDOW_MS)
+
+  // [LAW:one-source-of-truth] The city's first poet is read from its ONE permanent record (the honors
+  // table), never a stored per-persona flag — so the mark and the decree can never disagree. honorOf
+  // returns null until the first verse-citizen is decreed, so before that no card carries the mark.
+  const firstPoet = await honorOf(env, FIRST_POET_KIND)
 
   // [LAW:single-enforcer] One batched backing read for the whole roster — the
   // derived count + this viewer's backed-state per citizen, keyed by agentId, in a
@@ -85,6 +92,9 @@ export async function loader({ context, request }: Route.LoaderArgs) {
       // [LAW:dataflow-not-control-flow] Born within the newcomer window — a derived flag (set membership),
       // never a stored "is_new" column that would drift. The card reads it to mark a blank-slate arrival.
       isNewcomer: newcomers.has(p.agentId),
+      // [LAW:dataflow-not-control-flow] The city's first poet — a derived flag (does THIS citizen hold the
+      // once-ever honor), never a stored column. At most one citizen matches, by construction of the honor.
+      isFirstPoet: firstPoet !== null && firstPoet.agentId === p.agentId,
     })),
   )
 
@@ -125,6 +135,14 @@ function CitizenCard({ citizen }: { citizen: Citizen }) {
       {citizen.isNewcomer && (
         <p className="mt-1.5 inline-block rounded-sm border border-votive/40 bg-votive/10 px-1.5 py-0.5 font-terminal text-[10px] uppercase tracking-[0.2em] text-votive">
           ✶ new — just arrived
+        </p>
+      )}
+      {/* [LAW:dataflow-not-control-flow] The first-poet mark is one data-driven element — the city's
+          permanent honor for the citizen that first spoke in verse; every other card renders nothing,
+          the same empty-by-data render the newcomer badge and feud flags use. */}
+      {citizen.isFirstPoet && (
+        <p className="mt-1.5 inline-block rounded-sm border border-gilt/50 bg-gilt/10 px-1.5 py-0.5 font-terminal text-[10px] uppercase tracking-[0.2em] text-gilt">
+          {"✦ the city's first poet"}
         </p>
       )}
       <p className="mt-2 line-clamp-3 border-l-2 border-votive/15 pl-3 font-placard text-sm italic leading-snug text-bone/75">

@@ -15,9 +15,10 @@
 import { asc, eq, gte } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
-import { AgentId, type TraitVector } from '~/lib/domain'
+import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
 import { traitVectorSchema } from '~/lib/traits'
 import { seedHash } from '~/lib/hash'
+import { getProvider, mediumOf } from '~/providers'
 
 export type PersonaRole = 'voter' | 'discoverer' | 'generator' | 'host'
 
@@ -153,6 +154,47 @@ export async function newcomerAgentIds(env: Env, sinceMs: number): Promise<Set<s
     .from(personas)
     .where(gte(personas.createdAt, new Date(sinceMs)))
   return new Set(rows.map((r) => r.agentId))
+}
+
+// [LAW:types-are-the-program] The city's first poet, resolved: just enough of the honored citizen for the
+// rite to pronounce its decree (the name, the creed it weaves, the birth day the permanent mark records).
+// A focused shape, not the shared Persona — the first-poet ceremony reads identity + birth time, nothing
+// the rest of Persona carries.
+export type VerseCitizen = {
+  agentId: AgentId
+  displayName: string
+  creed: string
+  bornAtMs: number
+}
+
+// [LAW:single-enforcer] The ONE answer to "who is the city's first poet?" — the EARLIEST generator citizen
+// (by created_at) whose medium produces verse, or null when no verse-citizen exists yet. Verse-ness is
+// DERIVED from the provider registry (mediumOf) at this read, the same single projection the generator
+// composes by — never a stored "is-poet" flag, so the first-of-kind fact stays a pure function of state
+// (the no-seed invariant). [LAW:dataflow-not-control-flow] the scan walks citizens oldest-first and the
+// data decides the first verse one; an all-image city yields null, a real state the rite acts on (no decree).
+export async function earliestVerseCitizen(env: Env): Promise<VerseCitizen | null> {
+  const rows = await db(env)
+    .select()
+    .from(personas)
+    .where(eq(personas.role, 'generator'))
+    .orderBy(asc(personas.createdAt), asc(personas.agentId))
+  for (const row of rows) {
+    const persona = rowToPersona(row)
+    // The provider the citizen authors through declares the medium it produces; resolving it through the
+    // registry is the same single derivation the generator uses. A generator persona always carries a
+    // medium (parseGeneratorConfig enforces it on write), so this read trusts that boundary.
+    const provider = getProvider(ProviderId(String(persona.config.medium)))
+    if (mediumOf(provider) === 'verse') {
+      return {
+        agentId: persona.agentId,
+        displayName: persona.displayName,
+        creed: creedOf(persona),
+        bornAtMs: row.createdAt.getTime(),
+      }
+    }
+  }
+  return null
 }
 
 // [LAW:dataflow-not-control-flow] Deterministic pick: same (role, pool,
