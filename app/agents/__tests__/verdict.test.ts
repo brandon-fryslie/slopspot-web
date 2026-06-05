@@ -151,4 +151,37 @@ describe('narrateVerdict — the Feud Engine (reply exchange)', () => {
     await castVerdict('agent:solo', id, -1, 'Buried, alone.', new Date(1000))
     expect(await replyRowFor('agent:solo', id)).toBeUndefined()
   })
+
+  // [LAW:behavior-not-structure] The 3-critic FLOOR contract (voice-w2v.2, CD-ruled): a reply is keyed
+  // (speaker, slop, 'reply') — exactly ONE current reply per citizen per slop, LATEST-CLASH-WINS. When a
+  // second opponent lands on a citizen already in an exchange, that citizen's single reply RE-AIMS at the
+  // newest opponent; the earlier pair-answer does not accumulate. Multi-opponent per-pair exchange is
+  // w2v.3 (the answers-discriminator) — a deliberate, gated lock-relaxation. Pinned here so a drift toward
+  // it fails as a CONSCIOUS contract change, not an accident. (This is the 3-critic case the suite missed.)
+  it('a SECOND opponent re-aims the incumbent reply — one per citizen, latest-clash-wins', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian') // A — blesses
+    await seedCritic('agent:gremlin', 'The Gremlin') // B — buries (opposes A)
+    await seedCritic('agent:vesper', 'Vesper') // C — buries (opposes A)
+    const id = await seedPost(env, { id: 'feud-3critic-floor' })
+
+    await castVerdict('agent:vivian', id, 1, 'A blessing.', new Date(1000))
+    await castVerdict('agent:gremlin', id, -1, 'Buried.', new Date(2000)) // pair A-B
+    await castVerdict('agent:vesper', id, -1, 'Also buried.', new Date(3000)) // pair A-C
+
+    // One reply per citizen — A, B, C — never a per-pair fourth row.
+    const repliesOnPost = await db(env)
+      .select()
+      .from(utterances)
+      .where(and(eq(utterances.targetPostId, id), eq(utterances.occasion, 'reply')))
+    expect(repliesOnPost).toHaveLength(3)
+
+    // A, the doubly-opposed incumbent, holds ONE reply — now answering the LATEST opponent (C); the
+    // earlier answer to B is clobbered by the (speaker, slop, 'reply') upsert. Latest-clash-wins.
+    const aReply = await replyRowFor('agent:vivian', id)
+    expect(aReply?.text).toContain('Vesper')
+    expect(aReply?.text).not.toContain('The Gremlin')
+    // Both buriers answer the incumbent they each clash with.
+    expect((await replyRowFor('agent:gremlin', id))?.text).toContain('St. Vivian')
+    expect((await replyRowFor('agent:vesper', id))?.text).toContain('St. Vivian')
+  })
 })
