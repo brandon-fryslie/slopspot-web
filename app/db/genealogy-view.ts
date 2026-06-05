@@ -197,10 +197,13 @@ export async function getDynasty(env: Env, postId: PostId): Promise<Dynasty> {
 
   // The dynasty's node set: every founder + every descendant of each, so the phenotype slice covers
   // the whole forest in one read. Deduped across founders that share descendants (a bred diamond).
+  // [LAW:no-defensive-null-guards] No empty-guard: walking up a finite acyclic DAG always terminates
+  // at a 0-parent node, so founderIds (which also includes postId itself when it has no parents) is
+  // never empty — every post HAS a founder. nodeIds is therefore always ≥1; an unreachable guard would
+  // be dead code masking that invariant.
   const nodeIds = [
     ...new Set(founderIds.flatMap((f) => [f, ...reachable(parentToChildren, f)])),
   ]
-  if (nodeIds.length === 0) return { founders: [] }
 
   const phenotype = await readPhenotypes(database, nodeIds)
 
