@@ -9,6 +9,24 @@ You MUST run `lit quickstart` immediately to get instructions for `lit`. This is
 
 <!-- END LIT INTEGRATION -->
 
+<!-- BEGIN FLEET CONTEXT DISCIPLINE -->
+## Fleet Context Discipline — HARD RULE (non-negotiable)
+
+**Any agent whose context exceeds 200k tokens MUST have a "bottle" fired SUCCESSFULLY before it continues substantive work — no exceptions, even if it takes 20 attempts.** 200k is the ceiling, not a target.
+
+A *bottle* (message-in-a-bottle) is a scheduled context reset: a `/clear` paired with a continuation note that lets the agent resume exactly where it left off after the reset. Firing one drops the agent's accumulated context back toward zero while preserving its working state.
+
+**WHY THIS IS NON-NEGOTIABLE:** agents that run unbounded balloon to 600–800k tokens each. Token spend is shared across the whole fleet against a rolling usage window — when several agents run that hot, they exhaust the window and **hard-stop the entire fleet at once, mid-flight** (this has happened: every implementer and reviewer blocked simultaneously). Context discipline is not housekeeping; it is what keeps the fleet alive.
+
+**The rule, made verifiable and fail-loud (this is how it actually holds, not just hope):**
+- **The gate is a deterministic check** — "is this agent over 200k context?" The orchestrator runs it for every pane every heartbeat; each agent runs it on itself. Over 200k → a bottle is due *now*, before more work. `[LAW:verifiable-goals]`
+- **"Fired SUCCESSFULLY" means VERIFIED, not scheduled.** A scheduled `/clear` that silently never registers is a **MISFIRE — a failure, not a success.** "Fired" = *confirmed to have taken* (the context actually reset AND the continuation note is in place). An undetected misfire is the exact silent failure that burned the window. `[LAW:no-silent-fallbacks]`
+- **Retry until it takes (20+ if needed).** A single misfire is never accepted. Re-fire — and re-verify — until the reset demonstrably registers. Do NOT proceed with substantive work on an over-200k agent until its bottle has provably fired. `[LAW:make-it-impossible]` — "an agent over 200k with no successfully-fired bottle" is an illegal state the orchestrator actively prevents.
+- **Single enforcer + first line.** The orchestrator owns this gate across the fleet (it sees every pane's context every heartbeat) and is the backstop; each agent self-fires as the first line of defense. `[LAW:single-enforcer]`
+
+Bottling early and often is cheap. A fleet-wide hard-stop is not. When in doubt, bottle.
+<!-- END FLEET CONTEXT DISCIPLINE -->
+
 ---
 
 # CLAUDE.md
