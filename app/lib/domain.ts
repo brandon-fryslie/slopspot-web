@@ -350,6 +350,14 @@ export type RenderablePost = {
   // `isReviewed` flag; the array's length is the discriminator. Read from the utterances store
   // (verdictsForPosts), not re-derived from votes.reasoning. [LAW:one-source-of-truth]
   verdicts: readonly Verdict[]
+  // [LAW:dataflow-not-control-flow] The back-and-forth — the citizens' replies to each other's opposing
+  // verdicts on this slop (slopspot-voice-w2v.2, the Feud Engine), newest-first, capped at the
+  // co-presence cap. Same Verdict shape as `verdicts` (a bylined line + disposition robe), a SECOND
+  // reader of one type [LAW:one-type-per-behavior] — the reply renders identically to a verdict, it
+  // merely answers one. The COUNT is the discriminator: 0 → no exchange (the common case), ≥1 → the
+  // thread of answers beneath the opening positions. Derived from the utterances store (repliesForPosts,
+  // occasion='reply'), never a stored feud status. [LAW:one-source-of-truth]
+  exchange: readonly Verdict[]
   // [LAW:dataflow-not-control-flow] The eternal mark is optional BY DATA: an
   // uncrowned post simply has no Crowning, and the card renders the mark by its
   // presence — never an `isCrowned` flag the card must consult. Derived at read

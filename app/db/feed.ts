@@ -54,7 +54,7 @@ import {
 } from '~/lib/domain'
 import { authorLabel } from '~/lib/author-label'
 import { crowningsForPosts } from '~/db/crowns'
-import { verdictsForPosts } from '~/db/utterances'
+import { repliesForPosts, verdictsForPosts } from '~/db/utterances'
 import { emit } from '~/observability/metrics'
 import {
   ASPECT_RATIOS,
@@ -686,9 +686,10 @@ function rowToRenderablePost(
     // origin.human.by is not touched by enrichPost (persona resolution only reaches
     // author/finder/uploader), so this bit computed pre-enrich rides through unchanged.
     viewerIsModifier: computeViewerIsModifier(post.origin, viewerId),
-    // The base renderable carries no critics; the caller fills `verdicts` from the batched
-    // verdictsForPosts read (one query over the visible set, never per-row).
+    // The base renderable carries no critics; the caller fills `verdicts`/`exchange` from the batched
+    // verdictsForPosts/repliesForPosts reads (one query each over the visible set, never per-row).
     verdicts: [],
+    exchange: [],
   }
 }
 
@@ -803,9 +804,10 @@ export async function getFeedPage(
   // concurrently — one round-trip's latency, not three.
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
   const postIds = renderables.map((r) => r.post.id)
-  const [refs, verdictsByPost, crownings] = await Promise.all([
+  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
     verdictsForPosts(database, postIds),
+    repliesForPosts(database, postIds),
     crowningsForPosts(database, postIds),
   ])
 
@@ -823,6 +825,7 @@ export async function getFeedPage(
       commentCount: r.commentCount,
       viewerIsModifier: r.viewerIsModifier,
       verdicts: verdictsByPost.get(r.post.id) ?? [],
+      exchange: repliesByPost.get(r.post.id) ?? [],
       ...(crowning !== undefined ? { crowning } : {}),
       rank: i + 1,
     }
@@ -864,9 +867,10 @@ export async function getFeedItemById(
   const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
   const renderable = rowToRenderablePost(rows[0], voterId, parentsByChild.get(rows[0].post.id) ?? [])
   const agentIds = collectAgentIds([renderable.post])
-  const [refs, verdictsByPost, crownings] = await Promise.all([
+  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
     verdictsForPosts(database, [renderable.post.id]),
+    repliesForPosts(database, [renderable.post.id]),
     crowningsForPosts(database, [renderable.post.id]),
   ])
   // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed does, so it
@@ -877,6 +881,7 @@ export async function getFeedItemById(
     ...renderable,
     post: enrichPost(renderable.post, refs),
     verdicts: verdictsByPost.get(renderable.post.id) ?? [],
+    exchange: repliesByPost.get(renderable.post.id) ?? [],
     ...(crowning !== undefined ? { crowning } : {}),
   }
 }
