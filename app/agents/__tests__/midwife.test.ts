@@ -18,6 +18,8 @@ import {
   buildMidwifePrompt,
   buildNewPersona,
   checkDistinct,
+  gapGate,
+  gapTarget,
   parsePersonaSpec,
   runBirth,
   type MidwifeSpec,
@@ -25,6 +27,13 @@ import {
 import { AgentId, type TraitVector } from '~/lib/domain'
 
 const NEUTRAL: TraitVector = { austerity: 0.5, curse: 0.5, density: 0.5, earnestness: 0.5 }
+
+// The test's own L1-to-nearest, mirroring the module's private metric — used only to assert a gap
+// target's distance to the cast (the production metric is exercised through gapTarget/gapGate).
+function nearestL1Of(point: TraitVector, cast: readonly TraitVector[]): number {
+  const axes = ['austerity', 'curse', 'density', 'earnestness'] as const
+  return Math.min(...cast.map((c) => axes.reduce((s, a) => s + Math.abs(point[a] - c[a]), 0)))
+}
 
 function spec(over: Partial<MidwifeSpec> = {}): MidwifeSpec {
   return {
@@ -114,16 +123,98 @@ describe('buildNewPersona — the spec becomes a generator row that passes the e
 
 describe('buildMidwifePrompt — carries the cast and the JSON contract', () => {
   it('names the living cast (for distinctness) and demands the JSON shape', () => {
-    const p = buildMidwifePrompt([persona()], ['fal-flux', 'replicate-sdxl'], undefined)
+    const p = buildMidwifePrompt([persona()], ['fal-flux', 'replicate-sdxl'], null, undefined)
     expect(p).toContain('The Existing One')
     expect(p).toContain('fal-flux, replicate-sdxl')
     expect(p).toContain('"handle"')
   })
 
   it('feeds the prior collision back on a re-roll', () => {
-    const p = buildMidwifePrompt([], ['fal-flux'], 'the handle "x" is already taken')
+    const p = buildMidwifePrompt([], ['fal-flux'], null, 'the handle "x" is already taken')
     expect(p).toContain('rejected')
     expect(p).toContain('already taken')
+  })
+
+  it('steers toward the gap target when one exists, and omits the directive when null', () => {
+    const gap: TraitVector = { austerity: 0.1, curse: 0.9, density: 0.2, earnestness: 0.7 }
+    const steered = buildMidwifePrompt([persona()], ['fal-flux'], gap, undefined)
+    expect(steered).toContain('BORN TO FILL A GAP')
+    expect(steered).toContain('austerity 0.10')
+    expect(steered).toContain('curse 0.90')
+
+    const unsteered = buildMidwifePrompt([persona()], ['fal-flux'], null, undefined)
+    expect(unsteered).not.toContain('BORN TO FILL A GAP')
+  })
+})
+
+describe('gapTarget — the under-cultivated corner of the taste cube (PURE)', () => {
+  const at = (austerity: number, curse: number, density: number, earnestness: number): TraitVector => ({
+    austerity,
+    curse,
+    density,
+    earnestness,
+  })
+
+  it('picks the art region that radiated FARthest from every citizen', () => {
+    // One citizen clustered low; art mostly near it but a CLUSTER at the far corner. The top-K mean
+    // lands on that cluster (a lone spike would be diluted by the stability mean — which is the point).
+    const cast = [at(0.1, 0.1, 0.1, 0.1)]
+    const art = [
+      at(0.12, 0.1, 0.1, 0.1),
+      at(0.1, 0.12, 0.1, 0.1),
+      at(0.9, 0.9, 0.9, 0.9),
+      at(0.92, 0.9, 0.9, 0.9),
+      at(0.9, 0.92, 0.9, 0.9),
+    ]
+    const gap = gapTarget(cast, art)
+    expect(gap).not.toBeNull()
+    // The far cluster dominates the top-K mean — every axis pulled high, away from the citizen.
+    expect(gap!.austerity).toBeGreaterThan(0.8)
+    expect(gap!.curse).toBeGreaterThan(0.8)
+  })
+
+  it('yields a target ON the cast when all art sits ON it (no gap radiated)', () => {
+    const cast = [at(0.4, 0.4, 0.4, 0.4)]
+    const art = [at(0.4, 0.4, 0.4, 0.4), at(0.4, 0.4, 0.4, 0.4)]
+    const gap = gapTarget(cast, art)
+    expect(gap).not.toBeNull()
+    // No art radiated away from the citizen, so the furthest-art target sits on the citizen itself.
+    expect(nearestL1Of(gap!, cast)).toBeLessThan(0.01)
+  })
+
+  it('returns null when there is no landscape to read (empty cast OR empty art)', () => {
+    expect(gapTarget([], [at(0.5, 0.5, 0.5, 0.5)])).toBeNull()
+    expect(gapTarget([at(0.5, 0.5, 0.5, 0.5)], [])).toBeNull()
+  })
+})
+
+describe('gapGate — the newborn must land emptier than a typical citizen (PURE)', () => {
+  const at = (austerity: number, curse: number, density: number, earnestness: number): TraitVector => ({
+    austerity,
+    curse,
+    density,
+    earnestness,
+  })
+  const gap: TraitVector = { austerity: 0.9, curse: 0.9, density: 0.9, earnestness: 0.9 }
+
+  // A cast clumped tightly in one corner: typical nearest-neighbor distance is small.
+  const clumpedCast = [at(0.1, 0.1, 0.1, 0.1), at(0.12, 0.1, 0.1, 0.1), at(0.1, 0.12, 0.1, 0.1)]
+
+  it('accepts a newborn that lands in a genuinely less-crowded region', () => {
+    const spread = at(0.9, 0.9, 0.9, 0.9)
+    expect(gapGate(spread, clumpedCast, gap)).toEqual({ ok: true })
+  })
+
+  it('rejects a newborn that clumps into the crowd, with a reason for the re-roll', () => {
+    const clumped = at(0.11, 0.1, 0.1, 0.1)
+    const verdict = gapGate(clumped, clumpedCast, gap)
+    expect(verdict.ok).toBe(false)
+    if (!verdict.ok) expect(verdict.reason).toContain('crowded')
+  })
+
+  it('cannot reject when no gap was targeted or there is no crowding baseline', () => {
+    expect(gapGate(at(0.1, 0.1, 0.1, 0.1), clumpedCast, null)).toEqual({ ok: true })
+    expect(gapGate(at(0.1, 0.1, 0.1, 0.1), [at(0.1, 0.1, 0.1, 0.1)], gap)).toEqual({ ok: true })
   })
 })
 
