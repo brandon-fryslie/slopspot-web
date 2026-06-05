@@ -1,8 +1,10 @@
 import type { Route } from "./+types/p.$id"
 import { Link } from "react-router"
 import { getFeedItemById } from "~/db/feed"
+import { getGenealogy } from "~/db/genealogy-view"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostCard } from "~/components/post-card"
+import { GenealogyView } from "~/components/genealogy"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The permalink page route. Reuses getFeedItemById,
@@ -21,15 +23,19 @@ import { PostId } from "~/lib/domain"
 // already what shareable links want to be.
 
 export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const item = await getFeedItemById(
-    context.cloudflare.env,
-    PostId(params.id),
-    readVoterId(request),
-  )
+  const env = context.cloudflare.env
+  const postId = PostId(params.id)
+  // [LAW:dataflow-not-control-flow] The post and its genealogy are independent reads of the same
+  // id — fetch them together. The genealogy folds the lineage_edges subgraph reachable from this
+  // post; a founder with no offspring yields an empty Genealogy the view renders as nothing.
+  const [item, genealogy] = await Promise.all([
+    getFeedItemById(env, postId, readVoterId(request)),
+    getGenealogy(env, postId),
+  ])
   if (item === null) {
     throw new Response("post not found", { status: 404 })
   }
-  return { item }
+  return { item, genealogy }
 }
 
 export function meta({ data }: Route.MetaArgs) {
@@ -48,7 +54,7 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
-  const { item } = loaderData
+  const { item, genealogy } = loaderData
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-8 border-b border-white/10 pb-6">
@@ -74,6 +80,10 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
           permalinked relic hangs "standalone". Spread the renderable as one value
           and name the level beside it; the type system carries the contract. */}
       <PostCard {...item} frame={{ kind: "standalone" }} />
+      {/* [LAW:dataflow-not-control-flow] The visual genealogy hangs beside the relic on the
+          permalink — ancestry up, offspring down — derived from the lineage_edges DAG. It renders
+          nothing for a founder with no offspring; the data is the discriminator. */}
+      <GenealogyView genealogy={genealogy} />
     </main>
   )
 }
