@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { emit, type MetricLabels } from '~/observability/metrics'
+import {
+  emit,
+  formatPrometheusMetrics,
+  resetCountersForTesting,
+  snapshotCountersForTesting,
+  type MetricLabels,
+} from '~/observability/metrics'
 
 // [LAW:behavior-not-structure] These tests assert the CONTRACT the homelab
 // puller depends on: the log prefix, the message-arg shape, and the typed-
@@ -16,6 +22,7 @@ describe('emit', () => {
 
   afterEach(() => {
     logSpy.mockRestore()
+    resetCountersForTesting()
   })
 
   it('emits a [metric] prefixed log with labels + value', () => {
@@ -57,6 +64,64 @@ describe('emit', () => {
     const arg = logSpy.mock.calls[0]?.[1] as { provider_id: string; value: number }
     expect(typeof arg.value).toBe('number')
     expect(arg.value).toBe(0.0035)
+  })
+
+  it('accumulates repeated emissions for the same metric+labels', () => {
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 1)
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 1)
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 1)
+    const snap = snapshotCountersForTesting()
+    const entry = [...snap.values()].find(
+      (e) => e.name === 'slopspot.http.request' &&
+        (e.labels as Record<string, string>).route === 'home',
+    )
+    expect(entry?.value).toBe(3)
+  })
+
+  it('keeps distinct label combinations as separate counter entries', () => {
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 1)
+    emit('slopspot.http.request', { route: 'p.$id', status: '200' }, 1)
+    emit('slopspot.http.request', { route: 'home', status: '404' }, 1)
+    const snap = snapshotCountersForTesting()
+    expect(snap.size).toBe(3)
+  })
+})
+
+describe('formatPrometheusMetrics', () => {
+  afterEach(() => {
+    resetCountersForTesting()
+  })
+
+  it('returns empty string when no metrics have been emitted', () => {
+    expect(formatPrometheusMetrics()).toBe('')
+  })
+
+  it('converts dots in metric names to underscores', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 5)
+    spy.mockRestore()
+    const output = formatPrometheusMetrics()
+    expect(output).toContain('slopspot_http_request{')
+    expect(output).not.toContain('slopspot.http.request')
+  })
+
+  it('includes label key=value pairs and the counter value', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 42)
+    spy.mockRestore()
+    const output = formatPrometheusMetrics()
+    expect(output).toContain('route="home"')
+    expect(output).toContain('status="200"')
+    expect(output).toContain('} 42')
+  })
+
+  it('escapes double quotes in label values', () => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    // Synthesize a metric with a label value that contains a quote
+    emit('slopspot.http.request', { route: 'tricky"route', status: '200' }, 1)
+    spy.mockRestore()
+    const output = formatPrometheusMetrics()
+    expect(output).toContain('route="tricky\\"route"')
   })
 })
 
