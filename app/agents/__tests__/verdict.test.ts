@@ -151,4 +151,39 @@ describe('narrateVerdict — the Feud Engine (reply exchange)', () => {
     await castVerdict('agent:solo', id, -1, 'Buried, alone.', new Date(1000))
     expect(await replyRowFor('agent:solo', id)).toBeUndefined()
   })
+
+  // [LAW:behavior-not-structure] The 3-critic FLOOR contract (voice-w2v.2, CD-ruled): a slop renders AT
+  // MOST ONE WHOLE opposing pair — the FRESHEST clash, both halves — and NEVER an orphaned half. When a
+  // second opponent (C) supersedes an earlier one (B), the incumbent (A) re-aims to C (latest-clash-wins)
+  // AND B's now-dangling half (B answering an A who has turned to C) is pruned. So the store holds exactly
+  // {A↔C} and the render shows a whole current pair, never B yelling at an A who wandered off. Multi-
+  // opponent per-pair exchange is w2v.3 (the answers-discriminator) — a deliberate, gated lock-relaxation.
+  // Pinned here so a drift fails as a CONSCIOUS contract change. (The 3-critic case the suite missed.)
+  it('a second opponent yields ONE whole current pair, no orphaned half', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian') // A — blesses
+    await seedCritic('agent:gremlin', 'The Gremlin') // B — buries (opposes A), then superseded
+    await seedCritic('agent:vesper', 'Vesper') // C — buries (opposes A), the fresher clash
+    const id = await seedPost(env, { id: 'feud-3critic-floor' })
+
+    await castVerdict('agent:vivian', id, 1, 'A blessing.', new Date(1000))
+    await castVerdict('agent:gremlin', id, -1, 'Buried.', new Date(2000)) // pair A-B
+    await castVerdict('agent:vesper', id, -1, 'Also buried.', new Date(3000)) // pair A-C supersedes A-B
+
+    // WHOLE-CURRENT-PAIR INVARIANT: exactly TWO reply rows on the slop — the current pair A↔C — never a
+    // third (B's orphaned half is pruned, not left dangling).
+    const repliesOnPost = await db(env)
+      .select()
+      .from(utterances)
+      .where(and(eq(utterances.targetPostId, id), eq(utterances.occasion, 'reply')))
+    expect(repliesOnPost).toHaveLength(2)
+
+    // A, the incumbent, holds ONE reply answering the LATEST opponent (C) — latest-clash-wins.
+    const aReply = await replyRowFor('agent:vivian', id)
+    expect(aReply?.text).toContain('Vesper')
+    expect(aReply?.text).not.toContain('The Gremlin')
+    // C answers A — the whole pair reciprocates.
+    expect((await replyRowFor('agent:vesper', id))?.text).toContain('St. Vivian')
+    // B's half is GONE — no dangling reply from the superseded clasher.
+    expect(await replyRowFor('agent:gremlin', id)).toBeUndefined()
+  })
 })
