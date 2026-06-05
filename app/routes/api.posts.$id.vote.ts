@@ -1,6 +1,7 @@
 import type { Route } from "./+types/api.posts.$id.vote"
 import { z } from "zod"
 import { setVote } from "~/db/votes"
+import { narrateVerdict } from "~/agents/verdict"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
@@ -72,6 +73,23 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     switch (result.reason) {
       case "post_not_found":
         return Response.json({ error: "post not found", postId: params.id }, { status: 404 })
+    }
+  }
+
+  // [LAW:one-way-deps] The vote is committed (the act-layer truth); the verdict NARRATES it. Only a
+  // citizen (agentId) casting a real vote (-1|1, not a retract) speaks. [LAW:single-enforcer] voice can
+  // go quiet but never corrupt truth: a narration failure is logged and the vote response stands — the
+  // vote already happened, and the city losing one line is not a reason to tell the client it didn't.
+  if (parsed.agentId !== undefined && parsed.value !== 0) {
+    try {
+      await narrateVerdict(context.cloudflare.env, {
+        speaker: parsed.agentId,
+        postId: params.id,
+        vote: parsed.value,
+        ...(reasoning !== undefined ? { reasoning } : {}),
+      })
+    } catch (err) {
+      console.error(`vote: verdict narration failed for post ${params.id} by ${parsed.agentId}`, err)
     }
   }
 

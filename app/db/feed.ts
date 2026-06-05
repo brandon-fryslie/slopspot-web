@@ -50,12 +50,11 @@ import {
   type Post,
   type RenderablePost,
   type TraitVector,
-  type Verdict,
-  type VerdictDisposition,
   type VoteValue,
 } from '~/lib/domain'
 import { authorLabel } from '~/lib/author-label'
 import { crowningsForPosts } from '~/db/crowns'
+import { verdictsForPosts } from '~/db/utterances'
 import { emit } from '~/observability/metrics'
 import {
   ASPECT_RATIOS,
@@ -490,80 +489,6 @@ async function fetchCitizenRefs(
   return refs
 }
 
-// [LAW:single-enforcer] One place resolves the representative critic VERDICT for a
-// set of visible posts. Mirrors fetchCitizenRefs: a single bounded batch query keyed
-// on the visible post ids (≤50 → ≤50 bind vars, well under D1's 100-var limit) run
-// AFTER the feed CTE, so the orphan/fail-loud guards on the main row→Post map are
-// untouched. [LAW:one-source-of-truth] reasoning lives on the vote row, displayName on
-// the persona row; this read JOINs them and stores neither — no third copy to drift.
-//
-// SELECTION RULE (deterministic, per the acceptance criterion): among a post's
-// critic votes that carry BOTH a non-empty reasoning AND a non-empty critic name,
-// take the MOST RECENT (created_at DESC) — the city's latest opinion is the one it's
-// living with. Ties (identical created_at) break by voter_id DESC, so the same feed
-// render always yields the same byline. The INNER JOIN to personas is what makes a
-// vote a *critic's*: a vote whose voter_id is not a persona (a human's anon-cookie
-// UUID) has no displayName to attribute and is excluded by construction — which is
-// also why human votes (NULL reasoning) never reach this rank.
-//
-// [LAW:types-are-the-program] The Verdict type claims BOTH halves are non-empty "by
-// construction"; this boundary is where that claim is MADE true. Unlike a CitizenRef
-// (which falls back to the agentId label when a persona is missing — NAME ALWAYS), a
-// verdict has no fallback byline: a blank critic name would render `— ` (an empty
-// byline), the exact mirror of the empty-string-verdict failure the reasoning gate
-// forbids. So the gate is symmetric — text AND critic must be meaningful — and a vote
-// failing either is excluded before the rank, so an older fully-formed critic line
-// still surfaces rather than being shadowed by a half-blank newer one.
-async function fetchVerdicts(
-  database: ReturnType<typeof db>,
-  postIds: readonly string[],
-): Promise<Map<string, Verdict>> {
-  if (postIds.length === 0) return new Map()
-
-  // [LAW:no-silent-fallbacks] Each predicate excludes both NULL and whitespace-only in
-  // one expression: trim(NULL) is NULL and `NULL <> ''` is falsy in SQLite, so neither
-  // a missing nor a blank value survives the WHERE. `meaningful` gates the verdict TEXT;
-  // `named` gates the verdict BYLINE — the two halves of the Verdict, gated identically
-  // so neither can reach the domain empty.
-  const meaningful = sql`trim(${votes.reasoning}) <> ''`
-  const named = sql`trim(${personas.displayName}) <> ''`
-  const ranked = database
-    .select({
-      postId: votes.postId,
-      reasoning: votes.reasoning,
-      critic: personas.displayName,
-      value: votes.value,
-      rank: sql<number>`row_number() over (
-        partition by ${votes.postId}
-        order by ${votes.createdAt} desc, ${votes.voterId} desc
-      )`.as('verdict_rank'),
-    })
-    .from(votes)
-    .innerJoin(personas, eq(personas.agentId, votes.voterId))
-    .where(and(inArray(votes.postId, postIds), meaningful, named))
-    .as('ranked_verdicts')
-
-  const rows = await database
-    .select({ postId: ranked.postId, reasoning: ranked.reasoning, critic: ranked.critic, value: ranked.value })
-    .from(ranked)
-    .where(eq(ranked.rank, 1))
-
-  const verdicts = new Map<string, Verdict>()
-  for (const r of rows) {
-    // [LAW:no-silent-fallbacks] `required` is the boundary fail-loud if the stored
-    // shape ever drifts (the WHERE already excludes NULL, so this never throws in
-    // practice) — never an `!`-laundered null. Trim BOTH halves for a clean domain
-    // value (the WHERE only gates presence, not surrounding whitespace on a real
-    // value) — the same rule the title boundary applies.
-    verdicts.set(r.postId, {
-      text: required(r.reasoning, `verdict reasoning for post ${r.postId}`).trim(),
-      critic: r.critic.trim(),
-      disposition: toDisposition(r.value, r.postId),
-    })
-  }
-  return verdicts
-}
-
 // [LAW:one-source-of-truth] Resolve an agent's persona reference (agentId) into its
 // CitizenRef. Construct explicitly rather than spreading parsed JSON so the
 // storage→domain boundary emits exactly the domain shape. A persona-less agent (no
@@ -637,18 +562,6 @@ function toMyVote(raw: number | null, postId: string): VoteValue | null {
   if (raw === 1 || raw === -1) return raw
   throw new Error(
     `feed: vote value ${raw} for post ${postId} is outside the stored shape (-1 | 1)`,
-  )
-}
-
-// [LAW:types-are-the-program] The representative critic vote's sign IS the verdict's
-// disposition — +1 is a blessing, -1 a burial. Same CHECK-guaranteed stored shape as
-// toMyVote, same fail-loud on a drifted value; the representative vote is a real row
-// (INNER JOIN), so unlike myVote it is never null here.
-function toDisposition(raw: number, postId: string): VerdictDisposition {
-  if (raw === 1) return "blessed"
-  if (raw === -1) return "buried"
-  throw new Error(
-    `feed: verdict vote value ${raw} for post ${postId} is outside the stored shape (-1 | 1)`,
   )
 }
 
@@ -773,6 +686,9 @@ function rowToRenderablePost(
     // origin.human.by is not touched by enrichPost (persona resolution only reaches
     // author/finder/uploader), so this bit computed pre-enrich rides through unchanged.
     viewerIsModifier: computeViewerIsModifier(post.origin, viewerId),
+    // The base renderable carries no critics; the caller fills `verdicts` from the batched
+    // verdictsForPosts read (one query over the visible set, never per-row).
+    verdicts: [],
   }
 }
 
@@ -887,18 +803,18 @@ export async function getFeedPage(
   // concurrently — one round-trip's latency, not three.
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
   const postIds = renderables.map((r) => r.post.id)
-  const [refs, verdicts, crownings] = await Promise.all([
+  const [refs, verdictsByPost, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
-    fetchVerdicts(database, postIds),
+    verdictsForPosts(database, postIds),
     crowningsForPosts(database, postIds),
   ])
 
   const items = renderables.map((r, i): FeedItem => {
-    // [LAW:dataflow-not-control-flow] The verdict's and crowning's PRESENCE is the discriminator — a
-    // post with no critic line / no crown spreads nothing, so the field is genuinely absent (not
-    // `undefined`-valued), which exactOptionalPropertyTypes demands. `rank` is page-relative (1..limit);
-    // the focal/crowned-relic treatment is a page-1 concern the client owns.
-    const verdict = verdicts.get(r.post.id)
+    // [LAW:dataflow-not-control-flow] The verdicts ARRAY (empty for an un-judged slop, ≥2 = co-present)
+    // and the crowning's PRESENCE are the discriminators — its length/absence is the data the card
+    // renders by, not an `isReviewed`/`isCrowned` flag. The crowning field is genuinely absent (not
+    // `undefined`-valued) when no crown reigns, which exactOptionalPropertyTypes demands. `rank` is
+    // page-relative (1..limit); the focal/crowned-relic treatment is a page-1 concern the client owns.
     const crowning = crownings.get(r.post.id)
     return {
       post: enrichPost(r.post, refs),
@@ -906,7 +822,7 @@ export async function getFeedPage(
       myVote: r.myVote,
       commentCount: r.commentCount,
       viewerIsModifier: r.viewerIsModifier,
-      ...(verdict !== undefined ? { verdict } : {}),
+      verdicts: verdictsByPost.get(r.post.id) ?? [],
       ...(crowning !== undefined ? { crowning } : {}),
       rank: i + 1,
     }
@@ -948,20 +864,19 @@ export async function getFeedItemById(
   const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
   const renderable = rowToRenderablePost(rows[0], voterId, parentsByChild.get(rows[0].post.id) ?? [])
   const agentIds = collectAgentIds([renderable.post])
-  const [refs, verdicts, crownings] = await Promise.all([
+  const [refs, verdictsByPost, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
-    fetchVerdicts(database, [renderable.post.id]),
+    verdictsForPosts(database, [renderable.post.id]),
     crowningsForPosts(database, [renderable.post.id]),
   ])
-  // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed
-  // does, so it carries the verdict and the eternal mark the same way — each present
-  // iff its record exists.
-  const verdict = verdicts.get(renderable.post.id)
+  // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed does, so it
+  // carries the verdicts (the co-present critic lines) and the eternal mark the same way — the array
+  // (empty when none) and the crown's presence are the data the card renders by.
   const crowning = crownings.get(renderable.post.id)
   return {
     ...renderable,
     post: enrichPost(renderable.post, refs),
-    ...(verdict !== undefined ? { verdict } : {}),
+    verdicts: verdictsByPost.get(renderable.post.id) ?? [],
     ...(crowning !== undefined ? { crowning } : {}),
   }
 }

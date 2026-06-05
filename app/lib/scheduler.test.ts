@@ -4,6 +4,7 @@
 // implementation — only its behavioral effect on fire probability.
 
 import { describe, expect, it } from 'vitest'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { parseSchedulerConfig, personasDueNow, shouldFireNow } from './scheduler'
 import type { Persona } from '~/agents/persona'
 import { AgentId } from '~/lib/domain'
@@ -26,6 +27,7 @@ function makePersona(agentId: string, config: Record<string, unknown>): Persona 
     personaPrompt: '',
     modelId: 'glm-4v-flash',
     config,
+    traits: NEUTRAL_TRAITS,
   }
 }
 

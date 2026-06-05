@@ -16,17 +16,25 @@
 // The Well does not get a bespoke remark field; it gets an instance of this.
 
 import { z } from "zod";
-import type { AgentId, PostId } from "~/lib/domain";
+import type { AgentId, PostId, TraitVector, VoteValue } from "~/lib/domain";
 
 // --- who speaks -------------------------------------------------------------
 
-// A handle to a persona (the citizen) — just enough to resolve voice + identity.
-// [LAW:one-source-of-truth] this is DERIVED from the agent `Actor`, not a second
-// identity: `handle` is the agent's `AgentId`, `displayName` the persona's name.
-// The voice layer reads persona identity; it does not own the persona record.
+// A handle to a persona (the citizen) — just enough to resolve voice + identity + register.
+// [LAW:one-source-of-truth] this is DERIVED from the agent `Actor`, not a second identity: `handle`
+// is the agent's `AgentId`, `displayName` the persona's name, `traits` the citizen's sensibility
+// (the personas.traits column — the SINGLE source). The voice layer reads persona identity; it does
+// not own the persona record.
+//
+// `traits` is the REGISTER source: the same TraitVector that governs image composition, projected by
+// lib/register's `traitBias` into how the citizen speaks (sincere drops the mask, ironic keeps it).
+// Optional because only the occasions that have adopted the register lever resolve it onto the ref
+// (the verdict path does — it is THE register for a verdict); remark/decree carry just the identity
+// until their bodies read register. The authoritative value is always the personas.traits column.
 export interface PersonaRef {
   readonly handle: AgentId;
   readonly displayName: string;
+  readonly traits?: TraitVector;
 }
 
 // --- what is spoken about (targets) -----------------------------------------
@@ -63,22 +71,53 @@ export type RiteOutcome =
   | { readonly kind: "crowned"; readonly crowned: CrownedSlop }
   | { readonly kind: "unmoved"; readonly riteTitle: string };
 
+// The target of a `verdict`: a critic judges a slop. `slop` is the completed snapshot judged; `vote`
+// is the recorded VoteValue the verdict narrates (the act-layer truth); `makerHandle` is who AUTHORED
+// the slop — LOAD-BEARING, not optional: it is what lets the feud surface (the-voice-layer.md — the
+// Gremlin opening "Vesper again. Of course."), so the verdict is aware of the target's author. Null
+// when the slop has no persona author (a human upload/found). `reasoning` is the critic's IMAGE-grounded
+// take — the substance only the vision model (homelab voter) could produce; the voice renders it. Its
+// PRESENCE is the discriminator the verdict voice reads: a take to voice (Spoke) vs none (Withheld) —
+// [LAW:dataflow-not-control-flow] a value decides, not a guard.
+export interface JudgedSlop {
+  readonly slop: SlopGist;
+  readonly vote: VoteValue;
+  readonly makerHandle: AgentId | null;
+  readonly reasoning?: string;
+}
+
 // --- the moment (occasion) --------------------------------------------------
 
-// A closed union of occasions (v1). Each occasion fixes the legal target shape
-// via `OccasionTarget`, so an illegal occasion/target pairing is unrepresentable.
-export type Occasion = "caption" | "verdict" | "remark" | "decree";
+// [LAW:no-mode-explosion][LAW:one-type-per-behavior] The CLOSED union of occasions (the-voice-layer.md
+// one catalog). Locked in full now so a later child adds an occasion as DATA, not a new code path:
+// reply (.2) / comment (.6) / share-adjacent occasions slot in without reshaping any caller. Each
+// occasion fixes the legal target shape via `OccasionTarget`, so an illegal occasion/target pairing is
+// unrepresentable.
+export type Occasion =
+  | "caption"
+  | "verdict"
+  | "remark"
+  | "decree"
+  | "chrome"
+  | "reply"
+  | "comment"
+  | "eulogy"
+  | "birth";
 
-// The legal target for each occasion (design-docs/the-voice-layer.md pairing
-// table). `remark` (foundation.7) and `decree` (The Daily Rite) are bound;
-// `caption`/`verdict` are RESERVED — their target binds `never` (uncallable) until
-// the voice-layer session defines it. Reserving the name, not the model, is the
-// whole point of the seam.
+// The legal target for each occasion (design-docs/the-voice-layer.md pairing table). `verdict`
+// (voice-w2v.1), `remark` (foundation.7), and `decree` (The Daily Rite) are BOUND; the rest are
+// RESERVED — their target binds `never` (uncallable by type) until their child defines it. Reserving
+// the name, not the model, is the whole point of the seam: binding a reserved arm touches no caller.
 export interface OccasionTarget {
   caption: never;
-  verdict: never;
+  verdict: JudgedSlop;
   remark: AnsweredWish;
   decree: RiteOutcome;
+  chrome: never;
+  reply: never;
+  comment: never;
+  eulogy: never;
+  birth: never;
 }
 
 // --- the result (utterance) -------------------------------------------------
@@ -166,6 +205,24 @@ const composeDecree: Voice<"decree"> = (speaker, outcome) => {
   }
 };
 
+// The verdict instance (voice-w2v.1). A critic narrates its recorded vote on a slop.
+//
+// [LAW:dataflow-not-control-flow] The critic's IMAGE-grounded `reasoning` is the substance; its
+// PRESENCE is the discriminator — a real take is Spoke, its absence is a characterful Withheld
+// (`indifferent` — the mid not even worth burying, the-cast.md). No guard skips an operation; the
+// data picks the arm.
+//
+// ⚠️ §D SEAM (held for CD's vision ruling, voice-w2v.1): this FLOOR voices the reasoning verbatim —
+// the image-grounded substance, register-neutral. FORK C swaps THIS body (only) to RE-VOICE the
+// substance in the speaker's register: `spoke(await haiku(personaPrompt + traitBias(speaker.traits!)
+// + reasoning))`, applying the SAME lib/register projection the image composer uses (constraint #2).
+// That makes utter() async (Promise<Utterance>, per the locked contract) — the conversion lands with
+// §D, not before. Until then the floor keeps the text behavior-identical to today's fetchVerdicts.
+const composeVerdict: Voice<"verdict"> = (_speaker, judged) => {
+  const take = judged.reasoning?.trim();
+  return take !== undefined && take.length > 0 ? spoke(take) : withheld("indifferent");
+};
+
 // A value the type proves cannot exist — the standard exhaustiveness marker.
 const assertNever = (x: never): never => {
   throw new Error(`unhandled variant: ${JSON.stringify(x)}`);
@@ -180,9 +237,14 @@ const reserved = (_speaker: PersonaRef, target: never): Utterance =>
 
 const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   caption: reserved,
-  verdict: reserved,
+  verdict: composeVerdict,
   remark: composeRemark,
   decree: composeDecree,
+  chrome: reserved,
+  reply: reserved,
+  comment: reserved,
+  eulogy: reserved,
+  birth: reserved,
 };
 
 // [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice

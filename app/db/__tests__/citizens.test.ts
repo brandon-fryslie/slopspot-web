@@ -6,6 +6,7 @@
 // live writers do (mirroring pulse.test.ts).
 
 import { describe, expect, it } from 'vitest'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { env } from 'cloudflare:test'
 import {
   feudsAround,
@@ -27,6 +28,7 @@ function persona(agentId: string, role: PersonaRole): Persona {
     personaPrompt: 'p',
     modelId: 'm',
     config: {},
+    traits: NEUTRAL_TRAITS,
   }
 }
 
