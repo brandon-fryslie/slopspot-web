@@ -4,6 +4,7 @@ import { runScheduled } from "~/firehose/scheduled"
 import { runGenJobs, type GenJob } from "~/firehose/gen-queue"
 import { runPortraitPass } from "~/agents/portrait"
 import { runRite } from "~/agents/rite"
+import { runBirth } from "~/agents/midwife"
 import { emit } from "~/observability/metrics"
 import { normalizeRoute } from "~/observability/route-normalizer"
 
@@ -69,6 +70,14 @@ export default {
         await runRite(env, event.scheduledTime)
       } catch (err) {
         console.error('rite: unhandled error', { cron: event.cron }, err)
+      }
+      try {
+        // The Growing Cast: the midwife births one new citizen a day (the-growing-cast,
+        // slopspot-growing-cast-7ni.1) — folded onto the same daily tick, its own catch so a
+        // failed birth cannot abort the rite/portrait/bank-gen beside it.
+        await runBirth(env, event.scheduledTime)
+      } catch (err) {
+        console.error('birth: unhandled error', { cron: event.cron }, err)
       }
       return
     }

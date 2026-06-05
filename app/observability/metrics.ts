@@ -128,6 +128,16 @@ export type MetricLabels = {
     route: string
     outcome: 'success' | 'error'
   }
+  // [LAW:types-are-the-program] The daily Birth Engine's one outcome metric. The cadence is a
+  // TARGET (one citizen/day), not a guarantee — so a `skipped` day is a first-class, OBSERVABLE
+  // outcome, never a silent miss. `born` = a new citizen written; `already-born` = the day was
+  // settled (idempotent re-fire); `skipped-indistinct` = the midwife could not author a citizen
+  // distinct from the cast within the attempt budget (an honest no-birth over a polluting
+  // duplicate); `skipped-llm` = the LLM author failed every attempt. The two skips are LOGGED
+  // loudly at the call site so a missed-cadence day surfaces. [LAW:no-silent-fallbacks]
+  'slopspot.birth.outcome': {
+    outcome: 'born' | 'already-born' | 'skipped-indistinct' | 'skipped-llm'
+  }
 }
 
 export type MetricName = keyof MetricLabels
