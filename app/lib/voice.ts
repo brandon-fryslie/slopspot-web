@@ -139,6 +139,19 @@ export interface Newcomer {
   readonly medium: ProviderId;
 }
 
+// The target of a `first-poet` decree (The Firehose Writes, slopspot-beyond-image-poj.4): the citizen the
+// city marks AS its first poet. The voice NARRATES a first-of-kind that the city DERIVED from state — a
+// verse-citizen exists and none was honored before it — never a seeded flag. `bornOn` is the poet's birth
+// day (the permanent mark reads "the city's first poet, born [date]"); `creed` gives the decree its
+// substance, the same way the welcome reads a newcomer's creed. All three are facts of the honored citizen,
+// resolved by the rite before it speaks.
+// [LAW:one-way-deps] voice -> persona identity (name + creed + birth day to pronounce), never the live row.
+export interface FirstPoet {
+  readonly displayName: string;
+  readonly creed: string;
+  readonly bornOn: string;
+}
+
 // --- the moment (occasion) --------------------------------------------------
 
 // [LAW:no-mode-explosion][LAW:one-type-per-behavior] The CLOSED union of occasions (the-voice-layer.md
@@ -155,7 +168,8 @@ export type Occasion =
   | "reply"
   | "comment"
   | "eulogy"
-  | "birth";
+  | "birth"
+  | "first-poet";
 
 // The legal target for each occasion (design-docs/the-voice-layer.md pairing table). `verdict`
 // (voice-w2v.1), `remark` (foundation.7), `decree` (The Daily Rite), and `reply` (the Feud Engine,
@@ -172,6 +186,7 @@ export interface OccasionTarget {
   comment: never;
   eulogy: never;
   birth: Newcomer;
+  "first-poet": FirstPoet;
 }
 
 // --- the result (utterance) -------------------------------------------------
@@ -324,6 +339,17 @@ const composeBirth: Voice<"birth"> = (speaker, newcomer) => {
   return spoke(frame(speaker.displayName, newcomer.displayName, newcomer.creed));
 };
 
+// The first-poet instance (The Firehose Writes, slopspot-beyond-image-poj.4). The Proprietor decrees the
+// city's FIRST POET — a once-ever honor, so a single composed line (no hash rotation: there is exactly one
+// first poet, one decree). NAMES the poet and its birth day (the permanent mark "the city's first poet,
+// born [date]") and weaves its creed, in the Proprietor's register (proprietorial about the relics, reverent
+// about the city's firsts). A pure deterministic floor; the LLM-backed Proprietor voice can replace this
+// body later, the signature unchanged.
+const composeFirstPoet: Voice<"first-poet"> = (speaker, poet) =>
+  spoke(
+    `${speaker.displayName} marks a first: ${poet.displayName} is the city's first poet, born ${poet.bornOn}. "${poet.creed}" — the machines have begun to speak. Mind the relics; some of them rhyme now.`,
+  );
+
 // [LAW:single-enforcer] The verdict re-voice PROMPT — built in ONE pure place so CI can prove its
 // shape deterministically (the grounding seam). SUBSTANCE is the critic's image-grounded observation
 // (`reasoning`); REGISTER is traitBias(traits) — the SAME lib/register projection the image composer
@@ -427,6 +453,7 @@ const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   comment: reserved,
   eulogy: reserved,
   birth: composeBirth,
+  "first-poet": composeFirstPoet,
 };
 
 // [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice that throws OR rejects (a

@@ -155,6 +155,14 @@ export type MetricLabels = {
   'slopspot.birth.debut': {
     outcome: 'authored' | 'skipped-budget' | 'failed'
   }
+  // [LAW:dataflow-not-control-flow] The First-Poet Rite's signal — fired every daily tick, the DATA picking
+  // the outcome: `decreed` = the city's first poet was marked just now; `already-decreed` = the once-ever
+  // honor was already recorded (the idempotent no-op, the steady state after the first poet exists);
+  // `no-poet` = no verse-citizen exists yet (the city has not written). The cadence of `no-poet` → `decreed`
+  // → `already-decreed` is the watchable emergence the verse-weight knob (deferred) would tune.
+  'slopspot.firstpoet.decree': {
+    outcome: 'decreed' | 'already-decreed' | 'no-poet'
+  }
 }
 
 export type MetricName = keyof MetricLabels
