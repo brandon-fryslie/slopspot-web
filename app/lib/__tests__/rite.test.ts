@@ -7,11 +7,24 @@
 // of the lens; the liturgical week maps every UTC weekday to a rite with its ballot.
 
 import { describe, expect, it } from 'vitest'
-import { AgentId, PostId, type CrownMark, type RiteLens, type VoteValue } from '~/lib/domain'
+import {
+  AgentId,
+  GenomeId,
+  PostId,
+  ProviderId,
+  type CrownMark,
+  type Genome,
+  type RiteLens,
+  type TraitVector,
+  type VoteValue,
+} from '~/lib/domain'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
+import { recipeSubjectSchema, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import {
   CROWN_INTENSITY_THRESHOLD,
   RITES,
   ballotCitizens,
+  devianceRanking,
   elect,
   markFor,
   riteForDay,
@@ -28,10 +41,40 @@ function candidate(opts: {
   citizenVotes?: Record<string, VoteValue>
 }): RiteCandidate {
   return {
+    kind: 'voted',
     postId: PostId(opts.id),
     overallScore: opts.overallScore ?? 0,
     citizenVotes: opts.citizenVotes ?? {},
   }
+}
+
+// A genome fixture for the deviance scorer. geneticDistance reads only genes + traits, so
+// the form is a free-text T00 (distinct strings = distinct forms = a form-gene mismatch);
+// species/frame/medium are valid enum/registry values the caller varies to shape cohorts.
+function genome(opts: {
+  id: string
+  species?: StyleFamily
+  formText?: string
+  frame?: AspectRatio
+  medium?: string
+  traits?: TraitVector
+}): Genome {
+  return {
+    id: GenomeId(opts.id),
+    genes: {
+      species: opts.species ?? 'photoreal',
+      form: recipeSubjectSchema.parse({ subjectTemplate: 'T00', slots: { freeText: opts.formText ?? 'base' } }),
+      frame: opts.frame ?? '1:1',
+      medium: ProviderId(opts.medium ?? 'fal-flux'),
+    },
+    utterance: '',
+    traits: opts.traits ?? NEUTRAL_TRAITS,
+    lineage: { kind: 'founder' },
+  }
+}
+
+function devianceOf(out: readonly { postId: PostId; deviance: number }[], id: string): number | undefined {
+  return out.find((c) => c.postId === PostId(id))?.deviance
 }
 
 describe('elect — the monarchical ballot (sole)', () => {
@@ -111,6 +154,75 @@ describe('elect — acclaim (Miracle) is the one democratic lens', () => {
   })
 })
 
+describe('devianceRanking — the Heretic weighs recipe outliers within a style family', () => {
+  it('a cohort of one yields no candidate — no orthodoxy to defy', () => {
+    // Each genome is alone in its declared family: nothing to be a heretic against.
+    const out = devianceRanking([
+      genome({ id: 'a', species: 'photoreal' }),
+      genome({ id: 'b', species: 'oil-painting' }),
+    ])
+    expect(out).toEqual([])
+  })
+
+  it('crowns the genome least like the siblings who chose its own family', () => {
+    // Three photoreals: a and b are twins; c diverges in form, frame, AND medium.
+    const a = genome({ id: 'a', species: 'photoreal', formText: 'x', frame: '1:1', medium: 'fal-flux' })
+    const b = genome({ id: 'b', species: 'photoreal', formText: 'x', frame: '1:1', medium: 'fal-flux' })
+    const c = genome({ id: 'c', species: 'photoreal', formText: 'y', frame: '16:9', medium: 'replicate-sdxl' })
+    const out = devianceRanking([a, b, c])
+    // mean pairwise gene-mismatch: a,b each {0 to twin, 3 to c} = 1.5; c {3, 3} = 3.
+    expect(devianceOf(out, 'a')).toBe(1.5)
+    expect(devianceOf(out, 'b')).toBe(1.5)
+    expect(devianceOf(out, 'c')).toBe(3)
+  })
+
+  it('trait drift within an otherwise-identical cohort still registers deviance', () => {
+    const a = genome({ id: 'a', species: 'photoreal', traits: NEUTRAL_TRAITS })
+    const b = genome({
+      id: 'b',
+      species: 'photoreal',
+      traits: { austerity: 1, curse: 0.5, density: 0.5, earnestness: 0.5 },
+    })
+    const out = devianceRanking([a, b])
+    // identical genes (mismatch 0) + L1 trait drift |1 - 0.5| = 0.5 on one axis.
+    expect(devianceOf(out, 'a')).toBeCloseTo(0.5)
+    expect(devianceOf(out, 'b')).toBeCloseTo(0.5)
+  })
+
+  it('cohorts are family-LOCAL: a different family is never a sibling', () => {
+    // Two photoreals (twins, deviance 0 between them) + one lone anime. The anime is a
+    // singleton family → no candidate; the photoreals are twins → deviance 0.
+    const out = devianceRanking([
+      genome({ id: 'a', species: 'photoreal', formText: 'x' }),
+      genome({ id: 'b', species: 'photoreal', formText: 'x' }),
+      genome({ id: 'c', species: 'anime', formText: 'totally-different' }),
+    ])
+    expect(devianceOf(out, 'a')).toBe(0)
+    expect(devianceOf(out, 'b')).toBe(0)
+    expect(devianceOf(out, 'c')).toBeUndefined()
+  })
+})
+
+describe('elect — deviance (the Heretic) crowns the recipe outlier', () => {
+  const heretic: RiteBallot = { kind: 'deviance' }
+  const deviant = (id: string, deviance: number): RiteCandidate => ({ kind: 'deviant', postId: PostId(id), deviance })
+
+  it('crowns the greatest outlier', () => {
+    expect(elect(heretic, [deviant('p-a', 1), deviant('p-b', 3)], 0)).toEqual({
+      kind: 'crowned',
+      postId: PostId('p-b'),
+    })
+  })
+
+  it('Unmoved Day: total conformity (the most-deviant is still deviance 0) crowns nothing', () => {
+    expect(elect(heretic, [deviant('p', 0)], 0)).toEqual({ kind: 'unmoved' })
+  })
+
+  it('Unmoved Day: no candidates (every family a singleton) crowns nothing', () => {
+    expect(elect(heretic, [], 0)).toEqual({ kind: 'unmoved' })
+  })
+})
+
 describe('markFor — the eternal mark derives from the lens', () => {
   it('maps every lens to its tone', () => {
     const expected: Record<RiteLens, CrownMark> = {
@@ -137,9 +249,10 @@ describe('the liturgical week maps each lens to the doc’s ballot', () => {
     }
   })
 
-  it('Saint→sole/Vivian/blessing, Villain→sole/Gremlin/couldn’t-bury, Martyr→feud, Miracle→acclaim', () => {
+  it('Saint→sole/Vivian/blessing, Villain→sole/Gremlin/couldn’t-bury, Heretic→deviance, Martyr→feud, Miracle→acclaim', () => {
     expect(riteForDay(0).ballot).toEqual({ kind: 'sole', citizen: 'agent:slop-purist', pole: 'blessed' })
     expect(riteForDay(1).ballot).toEqual({ kind: 'sole', citizen: 'agent:skeptic', pole: 'blessed' })
+    expect(riteForDay(2).ballot).toEqual({ kind: 'deviance' })
     expect(riteForDay(4).ballot).toEqual({ kind: 'feud', blessedBy: 'agent:slop-purist', buriedBy: 'agent:skeptic' })
     expect(riteForDay(5).ballot).toEqual({ kind: 'acclaim' })
   })
@@ -148,6 +261,8 @@ describe('the liturgical week maps each lens to the doc’s ballot', () => {
     expect(ballotCitizens({ kind: 'sole', citizen: VIVIAN, pole: 'blessed' })).toEqual([VIVIAN])
     expect(ballotCitizens({ kind: 'feud', blessedBy: VIVIAN, buriedBy: GREMLIN })).toEqual([VIVIAN, GREMLIN])
     expect(ballotCitizens({ kind: 'acclaim' })).toEqual([])
+    // The deviance ballot reads recipes, not votes — no citizen nominates.
+    expect(ballotCitizens({ kind: 'deviance' })).toEqual([])
   })
 
   it('fails loud on a weekday outside 0..6', () => {
