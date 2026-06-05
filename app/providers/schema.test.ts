@@ -15,7 +15,9 @@ import { ProviderId } from '~/lib/domain'
 type ProviderCase = {
   id: string
   minimalValid: Record<string, unknown>
-  overLongPromptLength: number
+  // undefined = no max-length constraint (e.g. verse); the over-long test is
+  // skipped for these providers since there is nothing to assert.
+  overLongPromptLength?: number
 }
 
 // [LAW:single-enforcer] Post-pl6.2 paramsSchemas no longer carry aspectRatio
@@ -53,6 +55,12 @@ const cases: ProviderCase[] = [
     minimalValid: { prompt: 'hello' },
     overLongPromptLength: 1001,
   },
+  {
+    // Verse has no provider-side max length — the poem body is unconstrained.
+    id: 'verse',
+    minimalValid: { prompt: 'a short poem' },
+    // overLongPromptLength intentionally absent
+  },
 ]
 
 // [LAW:types-are-the-program] Make the coverage gap impossible. listProviders()
@@ -81,6 +89,8 @@ describe.each(cases)('$id paramsSchema', ({ id, minimalValid, overLongPromptLeng
   })
 
   it('rejects an over-long prompt at the trust boundary', () => {
+    // Verse has no max-length constraint — skip this assertion for it.
+    if (overLongPromptLength === undefined) return
     const result = provider.paramsSchema.safeParse({
       ...minimalValid,
       prompt: 'x'.repeat(overLongPromptLength),
