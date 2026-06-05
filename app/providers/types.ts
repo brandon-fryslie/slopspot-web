@@ -98,8 +98,9 @@ export interface GenerationProvider<P> {
   // a submission round-trip (e.g. the fork form's textarea maxLength). Drift
   // between this number and paramsSchema's max would mean the form lets
   // users type something the schema then rejects — keep them aligned at the
-  // declaration site.
-  readonly promptMaxLength: number
+  // declaration site. Optional: providers that produce non-prompt media
+  // (e.g. verse) have no provider-side length constraint.
+  readonly promptMaxLength?: number
   defaultParamsForRecipe(input: RecipeBuilderInput): P
   generate(input: GenerationInput<P>, context: GenerationContext): Promise<Media>
 }

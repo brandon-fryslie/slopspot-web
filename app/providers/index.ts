@@ -7,6 +7,7 @@ import { replicateIdeogramMock } from './replicate-ideogram-mock'
 import { falFlux } from './fal-flux'
 import { replicateSdxl } from './replicate-sdxl'
 import { replicateIdeogram } from './replicate-ideogram'
+import { verseProvider } from './verse'
 
 registerProvider(falFlux)
 registerProvider(falFluxMock)
@@ -14,6 +15,7 @@ registerProvider(replicateSdxl)
 registerProvider(replicateSdxlMock)
 registerProvider(replicateIdeogram)
 registerProvider(replicateIdeogramMock)
+registerProvider(verseProvider)
 
 export { getProvider, listProviders, realProviders, UnknownProviderError } from './registry'
 export type { GenerationProvider, GenerationCapabilities } from './types'
