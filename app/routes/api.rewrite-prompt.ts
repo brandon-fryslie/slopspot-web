@@ -5,6 +5,7 @@ import { invalidBodyResponse } from "~/lib/api-errors"
 import { styleFamilySchema, aspectRatioSchema, STYLE_FAMILY_PROMPT_SEEDS, ASPECT_RATIO_LABELS } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
+import { emitAccountHealth } from "~/observability/metrics"
 
 // [LAW:single-enforcer] The HTTP trust boundary for prompt rewrite requests.
 // Resource route (no default export) — mirrors the same-origin + Zod pattern
@@ -142,18 +143,34 @@ export async function action({ request, context }: Route.ActionArgs) {
       signal: timeoutController.signal,
     })
   } catch (err) {
+    // [LAW:no-silent-fallbacks] Network failure / timeout = transient degraded, not ok.
+    emitAccountHealth('anthropic', { status: 'degraded' })
     return Response.json({ error: "upstream request failed", detail: String(err) }, { status: 502 })
   } finally {
     clearTimeout(timeoutId)
   }
 
   if (!anthropicResp.ok || !anthropicResp.body) {
+    const s = anthropicResp.status
+    // [LAW:dataflow-not-control-flow] The HTTP status drives the health classification.
+    // 401/403 = key dead (down{auth}); 402 = payment required (down{payment});
+    // 429 = quota exceeded (down{quota}); others = transient degraded.
+    const health =
+      s === 401 || s === 403 ? ({ status: 'down', reason: 'auth' } as const)
+      : s === 402 ? ({ status: 'down', reason: 'payment' } as const)
+      : s === 429 ? ({ status: 'down', reason: 'quota' } as const)
+      : ({ status: 'degraded' } as const)
+    emitAccountHealth('anthropic', health)
     const body = await anthropicResp.text().catch(() => "")
     return Response.json(
-      { error: "upstream error", status: anthropicResp.status, detail: body },
+      { error: "upstream error", status: s, detail: body },
       { status: 502 },
     )
   }
+
+  // [LAW:no-silent-fallbacks] A successful response (auth worked, service is up) resets
+  // the account to ok — enables alertmanager auto-resolve.
+  emitAccountHealth('anthropic', { status: 'ok' })
 
   // [LAW:dataflow-not-control-flow] Transform Anthropic SSE → plain text.
   // The SSE parse is the only place that knows the wire format; everything
