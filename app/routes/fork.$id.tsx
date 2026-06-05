@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router"
 import { z } from "zod"
 import { getPostById } from "~/db/feed"
 import { realProviders } from "~/providers"
+import { listPersonas } from "~/agents/persona"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 import {
   PostId,
@@ -67,14 +68,28 @@ class BreedPauseError extends Error {
 // shape — one closed type, no nullables. If a row drifts (parent not found,
 // upload-kind, malformed params) we throw a Response at the boundary; the
 // component never sees an "incomplete" loader payload.
+type ProviderOption = {
+  id: string
+  displayName: string
+  disabled?: boolean
+  // [RECONCILE C] The citizen whose medium this provider is. null when no
+  // generator persona claims this provider (e.g. mock providers).
+  personaName: string | null
+  personaHandle: string | null
+  personaAgentId: string | null
+}
+
 type LoaderData = {
   parentId: string
   parentShortId: string
+  // [RECONCILE C] The parent's author's agentId — used client-side to detect
+  // when the selected provider's persona differs (interspecies crossing).
+  parentPersonaId: string
   providerId: string
   // [LAW:types-are-the-program] disabled carries the deregistered-provider
   // state into the type so the select renders it visibly without the
   // component needing to re-derive or branch on a separate flag.
-  providers: Array<{ id: string; displayName: string; disabled?: boolean }>
+  providers: ProviderOption[]
   // [LAW:one-source-of-truth] Per-provider prompt upper bounds keyed by
   // provider id. The textarea maxLength + counter update when the user
   // switches providers so the UX rejects over-long prompts at typing time.
@@ -112,14 +127,35 @@ export async function loader({
   // rather than blank. On submit the action returns 404 for deregistered and
   // 422 for env-filtered — both cases are handled there.
   const available = realProviders(context.cloudflare.env)
-  const providers: Array<{ id: string; displayName: string; disabled?: boolean }> = available.map(
-    (p) => ({ id: p.id, displayName: p.displayName }),
-  )
+
+  // [RECONCILE C] Build a medium→persona map so each provider option can show
+  // which citizen's medium it is. Loader-side resolution keeps the component
+  // free of persona queries and the crossing detection purely data-driven.
+  const generators = await listPersonas(context.cloudflare.env, 'generator')
+  const mediumToPersona = new Map<string, typeof generators[0]>()
+  for (const p of generators) {
+    const medium = (p.config as { medium?: unknown }).medium
+    if (typeof medium === 'string') mediumToPersona.set(medium, p)
+  }
+
+  const providers: ProviderOption[] = available.map((p) => {
+    const persona = mediumToPersona.get(p.id)
+    return {
+      id: p.id,
+      displayName: p.displayName,
+      personaName: persona?.displayName ?? null,
+      personaHandle: persona?.handle ?? null,
+      personaAgentId: persona?.agentId ?? null,
+    }
+  })
   if (!providers.some((p) => p.id === genome.genes.medium)) {
     providers.push({
       id: genome.genes.medium,
       displayName: `${genome.genes.medium} (unavailable)`,
       disabled: true,
+      personaName: null,
+      personaHandle: null,
+      personaAgentId: null,
     })
   }
   // [LAW:types-are-the-program] promptMaxLength is optional on providers that have no
@@ -131,9 +167,17 @@ export async function loader({
     available.map((p) => [p.id, p.promptMaxLength ?? PROMPT_MAX]),
   )
 
+  // [LAW:types-are-the-program] parentPersonaId is carried into the loader shape so
+  // the UI can detect when a different citizen's medium is selected without an extra
+  // round-trip. The parent's author is always a PersonaActor for generation posts.
+  const parentPersonaId = parent.origin.kind === 'authored'
+    ? parent.origin.author.agentId
+    : ''
+
   return {
     parentId: parent.id,
     parentShortId: parent.id.slice(0, 8),
+    parentPersonaId,
     providerId: genome.genes.medium,
     providers,
     promptMaxPerProvider,
@@ -164,6 +208,11 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   const navigate = useNavigate()
   const [providerId, setProviderId] = useState(loaderData.providerId)
   const [prompt, setPrompt] = useState(loaderData.prompt)
+  // [RECONCILE C] Interspecies crossing indicator: selected provider's persona
+  // differs from parent's author. Data-driven — no extra state needed.
+  const selectedProviderOption = loaderData.providers.find(p => p.id === providerId)
+  const isCrossing = selectedProviderOption?.personaAgentId !== null
+    && selectedProviderOption?.personaAgentId !== loaderData.parentPersonaId
   const [styleFamily, setStyleFamily] = useState<StyleFamily>(loaderData.styleFamily)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(loaderData.aspectRatio)
   const [phase, setPhase] = useState<Phase>("editing")
@@ -363,7 +412,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       </header>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-5">
-        <Field label="provider">
+        <Field label="medium">
           <select
             value={providerId}
             onChange={(e) => setProviderId(e.target.value)}
@@ -372,10 +421,15 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           >
             {loaderData.providers.map((p) => (
               <option key={p.id} value={p.id} disabled={p.disabled}>
-                {p.displayName}
+                {p.personaName !== null ? `${p.personaName} — ${p.displayName}` : p.displayName}
               </option>
             ))}
           </select>
+          {isCrossing && selectedProviderOption !== undefined && selectedProviderOption.personaName !== null && (
+            <p className="mt-1 font-mono text-[11px] text-fuchsia-400/80">
+              ⑂ interspecies — hybrid attributed out of lineage, by {selectedProviderOption.personaName}
+            </p>
+          )}
         </Field>
 
         <InfoField label="subject" hint="preserved from parent">
