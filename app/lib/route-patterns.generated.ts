@@ -22,6 +22,7 @@ export const ROUTE_PATTERNS = [
   "/fork/:id",
   "/breed/:id",
   "/p/:id",
+  "/dynasty/:id",
   "/submit",
   "/media/:key",
   "/cast",

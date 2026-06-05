@@ -32,6 +32,9 @@ export default [
   // mate B and witness the cross. No human prompt (mates, not words). [the-breeding-room]
   route("breed/:id", "routes/breed.$id.tsx"),
   route("p/:id", "routes/p.$id.tsx"),
+  // [LAW:one-type-per-behavior] URL namespace by behavior: /p/:id = per-post tree, /dynasty/:id = one
+  // whole bloodline (founder-rooted forest, genome-p6z.2), /genome reserved for the future aggregate.
+  route("dynasty/:id", "routes/dynasty.$id.tsx"),
   route("submit", "routes/submit.tsx"),
   route("media/:key", "routes/media.$key.ts"),
   // The roll call — citizens grouped by guild. Detail pages address a citizen by
