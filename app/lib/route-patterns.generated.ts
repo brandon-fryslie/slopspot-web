@@ -6,6 +6,7 @@
 export const ROUTE_PATTERNS = [
   "/",
   "/health",
+  "/metrics",
   "/api/feed",
   "/api/challenge",
   "/api/generate",

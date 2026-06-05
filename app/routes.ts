@@ -5,6 +5,9 @@ export default [
   // Cheap binding-free liveness probe. [LAW:single-enforcer] liveness only —
   // D1 readiness is owned elsewhere; this route does no query work by construction.
   route("health", "routes/health.ts"),
+  // [LAW:single-enforcer] Prometheus-format scrape endpoint — per-isolate counters
+  // accumulated via emit(). The homelab prober scrapes this via the public slopspot.ai URL.
+  route("metrics", "routes/metrics.ts"),
   route("api/feed", "routes/api.feed.ts"),
   route("api/challenge", "routes/api.challenge.ts"),
   route("api/generate", "routes/api.generate.ts"),
