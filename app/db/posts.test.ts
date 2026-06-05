@@ -320,6 +320,62 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       // The provider never saw the stale prompt.
       expect(JSON.stringify(mockGenerate.mock.calls)).not.toContain('STALE')
     })
+
+    // [LAW:types-are-the-program] The persistence strategy is a property of the Media variant: a
+    // text poem already IS its content, so it is stored INLINE — ingestImage (the image-bytes→R2
+    // enforcer) is never called for it. This pins the text arm of the variant dispatch.
+    it('persists a text output inline — does NOT call ingestImage, stores the body in output_json', async () => {
+      mockBatch.mockResolvedValue([{ success: true }, { success: true }])
+      mockGenerate.mockResolvedValueOnce({ kind: 'text', body: 'the room remembers its emptiness' })
+      const { ingestImage } = await import('~/storage/ingest')
+      // Capture the succeeded-status update's set(...) so we can assert the inline output_json.
+      const setSpy = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+      mockUpdate.mockReturnValue({ set: setSpy })
+
+      const { createPost } = await import('~/db/posts')
+      const post = await createPost(GENERATION_INPUT, { env: fakeEnv })
+
+      // A text poem is not image bytes — the R2 enforcer is never touched.
+      expect(vi.mocked(ingestImage)).not.toHaveBeenCalled()
+      // The output is stored inline, verbatim, in the succeeded transition.
+      expect(setSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'succeeded',
+          outputJson: JSON.stringify({ kind: 'text', body: 'the room remembers its emptiness' }),
+        }),
+      )
+      // ...and the returned domain object carries the text Media as the succeeded output.
+      expect(post.content.kind).toBe('generation')
+      if (post.content.kind === 'generation' && post.content.status.kind === 'succeeded') {
+        expect(post.content.status.output).toEqual({
+          kind: 'text',
+          body: 'the room remembers its emptiness',
+        })
+      }
+    })
+
+    // [LAW:no-silent-fallbacks] The boundary is pinned in BOTH directions: a Media kind with no
+    // persistence path (video/audio) is an honest failure, never a silently un-ingested upstream
+    // url. The generation row transitions running → failed (observable), and the error propagates.
+    it('rejects an unsupported video media kind as a failed generation — boundary pinned', async () => {
+      mockBatch.mockResolvedValue([{ success: true }, { success: true }])
+      mockGenerate.mockResolvedValueOnce({
+        kind: 'video',
+        url: 'https://cdn/x.mp4',
+        durationMs: 1000,
+      })
+      const { ingestImage } = await import('~/storage/ingest')
+      const setSpy = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+      mockUpdate.mockReturnValue({ set: setSpy })
+
+      const { createPost } = await import('~/db/posts')
+      await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
+        'video media has no persistence path yet',
+      )
+      // No bytes were ingested, and the row was moved to the observable failed state.
+      expect(vi.mocked(ingestImage)).not.toHaveBeenCalled()
+      expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }))
+    })
   })
 
   describe('createFoundPost', () => {

@@ -99,6 +99,40 @@ export class InvalidParamsError extends Error {
 // (status text vs. an upstream body). Append a structural summary of own
 // enumerable props — provider-agnostic, so the writer stays decoupled from any
 // provider SDK's error type.
+// [LAW:types-are-the-program][LAW:dataflow-not-control-flow] How a generated Media becomes the
+// STORED output is a property of its VARIANT, not a guard the caller bolts on. An image's bytes are
+// rehosted into R2 so the stored url is ours (never the provider CDN); a text poem already IS its
+// content — there are no bytes to ingest, so it is stored inline in output_json (ingestImage is the
+// IMAGE-bytes→R2 enforcer and has nothing to do for text). video/audio have no provider that
+// produces them and no persistence path yet, so they are an honest unsupported-capability failure at
+// the one write boundary — never a silently un-ingested upstream url. The switch is exhaustive over
+// Media.kind: adding a fifth media variant fails `tsc -b` here (the function would fall through to an
+// undefined return), forcing a deliberate persistence decision rather than a silent passthrough.
+// [LAW:single-enforcer] createPost stays the sole post-creation enforcer; this is its per-variant
+// persistence fold, not a second writer.
+async function persistOutput(generated: Media, env: Env): Promise<Media> {
+  switch (generated.kind) {
+    case 'image': {
+      const ingested = await ingestImage(generated.url, env)
+      return { ...generated, url: ingested.url }
+    }
+    case 'text':
+      return generated
+    case 'video':
+    case 'audio':
+      throw new Error(
+        `createPost: ${generated.kind} media has no persistence path yet; only image and text are supported`,
+      )
+    default: {
+      // [LAW:make-it-impossible] Exhaustive over Media.kind — a fifth variant narrows to non-never
+      // here and fails `tsc -b`, forcing a deliberate persistence decision (rehost? inline? reject?)
+      // rather than silently falling through with no stored output.
+      const _exhaustive: never = generated
+      return _exhaustive
+    }
+  }
+}
+
 function describeError(err: unknown): string {
   if (!(err instanceof Error)) return String(err)
   const props = err as unknown as Record<string, unknown>
@@ -304,17 +338,10 @@ async function createGenerationPost(
       { params, aspectRatio: input.genes.frame },
       { env },
     )
-    // [LAW:single-enforcer] Every external image flows through ingestImage so the
-    // stored url is ours (R2), never the provider CDN. Every provider today
-    // produces image media; a non-image return is an unsupported capability, so
-    // fail loudly rather than persist an un-ingested upstream url.
-    if (generated.kind !== 'image') {
-      throw new Error(
-        `createPost: provider ${provider.id} returned ${generated.kind} media; only image ingestion is supported`,
-      )
-    }
-    const ingested = await ingestImage(generated.url, env)
-    output = { ...generated, url: ingested.url }
+    // [LAW:single-enforcer] The persistence strategy is chosen by the Media variant, not branched
+    // here: image bytes are rehosted into R2, a text poem is stored inline, an unsupported kind
+    // fails loud. Whatever path it takes, the returned Media is the stored output.
+    output = await persistOutput(generated, env)
     completedAt = new Date()
     emit(
       'slopspot.provider.generate_duration_ms',
