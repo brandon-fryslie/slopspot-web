@@ -22,7 +22,7 @@ import {
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { composePrompt, type ComposerInput } from './composer'
 
-vi.mock('~/observability/metrics', () => ({ emit: vi.fn() }))
+vi.mock('~/observability/metrics', () => ({ emit: vi.fn(), emitAccountHealth: vi.fn() }))
 import { emit } from '~/observability/metrics'
 
 function mockEnv(apiKey: string | undefined): Env {

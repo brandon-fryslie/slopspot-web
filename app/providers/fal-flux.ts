@@ -1,8 +1,21 @@
-import { fal } from "@fal-ai/client"
+import { ApiError, fal } from "@fal-ai/client"
 import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
 import { ProviderId, type AspectRatio, type Media } from "~/lib/domain"
+import { emitAccountHealth, type AccountHealthPayload } from "~/observability/metrics"
 import type { GenerationProvider } from "./types"
+
+// [LAW:single-enforcer] Classification for fal.ai call outcomes → account-health axis.
+// ApiError carries a typed .status so the mapping is purely data-driven. No second
+// classifier exists for fal outside this file.
+function classifyFalHealth(err: unknown): AccountHealthPayload {
+  if (err instanceof ApiError) {
+    if (err.status === 401 || err.status === 403) return { status: 'down', reason: 'auth' }
+    if (err.status === 402) return { status: 'down', reason: 'payment' }
+    if (err.status === 429) return { status: 'down', reason: 'quota' }
+  }
+  return { status: 'degraded' }
+}
 
 // Real fal.ai FLUX schnell provider. Params are provider-specific (prompt +
 // step count, with schnell's tighter 1-4 bound). The canonical aspectRatio
@@ -75,13 +88,19 @@ export const falFlux: GenerationProvider<Params> = {
   },
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
     fal.config({ credentials: env.SLOPSPOT_FAL_API_KEY })
-    const result = await fal.run("fal-ai/flux/schnell", {
-      input: {
-        prompt: p.prompt,
-        image_size: imageSize[aspectRatio],
-        num_inference_steps: p.steps,
-      },
-    })
-    return parseFalFluxResponse(result.data, p.prompt)
+    try {
+      const result = await fal.run("fal-ai/flux/schnell", {
+        input: {
+          prompt: p.prompt,
+          image_size: imageSize[aspectRatio],
+          num_inference_steps: p.steps,
+        },
+      })
+      emitAccountHealth('fal', { status: 'ok' })
+      return parseFalFluxResponse(result.data, p.prompt)
+    } catch (err) {
+      emitAccountHealth('fal', classifyFalHealth(err))
+      throw err
+    }
   },
 }
