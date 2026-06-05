@@ -2,8 +2,11 @@
 // the composer-authored poem as text Media. No external API call: the poem is
 // authored by the composer (callHaiku, composePrompt with medium='verse') and
 // arrives in params.prompt. This provider's generate() is the single place where
-// composer output becomes a text Media slop — same pipeline as image providers,
-// zero special-casing in createPost. (slopspot-beyond-image-poj.1)
+// composer output becomes a text Media slop — the SAME createPost pipeline as image
+// providers, whose persistence step dispatches on the Media variant: an image's bytes
+// are rehosted into R2, a text poem is stored inline (it already IS its content). Not a
+// special case bolted onto createPost — a symmetric arm of one variant-driven fold.
+// (slopspot-beyond-image-poj.1)
 
 import { z } from 'zod'
 import { ProviderId } from '~/lib/domain'
