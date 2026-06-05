@@ -48,4 +48,12 @@ describe('app/components/cast-at-work.tsx - castAtWork fold', () => {
   it('an idle floor yields an empty roster', () => {
     expect(castAtWork([])).toEqual([])
   })
+
+  // A birth is an ANNOUNCEMENT, not an act — it names no working citizen, so it never lands on the
+  // at-work roster (the newcomer appears once it ACTS, which is .4's scope).
+  it('excludes a born event — an announcement is not a citizen at work', () => {
+    const born: PulseEvent = { kind: 'born', ts: 9, text: 'The Proprietor welcomes Idris Vane to the city.' }
+    expect(castAtWork([born, posted('Maker', 3)])).toEqual([{ persona: 'Maker', doing: 'generating' }])
+    expect(castAtWork([born])).toEqual([])
+  })
 })

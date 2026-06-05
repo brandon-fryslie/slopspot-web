@@ -40,6 +40,9 @@ function eventBody(e: PulseEvent) {
           <span className="text-ash">{e.title}</span>
         </>
       )
+    case "born":
+      // The Proprietor's stored welcome line — it already names the newcomer, so render it verbatim.
+      return <span className="text-votive">{e.text}</span>
     default: {
       const _exhaustive: never = e
       return _exhaustive
@@ -50,7 +53,11 @@ function eventBody(e: PulseEvent) {
 const reasoningOf = (e: PulseEvent): string | undefined =>
   e.kind === "blessed" || e.kind === "buried" ? e.reasoning : undefined
 
-const keyOf = (e: PulseEvent) => `${e.kind}:${e.postId}:${e.ts}`
+// [LAW:dataflow-not-control-flow] The link target is DATA: a born event is post-less, so it has no
+// /p/:id to point at — the renderer reads `undefined` and draws a plain span instead of an anchor.
+const hrefOf = (e: PulseEvent): string | undefined => (e.kind === "born" ? undefined : `/p/${e.postId}`)
+
+const keyOf = (e: PulseEvent) => (e.kind === "born" ? `born:${e.ts}` : `${e.kind}:${e.postId}:${e.ts}`)
 
 // `duplicate` marks the second copy that exists ONLY to make the crawl seamless
 // (the -50% loop needs two identical groups). Under reduced motion the crawl is
@@ -65,16 +72,24 @@ function EventGroup({ events, duplicate }: { events: PulseEvent[]; duplicate?: b
         duplicate ? " motion-reduce:hidden" : ""
       }`}
     >
-      {events.map((e) => (
-        <li key={keyOf(e)} className="flex items-center gap-2 whitespace-nowrap">
-          <span aria-hidden className="text-votive/40">
-            ✦
-          </span>
-          <Link to={`/p/${e.postId}`} title={reasoningOf(e)} className="transition-colors hover:text-bone">
-            {eventBody(e)}
-          </Link>
-        </li>
-      ))}
+      {events.map((e) => {
+        const href = hrefOf(e)
+        return (
+          <li key={keyOf(e)} className="flex items-center gap-2 whitespace-nowrap">
+            <span aria-hidden className="text-votive/40">
+              ✦
+            </span>
+            {href !== undefined ? (
+              <Link to={href} title={reasoningOf(e)} className="transition-colors hover:text-bone">
+                {eventBody(e)}
+              </Link>
+            ) : (
+              // A post-less event (a birth announcement) has nowhere to link — render the line plainly.
+              <span>{eventBody(e)}</span>
+            )}
+          </li>
+        )
+      })}
     </ul>
   )
 }

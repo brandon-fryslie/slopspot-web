@@ -50,7 +50,9 @@ function utcRiteDay(ms: number): string {
 // [LAW:no-silent-fallbacks] The Rite cannot speak without its host. A missing
 // Proprietor row is a real misconfiguration (he is seeded by migration), so fail
 // loud rather than crown in some anonymous default voice.
-async function proprietorRef(env: Env): Promise<PersonaRef> {
+// [LAW:single-enforcer] The ONE resolver of the Proprietor's voice ref — exported so the Birth Rite
+// (midwife.ts) welcomes newborns in the SAME host voice the decree uses, never a second Proprietor lookup.
+export async function proprietorRef(env: Env): Promise<PersonaRef> {
   const proprietor = await getPersonaByHandle(env, PROPRIETOR_HANDLE)
   if (proprietor === null) {
     throw new Error('rite: the Proprietor is not seated — cannot pronounce a decree')

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentId, PostId } from "~/lib/domain";
+import type { AgentId, PostId, ProviderId } from "~/lib/domain";
 import type { FeudStanding } from "~/lib/feud";
 import {
   type AnsweredWish,
@@ -55,6 +55,47 @@ describe("utter — the locked voice contract", () => {
 // selects the tone. These assert the dataflow — the stance VALUE picks the register, the opponent is
 // named (the cross-reference that makes the city a society), and every stance speaks (never an empty
 // string). Blind to the exact wording (the LLM voice swaps the body later); pinned on the contract.
+// The Birth Rite (slopspot-growing-cast-7ni.3): the Proprietor welcomes a newborn citizen through the ONE
+// Voice mechanism. Pinned on the contract — the newcomer is NAMED, the line is in the host's voice, and
+// the occasion takes the BASE speaker + EMPTY caps (no reVoice transport: a birth welcome is freshly
+// authored, not a re-voice of an existing take). Blind to exact wording (an LLM voice may swap the body).
+describe("utter — the birth instance (The Birth Rite)", () => {
+  const proprietor = { handle: "agent:the-proprietor" as AgentId, displayName: "The Proprietor" };
+  const newcomer = {
+    displayName: "Idris Vane",
+    creed: "The room remembers.",
+    medium: "verse" as ProviderId,
+  };
+
+  it("welcomes the newcomer BY NAME, in the host's voice, carrying the creed (every frame)", async () => {
+    const result = await utter(proprietor, "birth", newcomer, {});
+    expect(result.kind).toBe("spoke");
+    if (result.kind === "spoke") {
+      expect(result.text).toContain("Idris Vane"); // the newcomer is named
+      expect(result.text).toContain("The Proprietor"); // spoken in the host's voice
+      expect(result.text).toContain("The room remembers."); // the creed (the personal core) is preserved
+    }
+  });
+
+  it("is a deterministic floor — the same newcomer always selects the same frame", async () => {
+    const a = await utter(proprietor, "birth", newcomer, {});
+    const b = await utter(proprietor, "birth", newcomer, {});
+    expect(a).toEqual(b);
+  });
+
+  it("rotates through the Proprietor's repertoire by the birth's own hash (different births can differ)", async () => {
+    const names = ["Idris Vane", "Sindri Cole", "Marn Okoye", "Petra Voss", "Cass Ueda", "Bo Reyes", "Wren Adler"];
+    const frames = new Set<string>();
+    for (const displayName of names) {
+      const r = await utter(proprietor, "birth", { displayName, creed: "A creed.", medium: "verse" as ProviderId }, {});
+      // Normalize the newcomer's name out so we compare FRAMES, not the trivially-different names —
+      // two newcomers on the same frame collapse to one entry; distinct frames stay distinct.
+      if (r.kind === "spoke") frames.add(r.text.split(displayName).join("<n>"));
+    }
+    expect(frames.size).toBeGreaterThan(1); // the host has a repertoire, selected by data
+  });
+});
+
 describe("utter — the reply instance (the Feud Engine)", () => {
   const speaker = { handle: "agent:gremlin" as AgentId, displayName: "The Gremlin" };
   const slop = { postId: "post_9" as PostId, prompt: "a chrome saint" };
