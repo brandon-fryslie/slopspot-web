@@ -13,9 +13,12 @@ import {
   REGISTER_THRESHOLD,
   SAMPLES,
   type EvalSamples,
+  type GroundingSample,
   type Judge,
+  type RegisterPair,
   type ReVoiceCall,
 } from '~/eval/revoice-eval'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
 
 // A transport that tags its line with the earnestness pole baked into the prompt (traitBias renders "the
 // face" for the sincere pole, "the mask" for the ironic) and echoes the observation — so a perfect judge can
@@ -86,5 +89,38 @@ describe('evaluate — the gate machinery (mock judge + mock transport)', () => 
   it('THROWS rather than vacuously passing on an empty sample set', async () => {
     const empty: EvalSamples = { grounding: [], register: [] }
     await expect(evaluate(empty, taggingReVoice(), perfectJudge)).rejects.toThrow(/empty sample set/)
+  })
+})
+
+// [LAW:behavior-not-structure] The threshold edge is NEAR-SACRED (0.90), so its boundary must be pinned:
+// a rate EXACTLY at the bar PASSES (>=, not >). Without this an over-strict regression — flipping >= to >
+// — would reject an honest 9/10-grounded run yet ship green (5.1 found exactly this: the flip reddened
+// zero tests). Same teeth-pin discipline as #138/#145: the bar is sacred, so its edge is tested.
+describe('the 0.90 boundary is INCLUSIVE (a rate exactly at the bar passes — pins >= not >)', () => {
+  // Echo the observation as the line so the grounding judge can read a marker; register is irrelevant here.
+  const echoReVoice: ReVoiceCall = async (p) => p.user
+  const groundedByMarker: Judge = {
+    grounded: async (_line, reasoning) => reasoning.includes('GROUNDED'),
+    register: async () => 'sincere',
+  }
+  // n-of-10 grounding samples carry the marker → grounding rate = n/10 exactly.
+  const groundingOf = (markedCount: number): GroundingSample[] =>
+    Array.from({ length: 10 }, (_, i) => ({
+      personaPrompt: 'p',
+      traits: NEUTRAL_TRAITS,
+      reasoning: i < markedCount ? 'it saw a GROUNDED detail' : 'a bare line',
+    }))
+  const onePair: RegisterPair[] = [{ personaPrompt: 'p', baseTraits: NEUTRAL_TRAITS, reasoning: 'r' }]
+
+  it('9/10 = 0.90 (exactly the bar) → grounding PASSES', async () => {
+    const report = await evaluate({ grounding: groundingOf(9), register: onePair }, echoReVoice, groundedByMarker)
+    expect(report.grounding.rate).toBe(GROUNDING_THRESHOLD) // 0.9 === 0.9
+    expect(report.grounding.pass).toBe(true)
+  })
+
+  it('8/10 = 0.80 (below the bar) → grounding FAILS', async () => {
+    const report = await evaluate({ grounding: groundingOf(8), register: onePair }, echoReVoice, groundedByMarker)
+    expect(report.grounding.rate).toBeLessThan(GROUNDING_THRESHOLD)
+    expect(report.grounding.pass).toBe(false)
   })
 })
