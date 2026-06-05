@@ -5,7 +5,7 @@
 // RETIRING feed.ts's ad-hoc derivation from votes.reasoning — the utterance store is now the single
 // source for the rendered line. [LAW:one-source-of-truth]
 
-import { and, asc, desc, eq, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
 import { personas, utterances, votes } from '~/db/schema'
 import type { Occasion, Utterance } from '~/lib/voice'
@@ -52,6 +52,29 @@ export async function recordUtterance(
       // stay; only the spoken/withheld content + time move). NOT a second row — one current utterance.
       set: { ...cols, createdAt: new Date() },
     })
+}
+
+// [LAW:single-enforcer][LAW:types-are-the-program] The exchange FLOOR invariant (voice-w2v.2, CD-ruled):
+// a slop carries AT MOST ONE whole opposing pair of replies. When a fresher clash supersedes an older one,
+// the superseded citizen's reply would dangle as a half-conversation — it answers an incumbent who has
+// since turned to a newer opponent. Pruning every reply on the slop OUTSIDE the current pair keeps the
+// store holding only whole pairs, so every reader (feed, permalink, share-card) renders a whole current
+// exchange BY CONSTRUCTION — an orphaned half is unrepresentable, not merely unrendered. The single
+// enforcer is here, not a filter each render must repeat.
+export async function pruneRepliesExcept(
+  env: Env,
+  postId: string,
+  keepSpeakers: string[],
+): Promise<void> {
+  await db(env)
+    .delete(utterances)
+    .where(
+      and(
+        eq(utterances.targetPostId, postId),
+        eq(utterances.occasion, 'reply'),
+        notInArray(utterances.speaker, keepSpeakers),
+      ),
+    )
 }
 
 // [LAW:types-are-the-program] The representative vote's sign IS the verdict's disposition — the gilt

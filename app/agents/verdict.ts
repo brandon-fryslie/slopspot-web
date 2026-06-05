@@ -7,7 +7,7 @@ import { utter, type JudgedSlop, type PersonaRef, type ReplyExchange, type SlopG
 import { getPersona } from '~/agents/persona'
 import { getPostById } from '~/db/feed'
 import { db } from '~/db/client'
-import { coPresentVerdicts, recordUtterance } from '~/db/utterances'
+import { coPresentVerdicts, pruneRepliesExcept, recordUtterance } from '~/db/utterances'
 import { feudStandingBetween } from '~/db/feud'
 import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
 
@@ -136,4 +136,11 @@ async function narrateExchange(
     targetPostId: newcomer.slop.postId,
     utterance: utter(incumbentRef, 'reply', incumbentReply),
   })
+
+  // [LAW:single-enforcer] The exchange floor invariant (CD-ruled): one whole opposing pair per slop. A
+  // prior opponent's reply (e.g. an earlier clasher this newcomer's clash supersedes) would otherwise
+  // dangle as a half-conversation — answering an incumbent who has now turned to answer THIS newcomer.
+  // Prune every reply on the slop outside the current pair so the store holds only the whole current
+  // exchange. [LAW:dataflow-not-control-flow] the keep-set is the data; no per-case branch on critic count.
+  await pruneRepliesExcept(env, newcomer.slop.postId, [newcomer.speaker.handle, opponent.speaker])
 }
