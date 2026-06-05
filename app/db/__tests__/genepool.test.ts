@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getCitizenVoteCounts, getNicheGenePool, type Niche } from '~/db/genepool'
+import { getCitizenVoteCounts, getNicheGenePool, RECENCY_HALF_LIFE_MS, type Niche } from '~/db/genepool'
 import { PostId } from '~/lib/domain'
 import { seedPost, seedVote } from './helpers'
 
@@ -55,11 +55,11 @@ describe('getNicheGenePool — bloodline-fitness gradient (genome-9zt.7)', () =>
   })
 
   it('decays a STALE blessing: a line loved long ago weighs less than a fresh one (living relevance, recency-to-parity)', async () => {
-    const HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000
     const stale = await seedPost(env, { id: 'rc-stale', content: { kind: 'generation' } })
     const fresh = await seedPost(env, { id: 'rc-fresh', content: { kind: 'generation' } })
-    // Both blessed +1 by the same niche — but the stale one two half-lives in the past.
-    await seedVote(env, { postId: stale, voterId: ST_VIVIAN, value: 1, createdAt: new Date(NOW - 2 * HALF_LIFE_MS) })
+    // Both blessed +1 by the same niche — but the stale one two SHIPPED half-lives in the past, so
+    // this asserts "two half-lives → quarter weight" against the actual prod const, surviving re-tunes.
+    await seedVote(env, { postId: stale, voterId: ST_VIVIAN, value: 1, createdAt: new Date(NOW - 2 * RECENCY_HALF_LIFE_MS) })
     await seedVote(env, { postId: fresh, voterId: ST_VIVIAN, value: 1, createdAt: new Date(NOW) })
 
     const pool = await getNicheGenePool(env, citizenNiche(ST_VIVIAN), 50, NOW)

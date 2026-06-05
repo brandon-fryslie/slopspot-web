@@ -33,13 +33,20 @@ import { bloodlineFitness } from '~/lib/genealogy'
 import { recencyWeight } from '~/lib/recency'
 
 // [LAW:variability-at-edges] The recency half-life — the genepool's rate for the city's ONE decay
-// function (recency.ts). A vote halves in selection weight every 30 days, so a niche's CURRENT
-// taste outweighs a line's historical accumulation: an incumbent dynasty's reign decays to an
-// EARNED peer as the niche's blessings shift, rather than the past permanently out-voting the
-// present (genome-9zt.7, CD-ruled recency-to-parity). The sim proved the MECHANISM (decay restores
-// bounded contestability while preserving convergence); this rate is the felt taste-shift timescale,
-// a tunable named const here at the edge, not buried in a fold. genome .3 sets its own rate.
-const RECENCY_HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000
+// function (recency.ts). A vote halves in selection weight every 10 DAYS (CD-ruled), so a niche's
+// CURRENT taste outweighs a line's historical accumulation: an incumbent dynasty's reign decays to
+// an EARNED peer as the niche's blessings shift, rather than the past permanently out-voting the
+// present (genome-9zt.7, recency-to-parity).
+//
+// Why 10 days: it matches the city's WEEKLY pulse (the Rite is daily, the human return-cadence is
+// weekly), so a taste-shift is PERCEPTIBLE on a weekly return — 30d failed that felt bar (decay to
+// peer took 6–8 weeks). The decay is ASYMMETRIC and that asymmetry is the whole design: it touches
+// only OLD blessings, so a still-loved house keeps earning FRESH, undecayed weight and reigns
+// indefinitely, while only an ABANDONED house falls fast. Beloved endure; abandoned fall — the ideal.
+// Floor ~5d (below flickers); ceiling well under 30d. Tunable via observability, a one-line change
+// here at the edge. Exported so tests calibrate to the SHIPPED value, never a drifting copy
+// [LAW:one-source-of-truth]. genome .3 (Character With a Past) sets its OWN rate on the shared leaf.
+export const RECENCY_HALF_LIFE_MS = 10 * 24 * 60 * 60 * 1000
 
 // [LAW:types-are-the-program] A breedable candidate: a reference to a rendered genome and its
 // fitness as a selection WEIGHT — the net vote this niche cast on it. The full genome is loaded
