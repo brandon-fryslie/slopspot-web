@@ -394,15 +394,20 @@ export type GenealogyNode = {
   kin: readonly GenealogyNode[]
 }
 
-// [LAW:one-source-of-truth] A post's visual genealogy, both directions, derived ENTIRELY
+// [LAW:one-source-of-truth] A post's visual genealogy, all three relations, derived ENTIRELY
 // from the lineage_edges DAG + each node's render — never a stored ancestry (the same shape
-// score=SUM(votes) and the Crowning take). Two empty arrays = a founder with no offspring;
-// the renderer shows nothing at all (absence is the discriminator, not an `isLineage` flag).
+// score=SUM(votes) and the Crowning take). Three empty arrays = a founder with no kin at all;
+// the renderer shows nothing (absence is the discriminator, not an `isLineage` flag).
 // [LAW:one-type-per-behavior] The per-post slice of the grand Slop Genome view; the grand
 // dynasty explorer folds the WHOLE DAG, this folds the subgraph reachable from one post.
+// `siblings` are the same-parent PEERS — a FLAT list (a peer is not nested: its own kin
+// belong to ITS genealogy, not this post's), so each carries empty `kin`, the leaf idiom.
+// A node sharing AT LEAST ONE parent is a sibling (half-siblings included); founders, having
+// no parent, have no siblings — the parent edge is the relation, never a separate flag.
 export type Genealogy = {
   ancestors: readonly GenealogyNode[]
   offspring: readonly GenealogyNode[]
+  siblings: readonly GenealogyNode[]
 }
 
 // [LAW:types-are-the-program] Comments v1 are flat (no parentCommentId) and

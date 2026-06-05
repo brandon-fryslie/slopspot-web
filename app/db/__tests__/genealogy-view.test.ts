@@ -51,9 +51,9 @@ describe('getGenealogy — the per-post lineage slice', () => {
     expect(c.offspring).toEqual([])
   })
 
-  it('a founder with no offspring yields an empty genealogy', async () => {
+  it('a founder with no kin yields an empty genealogy', async () => {
     const lone = await seedPost(env, { id: 'gv-lone', content: { kind: 'generation' } })
-    expect(await getGenealogy(env, lone)).toEqual({ ancestors: [], offspring: [] })
+    expect(await getGenealogy(env, lone)).toEqual({ ancestors: [], offspring: [], siblings: [] })
   })
 
   it('a node that has not rendered carries a null thumbnail', async () => {
@@ -65,6 +65,57 @@ describe('getGenealogy — the per-post lineage slice', () => {
     const g = await getGenealogy(env, child)
     expect(g.ancestors.map((n) => n.postId)).toEqual([PostId('gv-pending-parent')])
     expect(g.ancestors[0]!.thumbnail).toBeNull()
+  })
+
+  it('resolves same-parent peers as siblings, with their phenotypes, excluding self', async () => {
+    // P (founder) with three forks X, Y, Z — pure single-parent siblings. Y has rendered.
+    const P = await seedPost(env, { id: 'gv-P', content: { kind: 'generation' } })
+    const X = await seedPost(env, { id: 'gv-X', content: { kind: 'generation', parentId: P } })
+    await seedPost(env, {
+      id: 'gv-Y',
+      content: { kind: 'generation', parentId: P, status: { kind: 'succeeded', output: IMG('y'), completedAt: new Date('2026-01-01') } },
+    })
+    await seedPost(env, {
+      id: 'gv-Z',
+      content: { kind: 'generation', parentId: P, status: { kind: 'running', startedAt: new Date('2026-01-01') } },
+    })
+
+    const x = await getGenealogy(env, X)
+    // X's siblings are Y and Z (sorted), never X itself; each is a flat leaf (no nesting).
+    expect(x.siblings.map((n) => n.postId)).toEqual([PostId('gv-Y'), PostId('gv-Z')])
+    expect(x.siblings.every((n) => n.kin.length === 0)).toBe(true)
+    // The rendered sibling carries its thumbnail (read in the same phenotype batch); Z has none.
+    expect(x.siblings.find((n) => n.postId === PostId('gv-Y'))!.thumbnail).toEqual(IMG('y'))
+    expect(x.siblings.find((n) => n.postId === PostId('gv-Z'))!.thumbnail).toBeNull()
+  })
+
+  it('a founder has no siblings (no parent edge, no peers)', async () => {
+    const f1 = await seedPost(env, { id: 'gv-founder-1', content: { kind: 'generation' } })
+    await seedPost(env, { id: 'gv-founder-2', content: { kind: 'generation' } })
+    // Two founders are NOT siblings: they share no parent. The relation is the edge, not co-genesis.
+    expect((await getGenealogy(env, f1)).siblings).toEqual([])
+  })
+
+  it('counts a full sibling once and a half sibling too (shares AT LEAST one parent, deduped)', async () => {
+    // Three founders M, N, O. FULL siblings S1,S2 (both bred from M+N); HALF sibling H (bred M+O).
+    const M = await seedPost(env, { id: 'gv-M', content: { kind: 'generation' } })
+    const N = await seedPost(env, { id: 'gv-N', content: { kind: 'generation' } })
+    const O = await seedPost(env, { id: 'gv-O', content: { kind: 'generation' } })
+    const S1 = await seedPost(env, { id: 'gv-S1', content: { kind: 'generation' } })
+    const S2 = await seedPost(env, { id: 'gv-S2', content: { kind: 'generation' } })
+    const H = await seedPost(env, { id: 'gv-H', content: { kind: 'generation' } })
+    await db(env).insert(lineageEdges).values([
+      { childGenomeId: S1, parentGenomeId: M },
+      { childGenomeId: S1, parentGenomeId: N },
+      { childGenomeId: S2, parentGenomeId: M },
+      { childGenomeId: S2, parentGenomeId: N },
+      { childGenomeId: H, parentGenomeId: M },
+      { childGenomeId: H, parentGenomeId: O },
+    ])
+
+    // S1 shares BOTH M and N with S2 (collected once, not twice) and M with H → {S2, H}.
+    const s1 = await getGenealogy(env, S1)
+    expect(s1.siblings.map((n) => n.postId)).toEqual([PostId('gv-H'), PostId('gv-S2')])
   })
 
   it('fails loud when a lineage edge points at a non-genome (storage corruption)', async () => {
