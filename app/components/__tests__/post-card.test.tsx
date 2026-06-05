@@ -130,7 +130,7 @@ describe('app/components/post-card.tsx - lineage scalars (gen N / N bred)', () =
           lineage: opts.lineage,
         },
         render: { providerVersion: '1', params: {} },
-        status: { kind: 'succeeded', output: { kind: 'image', url: '/media/x', w: 1, h: 1 } },
+        status: { kind: 'succeeded', output: { kind: 'image', url: '/media/x', w: 1, h: 1 }, completedAt: new Date('2026-01-01T00:00:00Z') },
       },
     },
     score: 0,
