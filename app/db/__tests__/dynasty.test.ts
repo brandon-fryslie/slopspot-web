@@ -31,6 +31,18 @@ function nodeIdsOf(roots: readonly GenealogyNode[]): Set<string> {
   return out
 }
 
+// Occurrence count across the WHOLE forest — NOT a Set. A Set collapses a re-rendered diamond node,
+// masking a dropped dedup; counting catches it. A re-encountered node renders ONCE expanded, then leaf.
+function occurrencesOf(roots: readonly GenealogyNode[]): Map<string, number> {
+  const m = new Map<string, number>()
+  const walk = (n: GenealogyNode) => {
+    m.set(n.postId, (m.get(n.postId) ?? 0) + 1)
+    n.kin.forEach(walk)
+  }
+  roots.forEach(walk)
+  return m
+}
+
 const G = (id: string) => `dyn-${id}`
 
 describe('getDynasty - founder-rooted whole-bloodline forest (genome-p6z.2)', () => {
@@ -73,6 +85,32 @@ describe('getDynasty - founder-rooted whole-bloodline forest (genome-p6z.2)', ()
     expect(new Set(dynasty.founders.map((n) => n.postId))).toEqual(new Set([f1, f2]))
     // Each founding line's whole tree is present (F1→X→Z and F2→Y→Z); Z is in both lines.
     expect(nodeIdsOf(dynasty.founders)).toEqual(new Set([f1, x, f2, y, z]))
+  })
+
+  it('a DEEP diamond expands the shared subtree ONCE, never twice (buildTree dedup is load-bearing)', async () => {
+    // F -> A, F -> B; A -> D, B -> D (D is a bred diamond); D -> E. The grandchild E hangs BELOW the
+    // diamond, so dedup vs no-dedup differ in OUTPUT shape: with dedup, D expands once (E rendered
+    // once) and is a leaf on the second path; WITHOUT dedup, D expands under both A and B and E
+    // renders TWICE (and a deeper DAG blows up exponentially). A Set can't see that — only a count.
+    const f = await seedPost(env, { id: G('df'), content: { kind: 'generation' } })
+    const a = await seedPost(env, { id: G('da'), content: { kind: 'generation', parentId: f } })
+    const b = await seedPost(env, { id: G('db2'), content: { kind: 'generation', parentId: f } })
+    const d = await seedPost(env, { id: G('dd'), content: { kind: 'generation', parentId: a } })
+    await breedEdge(d, b) // D bred from A + B (the diamond)
+    const e = await seedPost(env, { id: G('de'), content: { kind: 'generation', parentId: d } })
+
+    const dynasty = await getDynasty(env, e)
+    const occ = occurrencesOf(dynasty.founders)
+
+    // THE TEETH: E hangs below the shared node D and must appear EXACTLY ONCE — the expanded-set stops
+    // the second path (B→D) from re-expanding D's subtree. Without buildTree's dedup this is 2 (the
+    // regression a Set-based assertion can't see). Proven: neutering the dedup reds this `2 to be 1`.
+    expect(occ.get(e)).toBe(1)
+    // The OTHER direction of the contract: D itself is shown on BOTH paths (every edge rendered, no
+    // OVER-prune) but expanded only once — one occurrence carries its child E, the other is a leaf.
+    expect(occ.get(d)).toBe(2)
+    // The whole bloodline's node SET is still complete.
+    expect(nodeIdsOf(dynasty.founders)).toEqual(new Set([f, a, b, d, e]))
   })
 
   it('a lone founder is its own one-node dynasty (no descendants -> a single rooted tile)', async () => {
