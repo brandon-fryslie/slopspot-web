@@ -378,6 +378,33 @@ export type FeedItem = RenderablePost & {
   rank: number
 }
 
+// [LAW:types-are-the-program] A node in a post's family tree — a genome's PHENOTYPE,
+// addressable by its post id, with the thumbnail to show and its kin in ONE direction.
+// The relationship (ancestor vs offspring) is the node's POSITION in the Genealogy, never
+// a field: `kin` is the parents inside `ancestors` and the children inside `offspring`, so
+// "this node is an ancestor" cannot contradict an "is-ancestor" boolean — there is none.
+// A Genome carries no Media (the genome/phenotype split — you cannot inherit a body), so
+// the thumbnail is read from the node's render, NOT the genome; `null` is the honest value
+// for a node whose slop has no phenotype yet (pending/running/failed), distinct by data
+// from "no displayable image" which the renderer decides. `kin` empty = a founder (going
+// up) or a leaf (going down) — the arity is the discriminator, no separate flag.
+export type GenealogyNode = {
+  postId: PostId
+  thumbnail: Media | null
+  kin: readonly GenealogyNode[]
+}
+
+// [LAW:one-source-of-truth] A post's visual genealogy, both directions, derived ENTIRELY
+// from the lineage_edges DAG + each node's render — never a stored ancestry (the same shape
+// score=SUM(votes) and the Crowning take). Two empty arrays = a founder with no offspring;
+// the renderer shows nothing at all (absence is the discriminator, not an `isLineage` flag).
+// [LAW:one-type-per-behavior] The per-post slice of the grand Slop Genome view; the grand
+// dynasty explorer folds the WHOLE DAG, this folds the subgraph reachable from one post.
+export type Genealogy = {
+  ancestors: readonly GenealogyNode[]
+  offspring: readonly GenealogyNode[]
+}
+
 // [LAW:types-are-the-program] Comments v1 are flat (no parentCommentId) and
 // anonymous-author (authorId is the opaque voter-cookie UUID — same shape as
 // votes.voterId, intentionally string-typed rather than UserId so a future auth
