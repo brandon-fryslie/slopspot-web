@@ -1,5 +1,5 @@
 import { Link } from "react-router"
-import type { Genealogy, GenealogyNode, Media } from "~/lib/domain"
+import type { Dynasty, Genealogy, GenealogyNode, Media } from "~/lib/domain"
 
 // [LAW:dataflow-not-control-flow] The family tree renders by the DATA the read boundary derived
 // from the lineage_edges DAG — two trees of thumbnails, ancestry up and offspring down. A founder
@@ -19,6 +19,23 @@ export function GenealogyView({ genealogy }: { genealogy: Genealogy }) {
           shows just the branch it has — the presence of nodes is the discriminator. */}
       <Branch label="ancestry" nodes={genealogy.ancestors} />
       <Branch label="offspring" nodes={genealogy.offspring} />
+    </section>
+  )
+}
+
+// [LAW:one-type-per-behavior] The whole-dynasty view (slopspot-genome-p6z.2) — the founder-rooted
+// forest, rendered with the SAME recursive NodeList the per-post tree uses (a founder is just a
+// GenealogyNode whose kin is its descendant tree). [LAW:dataflow-not-control-flow] the forest renders
+// by the founders ARRAY: empty → nothing (a post with no resolvable dynasty), each founder → one rooted
+// tree. A bred post belongs to multiple bloodlines, so multiple founder trees is the honest forest.
+export function DynastyView({ dynasty }: { dynasty: Dynasty }) {
+  if (dynasty.founders.length === 0) return null
+  return (
+    <section className="overflow-hidden rounded-lg border border-votive/12 bg-panel px-3 py-3">
+      <h1 className="font-terminal text-[10px] uppercase tracking-widest text-ash/70">dynasty</h1>
+      {/* Each founder roots its whole bloodline; NodeList renders the founder tile + its descendant
+          tree recursively, the same thread treatment the per-post offspring branch uses. */}
+      <NodeList nodes={dynasty.founders} />
     </section>
   )
 }
