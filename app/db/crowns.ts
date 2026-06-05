@@ -15,12 +15,16 @@
 
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm'
 import { db } from '~/db/client'
+import { getLineageDag } from '~/db/genome-dag'
 import { crowns, generations, personas, posts, votes } from '~/db/schema'
-import type { AgentId, Crowning, PostId, VoteValue } from '~/lib/domain'
+import { GenomeId } from '~/lib/domain'
+import type { AgentId, Crowning, Genome, PostId, VoteValue } from '~/lib/domain'
 import {
   ballotCitizens,
+  devianceRanking,
   markFor,
   riteLensSchema,
+  type DeviantCandidate,
   type RiteBallot,
   type RiteCandidate,
   type RiteLens,
@@ -175,6 +179,11 @@ export async function gatherCandidates(
   ballot: RiteBallot,
   window: RiteWindow,
 ): Promise<RiteCandidate[]> {
+  // The Heretic reads RECIPES, not votes — a separate gather over the day's genomes.
+  // Dispatched here (not by an empty-citizens check) because both deviance and acclaim
+  // read no specific citizen; the ballot kind is the honest discriminator.
+  if (ballot.kind === 'deviance') return gatherDeviant(env, window)
+
   const database = db(env)
   const inWindow = and(
     gte(votes.createdAt, new Date(window.sinceMs)),
@@ -198,6 +207,7 @@ export async function gatherCandidates(
   if (citizens.length === 0) {
     // acclaim: every slop judged in the window is a candidate; no citizen ballot.
     return scoreRows.map((r) => ({
+      kind: 'voted',
       postId: r.postId as PostId,
       overallScore: r.score,
       citizenVotes: {},
@@ -222,10 +232,46 @@ export async function gatherCandidates(
     byPost.set(r.postId, m)
   }
   return [...byPost.entries()].map(([postId, citizenVotes]) => ({
+    kind: 'voted',
     postId: postId as PostId,
     overallScore: scoreByPost.get(postId) ?? 0,
     citizenVotes,
   }))
+}
+
+// [LAW:single-enforcer] The Heretic's gather — the day's GENERATIONS weighed by recipe
+// deviance, not votes. The window is over the post's created_at (deviance is a recipe
+// property: the day's slops, not the day's votes), and only succeeded generations carry
+// a rendered recipe to judge.
+// [LAW:one-source-of-truth] Reuses the lineage DAG's genome reader rather than parsing
+// the genome columns a fourth time; the pure devianceRanking (rite.ts) owns the cohort
+// math and the weighting. An empty window degrades to no candidates → the Unmoved Day.
+async function gatherDeviant(env: Env, window: RiteWindow): Promise<DeviantCandidate[]> {
+  const idRows = await db(env)
+    .select({ postId: generations.postId })
+    .from(generations)
+    .innerJoin(posts, eq(posts.id, generations.postId))
+    .where(
+      and(
+        eq(generations.status, 'succeeded'),
+        gte(posts.createdAt, new Date(window.sinceMs)),
+        lt(posts.createdAt, new Date(window.untilMs)),
+      ),
+    )
+  if (idRows.length === 0) return []
+
+  const dag = await getLineageDag(env)
+  const genomes: Genome[] = idRows.map((r) => {
+    const node = dag.nodes.get(GenomeId(r.postId))
+    // [LAW:no-silent-fallbacks] Every succeeded generation IS a DAG node (the DAG is built
+    // from the generations table); a missing node is a storage-integrity violation, not a
+    // candidate to silently drop.
+    if (node === undefined) {
+      throw new Error(`crowns: in-window generation ${r.postId} has no genome in the lineage DAG`)
+    }
+    return node
+  })
+  return devianceRanking(genomes)
 }
 
 // [LAW:single-enforcer] One place derives the eternal mark for a set of visible

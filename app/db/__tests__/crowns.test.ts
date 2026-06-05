@@ -18,7 +18,7 @@ import {
 } from '~/db/crowns'
 import { getFeedPage } from '~/db/feed'
 import { AgentId, PostId } from '~/lib/domain'
-import type { RiteBallot } from '~/lib/rite'
+import type { DeviantCandidate, RiteBallot } from '~/lib/rite'
 import { spoke } from '~/lib/voice'
 import { seedPost, seedVote } from './helpers'
 
@@ -87,6 +87,7 @@ describe('gatherCandidates — the day’s ballot decides who nominates', () => 
     const candidates = await gatherCandidates(env, SOLE_VIVIAN, WINDOW)
     expect(candidates).toHaveLength(1)
     expect(candidates[0]).toEqual({
+      kind: 'voted',
       postId: blessed,
       overallScore: 0, // +1 (Vivian) −1 (v2)
       citizenVotes: { 'agent:slop-purist': 1 },
@@ -100,7 +101,7 @@ describe('gatherCandidates — the day’s ballot decides who nominates', () => 
     await seedPost(env) // no votes — not judged
     const candidates = await gatherCandidates(env, ACCLAIM, WINDOW)
     expect(candidates).toHaveLength(1)
-    expect(candidates[0]).toEqual({ postId: a, overallScore: 2, citizenVotes: {} })
+    expect(candidates[0]).toEqual({ kind: 'voted', postId: a, overallScore: 2, citizenVotes: {} })
   })
 
   it('reads only the DAY: votes cast before the window do not nominate', async () => {
@@ -120,6 +121,63 @@ describe('gatherCandidates — the day’s ballot decides who nominates', () => 
     await seedVote(env, { postId: failed, voterId: 'agent:slop-purist', value: 1, createdAt: IN_WINDOW })
     expect(await gatherCandidates(env, SOLE_VIVIAN, WINDOW)).toHaveLength(0)
     expect(await gatherCandidates(env, ACCLAIM, WINDOW)).toHaveLength(0)
+  })
+})
+
+const DEVIANCE: RiteBallot = { kind: 'deviance' }
+
+function deviants(candidates: readonly { kind: string }[]): DeviantCandidate[] {
+  return candidates.filter((c): c is DeviantCandidate => c.kind === 'deviant')
+}
+
+describe('gatherCandidates — the Heretic gathers the day’s recipe outliers', () => {
+  const photoreal = (over: Partial<{ aspectRatio: '1:1' | '16:9'; providerId: string; freeText: string }> = {}) =>
+    ({
+      kind: 'generation' as const,
+      styleFamily: 'photoreal' as const,
+      aspectRatio: over.aspectRatio ?? ('1:1' as const),
+      providerId: over.providerId ?? 'fal-flux',
+      subject: { subjectTemplate: 'T00' as const, slots: { freeText: over.freeText ?? 'same' } },
+    })
+
+  it('weighs in-window succeeded generations by deviance from their own style-family cohort', async () => {
+    // Two photoreal twins + one photoreal that diverges in subject, aspect, AND provider.
+    await seedPost(env, { createdAt: IN_WINDOW, content: photoreal() })
+    await seedPost(env, { createdAt: IN_WINDOW, content: photoreal() })
+    const heretic = await seedPost(env, {
+      createdAt: IN_WINDOW,
+      content: photoreal({ aspectRatio: '16:9', providerId: 'replicate-sdxl', freeText: 'different' }),
+    })
+
+    const candidates = await gatherCandidates(env, DEVIANCE, WINDOW)
+    expect(candidates).toHaveLength(3)
+    expect(deviants(candidates)).toHaveLength(3) // every candidate is recipe-side, not a vote
+    const top = [...deviants(candidates)].sort((x, y) => y.deviance - x.deviance)[0]
+    expect(top.postId).toBe(heretic) // the outlier is the heretic
+    expect(top.deviance).toBeGreaterThan(0)
+  })
+
+  it('windows over the GENERATION, not votes: a slop made before the window does not nominate', async () => {
+    await seedPost(env, { createdAt: BEFORE_WINDOW, content: photoreal() })
+    await seedPost(env, { createdAt: BEFORE_WINDOW, content: photoreal() })
+    expect(await gatherCandidates(env, DEVIANCE, WINDOW)).toHaveLength(0)
+  })
+
+  it('excludes generations that did not succeed', async () => {
+    const failed = {
+      kind: 'generation' as const,
+      styleFamily: 'photoreal' as const,
+      status: { kind: 'failed' as const, reason: 'boom', failedAt: new Date('2026-01-01') },
+    }
+    await seedPost(env, { createdAt: IN_WINDOW, content: failed })
+    await seedPost(env, { createdAt: IN_WINDOW, content: failed })
+    expect(await gatherCandidates(env, DEVIANCE, WINDOW)).toHaveLength(0)
+  })
+
+  it('a lone slop in its family yields no candidate — no orthodoxy to defy', async () => {
+    await seedPost(env, { createdAt: IN_WINDOW, content: { kind: 'generation', styleFamily: 'anime' } })
+    await seedPost(env, { createdAt: IN_WINDOW, content: { kind: 'generation', styleFamily: 'cyberpunk-neon' } })
+    expect(await gatherCandidates(env, DEVIANCE, WINDOW)).toHaveLength(0)
   })
 })
 
