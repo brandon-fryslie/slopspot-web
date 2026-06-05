@@ -1,8 +1,10 @@
 import type { Route } from "./+types/p.$id"
 import { Link } from "react-router"
 import { getFeedItemById } from "~/db/feed"
+import { getPostGenealogy } from "~/db/genealogy"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostCard } from "~/components/post-card"
+import { PostLineageTree } from "~/components/post-lineage-tree"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The permalink page route. Reuses getFeedItemById,
@@ -19,17 +21,23 @@ import { PostId } from "~/lib/domain"
 // DESC) feed order, so "navigate to /" leaves the user with no signal that
 // their fork succeeded. /p/:id is the natural redirect target because it's
 // already what shareable links want to be.
+//
+// [LAW:one-source-of-truth] Genealogy is a permalink-only concern — it is NOT
+// part of RenderablePost because the feed does not need or load it. The loader
+// fetches it in parallel with the feed item; null means "non-generation post" and
+// PostLineageTree renders nothing in that case. [LAW:dataflow-not-control-flow]
 
 export async function loader({ request, params, context }: Route.LoaderArgs) {
-  const item = await getFeedItemById(
-    context.cloudflare.env,
-    PostId(params.id),
-    readVoterId(request),
-  )
+  const postId = PostId(params.id)
+  const env = context.cloudflare.env
+  const [item, genealogy] = await Promise.all([
+    getFeedItemById(env, postId, readVoterId(request)),
+    getPostGenealogy(env, postId),
+  ])
   if (item === null) {
     throw new Response("post not found", { status: 404 })
   }
-  return { item }
+  return { item, genealogy }
 }
 
 export function meta({ data }: Route.MetaArgs) {
@@ -48,7 +56,7 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
-  const { item } = loaderData
+  const { item, genealogy } = loaderData
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
       <header className="mb-8 border-b border-white/10 pb-6">
@@ -74,6 +82,9 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
           permalinked relic hangs "standalone". Spread the renderable as one value
           and name the level beside it; the type system carries the contract. */}
       <PostCard {...item} frame={{ kind: "standalone" }} />
+      {/* [LAW:dataflow-not-control-flow] genealogy is null for non-generation posts;
+          PostLineageTree renders nothing in that case — no mode branch in the route. */}
+      <PostLineageTree genealogy={genealogy} />
     </main>
   )
 }

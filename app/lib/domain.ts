@@ -337,6 +337,39 @@ export type Crowning = {
   presiding: CitizenRef
 }
 
+// [LAW:types-are-the-program] LineageNode is Lineage-with-resolved-nodes: the same
+// discriminated arity as Lineage (founder/single/bred) but parent references carry
+// the recursive node rather than a bare GenomeId. The arity invariant is structurally
+// enforced: 'founder' has no parent field, 'single' has exactly one, 'bred' has a
+// 2-tuple. A valid ancestry tree is always finite because the lineage DAG is acyclic.
+export type LineageNode =
+  | { kind: 'founder'; id: PostId; thumbnailUrl: string | null }
+  | { kind: 'single'; id: PostId; thumbnailUrl: string | null; parent: LineageNode }
+  | { kind: 'bred'; id: PostId; thumbnailUrl: string | null; parents: readonly [LineageNode, LineageNode] }
+
+// [LAW:types-are-the-program] A flat genealogy child slot — enough to render a
+// thumbnail+link in the offspring list. Children don't need their parents resolved
+// (each has its own permalink for that); only their lineageKind label matters for
+// display ("bred from" / "forked from" this post). Distinct from LineageNode precisely
+// because it carries no parent field — the absence is the type's whole point.
+export type GenealogyChild = {
+  id: PostId
+  thumbnailUrl: string | null
+  lineageKind: 'founder' | 'single' | 'bred'
+}
+
+// [LAW:one-source-of-truth] The per-post genealogy slice, derived from the lineage_edges
+// DAG at read time. `self` is the full ancestry tree (parents recursively up to founders);
+// `children` is the flat list of direct offspring (their ancestry is on their own permalink).
+// Neither field is stored — both are folds over the edge table.
+// [LAW:dataflow-not-control-flow] Empty arrays in `children` degrade the render to
+// "no offspring" without a branch; a founder node in `self.kind` terminates ancestry
+// without an explicit base-case guard.
+export type PostGenealogy = {
+  self: LineageNode
+  children: readonly GenealogyChild[]
+}
+
 export type RenderablePost = {
   post: Post
   score: number
