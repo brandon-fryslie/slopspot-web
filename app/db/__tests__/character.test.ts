@@ -6,7 +6,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { characterActs, effectiveTraits } from '~/db/character'
+import { characterActs, effectiveTraits, VOICE_HALF_LIFE_MS } from '~/db/character'
+import { RECENCY_HALF_LIFE_MS } from '~/db/genepool'
 import { db } from '~/db/client'
 import { traitBias } from '~/lib/register'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
@@ -50,7 +51,7 @@ describe('effectiveTraits — derived from the citizen\'s acts', () => {
     await seedVote(env, { postId: found, voterId: citizen, value: -1, createdAt: recently(0) })
     await seedVote(env, { postId: upload, voterId: citizen, value: 1, createdAt: recently(0) })
 
-    expect(await characterActs(db(env), citizen)).toEqual([])
+    expect(await characterActs(db(env), citizen, NOW)).toEqual([])
     expect(await effectiveTraits(db(env), citizen, NEUTRAL_TRAITS, NOW)).toEqual(NEUTRAL_TRAITS)
   })
 
@@ -61,8 +62,29 @@ describe('effectiveTraits — derived from the citizen\'s acts', () => {
     await seedVote(env, { postId: slop, voterId: citizen, value: 1, createdAt: recently(2) })
     await seedVote(env, { postId: other, voterId: 'agent:someone-else', value: 1, createdAt: recently(2) })
 
-    const acts = await characterActs(db(env), citizen)
+    const acts = await characterActs(db(env), citizen, NOW)
     expect(acts).toHaveLength(1)
     expect(acts[0]).toMatchObject({ traits: EARNEST, value: 1, createdAt: recently(2) })
+  })
+
+  it('windows out acts beyond four half-lives (they carry < 6.25% weight — lossless within tolerance)', async () => {
+    const citizen = 'agent:ancient-past'
+    const slop = await seedPost(env, { id: 'char-ancient', content: { kind: 'generation', traits: EARNEST } })
+    // Just past the four-half-life window — present in the table, excluded by the range seek.
+    const ancient = new Date(NOW.getTime() - (4 * VOICE_HALF_LIFE_MS + 24 * 60 * 60 * 1000))
+    await seedVote(env, { postId: slop, voterId: citizen, value: -1, createdAt: ancient })
+
+    expect(await characterActs(db(env), citizen, NOW)).toEqual([])
+    expect(await effectiveTraits(db(env), citizen, NEUTRAL_TRAITS, NOW)).toEqual(NEUTRAL_TRAITS)
+  })
+})
+
+// [LAW:behavior-not-structure][LAW:one-source-of-truth] The cross-module invariant VOICE > FITNESS made
+// ENFORCED, not hopeful: a citizen's IDENTITY (voice) must decay slower than its TASTE (genome fitness),
+// CD's "identity is stickier than taste". It lives across two modules' tunables, so a retune of either
+// could silently break it (the #138 comment-drift class) — this test is the single source that holds it.
+describe('VOICE > FITNESS half-life invariant', () => {
+  it('the voice register decays slower than genome fitness (identity stickier than taste)', () => {
+    expect(VOICE_HALF_LIFE_MS).toBeGreaterThan(RECENCY_HALF_LIFE_MS)
   })
 })
