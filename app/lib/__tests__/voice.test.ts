@@ -10,7 +10,6 @@ import {
   type OccasionTarget,
   type ReplyExchange,
   type RiteOutcome,
-  type Utterance,
   type WithheldReason,
   spoke,
   speak,
@@ -30,8 +29,8 @@ const answeredWish = {
 };
 
 describe("utter — the locked voice contract", () => {
-  it("speaks the remark instance: (answerer, 'remark', AnsweredWish) -> Spoke", () => {
-    const result = utter(answerer, "remark", answeredWish);
+  it("speaks the remark instance: (answerer, 'remark', AnsweredWish, {}) -> Spoke", async () => {
+    const result = await utter(answerer, "remark", answeredWish, {});
     expect(result.kind).toBe("spoke");
     if (result.kind === "spoke") {
       // narrates the gap between wish and slop — never an empty string
@@ -40,7 +39,7 @@ describe("utter — the locked voice contract", () => {
     }
   });
 
-  it("reads the snapshot without mutating it (one-way dep voice -> domain)", () => {
+  it("reads the snapshot without mutating it (one-way dep voice -> domain)", async () => {
     const frozen = Object.freeze({
       wish: "a sunset",
       slop: Object.freeze({
@@ -48,7 +47,7 @@ describe("utter — the locked voice contract", () => {
         prompt: "a sunset over a dead mall",
       }),
     });
-    expect(() => utter(answerer, "remark", frozen)).not.toThrow();
+    await expect(utter(answerer, "remark", frozen, {})).resolves.toMatchObject({ kind: "spoke" });
   });
 });
 
@@ -68,8 +67,8 @@ describe("utter — the reply instance (the Feud Engine)", () => {
 
   it.each<FeudStanding["stance"]>(["feuding", "allied", "wary", "neutral"])(
     "speaks a non-empty reply for the %s stance, naming the opponent",
-    (stance) => {
-      const result = utter(speaker, "reply", exchangeWith(stance));
+    async (stance) => {
+      const result = await utter(speaker, "reply", exchangeWith(stance), {});
       expect(result.kind).toBe("spoke");
       if (result.kind === "spoke") {
         expect(result.text.length).toBeGreaterThan(0);
@@ -78,18 +77,20 @@ describe("utter — the reply instance (the Feud Engine)", () => {
     },
   );
 
-  it("the stance VALUE selects the register — different stances, different lines", () => {
-    const lines = (["feuding", "allied", "wary", "neutral"] as const).map((s) => {
-      const r = utter(speaker, "reply", exchangeWith(s));
-      return r.kind === "spoke" ? r.text : "";
-    });
+  it("the stance VALUE selects the register — different stances, different lines", async () => {
+    const lines = await Promise.all(
+      (["feuding", "allied", "wary", "neutral"] as const).map(async (s) => {
+        const r = await utter(speaker, "reply", exchangeWith(s), {});
+        return r.kind === "spoke" ? r.text : "";
+      }),
+    );
     expect(new Set(lines).size).toBe(4); // each stance speaks distinctly
   });
 });
 
 describe("speak — the single failure-degrade enforcer", () => {
-  it("transmits a Spoke value unchanged", () => {
-    expect(speak(() => spoke("a line"))).toEqual({
+  it("transmits a Spoke value unchanged", async () => {
+    expect(await speak(() => spoke("a line"))).toEqual({
       kind: "spoke",
       text: "a line",
     });
@@ -101,18 +102,26 @@ describe("speak — the single failure-degrade enforcer", () => {
     "characteristic-silence",
     "indifferent",
     "beneath-comment",
-  ])("transmits chosen-silence %s unchanged (never conflated)", (reason) => {
-    expect(speak(() => withheld(reason))).toEqual({ kind: "withheld", reason });
+  ])("transmits chosen-silence %s unchanged (never conflated)", async (reason) => {
+    expect(await speak(() => withheld(reason))).toEqual({ kind: "withheld", reason });
   });
 
-  it("degrades a throwing voice to Withheld{unavailable} — never throws", () => {
-    let result: Utterance | undefined;
-    expect(() => {
-      result = speak(() => {
+  it("degrades a SYNC throwing voice to Withheld{unavailable} — never throws", async () => {
+    await expect(
+      speak(() => {
         throw new Error("LLM timed out");
-      });
-    }).not.toThrow();
-    expect(result).toEqual({ kind: "withheld", reason: "unavailable" });
+      }),
+    ).resolves.toEqual({ kind: "withheld", reason: "unavailable" });
+  });
+
+  // FORK C (voice-w2v.7): the verdict voice is async, so the enforcer must degrade a REJECTING promise
+  // too — a Haiku transport that rejects becomes a silence, never an exception into the act path.
+  it("degrades a REJECTING async voice to Withheld{unavailable}", async () => {
+    await expect(
+      speak(async () => {
+        throw new Error("haiku rejected");
+      }),
+    ).resolves.toEqual({ kind: "withheld", reason: "unavailable" });
   });
 });
 
