@@ -319,6 +319,52 @@ async function lineageParentsByChild(
   return map
 }
 
+// [LAW:one-source-of-truth] Generation depth derives from lineage_edges ALONE (no stored gen column),
+// the same single source the descendant count and the lineage badge read. [LAW:types-are-the-program]
+// Over a two-parent breeding DAG depth is not single-valued; the FIXED definition (RenderablePost) is
+// the LONGEST path to any founder. The ancestry sub-DAG is gathered by walking UP the parent edges from
+// the visible posts only — reusing the tested `lineageParentsByChild` reader, bounded to their ancestry,
+// NEVER the whole DAG (the genepool/cast folds load the full DAG; this is the hot feed read and must
+// not). Depth is then a pure memoized longest-path fold over the gathered edges.
+async function generationDepthByPost(
+  database: ReturnType<typeof db>,
+  postIds: readonly string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  if (postIds.length === 0) return out
+
+  // Gather child→parents for the visible posts and every ancestor, one level UP per round, until the
+  // frontier reaches founders (no parent edge → not re-queried). `visited` makes each node a one-time
+  // lookup; the lineage DAG is acyclic (a parent is older), so the walk terminates by data.
+  const parentsOf = new Map<string, GenomeId[]>()
+  const visited = new Set<string>()
+  let frontier = [...new Set(postIds)]
+  while (frontier.length > 0) {
+    for (const id of frontier) visited.add(id)
+    const edges = await lineageParentsByChild(database, frontier)
+    const next = new Set<string>()
+    for (const [child, parents] of edges) {
+      parentsOf.set(child, parents)
+      for (const p of parents) if (!visited.has(p)) next.add(p)
+    }
+    frontier = [...next]
+  }
+
+  // [LAW:dataflow-not-control-flow] Longest path to a founder, memoized. A node with no parent edge is
+  // a founder → 0; otherwise 1 + the deepest parent. A founder post yields 0 by data, never a branch.
+  const memo = new Map<string, number>()
+  const depthOf = (node: string): number => {
+    const cached = memo.get(node)
+    if (cached !== undefined) return cached
+    const parents = parentsOf.get(node)
+    const d = parents === undefined || parents.length === 0 ? 0 : 1 + Math.max(...parents.map(depthOf))
+    memo.set(node, d)
+    return d
+  }
+  for (const id of postIds) out.set(id, depthOf(id))
+  return out
+}
+
 // [LAW:types-are-the-program] Closed union → exhaustive switch on the storage
 // discriminator. Adding a new variant to posts.contentKind upstream forces
 // this switch to grow before it compiles, matching the [LAW:single-enforcer]
@@ -628,6 +674,12 @@ function selectFeedRows(
 
   const cCount = sql<number>`coalesce(${commentCount.count}, 0)`
 
+  // [LAW:one-source-of-truth] The "most-bred" descendant count, derived from the lineage DAG (the edge
+  // table) with the SAME correlated subquery the Cast page's most-bred uses (app/db/citizens.ts) — a
+  // child is any genome with an edge pointing here; both single and bred children count one edge per
+  // parent. One source (lineage_edges), one derivation, no stored childCount column to drift.
+  const descendantCount = sql<number>`(select count(*) from lineage_edges le where le.parent_genome_id = ${posts.id})`
+
   const myVote = alias(votes, 'my_vote')
   const myVoterId = voterId ?? ''
 
@@ -640,6 +692,7 @@ function selectFeedRows(
       score: posts.score,
       myVote: myVote.value,
       commentCount: cCount,
+      descendantCount,
     })
     .from(posts)
     .leftJoin(generations, eq(generations.postId, posts.id))
@@ -670,12 +723,14 @@ type FeedRowWithAggregates = {
   score: number
   myVote: number | null
   commentCount: number
+  descendantCount: number
 }
 
 function rowToRenderablePost(
   row: FeedRowWithAggregates,
   viewerId: string | undefined,
   parents: readonly GenomeId[],
+  generationDepth: number,
 ): RenderablePost {
   const post = toPost(row, parents)
   return {
@@ -690,6 +745,11 @@ function rowToRenderablePost(
     // verdictsForPosts/repliesForPosts reads (one query each over the visible set, never per-row).
     verdicts: [],
     exchange: [],
+    // [LAW:dataflow-not-control-flow] Both lineage scalars ride through as DATA: descendantCount from
+    // the per-row subquery, generationDepth from the batched ancestry walk the caller passes in (like
+    // `parents`). A founder is 0 / 0 by data — no isRoot branch here or in the card.
+    generationDepth,
+    descendantCount: row.descendantCount,
   }
 }
 
@@ -790,14 +850,21 @@ export async function getFeedPage(
     ...applySortMode(sort, { score: posts.score, createdAt: posts.createdAt, id: posts.id }),
   )
 
-  // The lineage edges for the visible set, resolved in one query before mapping (toContent
-  // assembles each genome's lineage from its parents). [LAW:single-enforcer]
-  const parentsByChild = await lineageParentsByChild(
-    database,
-    rows.map((row) => row.post.id),
-  )
+  // The lineage edges for the visible set (immediate parents for toContent's lineage badge) and the
+  // generation depth (longest path to a founder, over each visible post's ancestry) — two independent
+  // lineage_edges reads over the same visible set, run concurrently. [LAW:single-enforcer]
+  const visibleIds = rows.map((row) => row.post.id)
+  const [parentsByChild, depthByPost] = await Promise.all([
+    lineageParentsByChild(database, visibleIds),
+    generationDepthByPost(database, visibleIds),
+  ])
   const renderables = rows.map((row) =>
-    rowToRenderablePost(row, voterId, parentsByChild.get(row.post.id) ?? []),
+    rowToRenderablePost(
+      row,
+      voterId,
+      parentsByChild.get(row.post.id) ?? [],
+      depthByPost.get(row.post.id) ?? 0,
+    ),
   )
   // Two independent post-hydration resolutions over the same visible set: persona faces (by agentId)
   // and critic verdicts + crownings (by postId). Neither depends on the other, so they run
@@ -827,6 +894,10 @@ export async function getFeedPage(
       verdicts: verdictsByPost.get(r.post.id) ?? [],
       exchange: repliesByPost.get(r.post.id) ?? [],
       ...(crowning !== undefined ? { crowning } : {}),
+      // [LAW:dataflow-not-control-flow] The lineage scalars ride through from the renderable — the card
+      // renders "gen N" / "N bred" by the number (0 → nothing), no isRoot branch.
+      generationDepth: r.generationDepth,
+      descendantCount: r.descendantCount,
       rank: i + 1,
     }
   })
@@ -864,8 +935,16 @@ export async function getFeedItemById(
   const rows = await selectFeedRows(database, id === null ? [] : [id], voterId).limit(1)
   if (rows.length === 0) return null
 
-  const parentsByChild = await lineageParentsByChild(database, [rows[0].post.id])
-  const renderable = rowToRenderablePost(rows[0], voterId, parentsByChild.get(rows[0].post.id) ?? [])
+  const [parentsByChild, depthByPost] = await Promise.all([
+    lineageParentsByChild(database, [rows[0].post.id]),
+    generationDepthByPost(database, [rows[0].post.id]),
+  ])
+  const renderable = rowToRenderablePost(
+    rows[0],
+    voterId,
+    parentsByChild.get(rows[0].post.id) ?? [],
+    depthByPost.get(rows[0].post.id) ?? 0,
+  )
   const agentIds = collectAgentIds([renderable.post])
   const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
