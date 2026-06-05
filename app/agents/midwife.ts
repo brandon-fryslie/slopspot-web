@@ -18,6 +18,7 @@
 import { z } from 'zod'
 import { createPersona, creedOf, listAllPersonas, type NewPersona, type Persona } from '~/agents/persona'
 import { parseGeneratorConfig } from '~/agents/generator'
+import { debutNewcomer } from '~/agents/debut'
 import { proprietorRef } from '~/agents/rite'
 import { getLineageDag } from '~/db/genome-dag'
 import { recordUtterance } from '~/db/utterances'
@@ -448,6 +449,11 @@ export async function runBirth(env: Env, scheduledTimeMs: number): Promise<Birth
         creed: spec.creed,
         medium: ProviderId(spec.medium),
       })
+      // [LAW:make-it-impossible] The newcomer FINDS ITS FEET: it makes its first slop now, so it has
+      // acted within its first cycle by construction (not the firehose's ~likely hash-pick). Isolated +
+      // budget-gated inside debutNewcomer — a debut failure is observable, never an un-birth. `persona`
+      // (a NewPersona) is structurally a Persona; authorSlop reads its medium, no re-read.
+      await debutNewcomer(env, persona, scheduledTimeMs)
     }
     return created
       ? { kind: 'born', agentId, handle: persona.handle }

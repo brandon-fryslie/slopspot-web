@@ -12,7 +12,7 @@
 // registry. Prompt tuning and config adjustments happen via SQL without a
 // redeploy.
 
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, gte } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { personas, type DbPersona } from '~/db/schema'
 import { AgentId, type TraitVector } from '~/lib/domain'
@@ -136,6 +136,23 @@ export async function listAllPersonas(env: Env): Promise<Persona[]> {
     .from(personas)
     .orderBy(asc(personas.agentId))
   return rows.map(rowToPersona)
+}
+
+// The "blank-slate standing" window from the-roll-call.md — how long a freshly-born citizen reads as a
+// NEWCOMER on the roll call ("everyone watching to see what they make"). A week serves the weekly-returning
+// visitor who watches the city grow; born-today is too transient. A single tunable constant, not a mode.
+export const NEWCOMER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+// [LAW:single-enforcer][LAW:locality-or-seam] The set of citizens BORN since a cutoff — newcomer-ness is a
+// ROLL-CALL concern, so it lives at the seam that needs it (this focused read over personas.created_at),
+// NOT as a field widened onto the shared Persona type that 17 indifferent consumers would carry. The
+// caller derives `isNewcomer` by set membership. Returns a Set for O(1) lookup across the roster.
+export async function newcomerAgentIds(env: Env, sinceMs: number): Promise<Set<string>> {
+  const rows = await db(env)
+    .select({ agentId: personas.agentId })
+    .from(personas)
+    .where(gte(personas.createdAt, new Date(sinceMs)))
+  return new Set(rows.map((r) => r.agentId))
 }
 
 // [LAW:dataflow-not-control-flow] Deterministic pick: same (role, pool,
