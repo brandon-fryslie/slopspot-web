@@ -41,16 +41,23 @@ export async function pushLines(
   lines: string[],
   headers: Record<string, string> = {},
 ): Promise<void> {
-  const resp = await fetch(endpoint, {
-    method: 'POST',
-    body: lines.join('\n'),
-    headers,
-    signal: AbortSignal.timeout(5_000),
-  })
-  if (!resp.ok) {
-    // 403 here means Access rejected the token — a real, visible failure (not a
-    // silent drop): the cpu metric simply won't appear, and the VM-side absent()
-    // rule surfaces it. Log the status so the cause is locatable.
-    console.warn('cpu-tail: push failed', { status: resp.status })
+  // [LAW:no-silent-fallbacks] A push failure must LOG, never throw into the tail
+  // path — measurement egress can never fail the tail invocation. Both failure
+  // modes are caught: an HTTP !ok response (e.g. 403 = Access rejected the token)
+  // AND a transport reject (AbortSignal.timeout / DNS / network) that throws from
+  // fetch itself. Either way the cpu metric won't appear and the VM-side absent()
+  // rule surfaces it. Mirrors the proven services/voter/src/metrics.ts shape.
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      body: lines.join('\n'),
+      headers,
+      signal: AbortSignal.timeout(5_000),
+    })
+    if (!resp.ok) {
+      console.warn('cpu-tail: push failed', { status: resp.status })
+    }
+  } catch (err) {
+    console.warn('cpu-tail: push error', { err: String(err) })
   }
 }
