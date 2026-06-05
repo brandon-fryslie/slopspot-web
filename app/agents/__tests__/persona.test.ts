@@ -13,6 +13,8 @@ import {
   guildOf,
   listAllPersonas,
   listPersonas,
+  newcomerAgentIds,
+  NEWCOMER_WINDOW_MS,
   pickPersona,
   type PersonaRole,
 } from '../persona'
@@ -226,5 +228,36 @@ describe('creedOf — authored asset, else a bounded prose slice', () => {
     expect(creed.length).toBeLessThanOrEqual(161) // 160 chars + the ellipsis
     expect(creed.endsWith('…')).toBe(true)
     expect(creed.length).toBeLessThan(body.length) // bounded, not the whole body
+  })
+})
+
+// [LAW:behavior-not-structure] newcomerAgentIds' contract: who joined within the window, as a set the
+// roll-call derives a per-card flag from. Asserts only on explicitly-seeded rows (not set size), so
+// migration-seeded citizens — whose created_at is incidental to this read — never make it flaky.
+describe('newcomerAgentIds — citizens born within the window', () => {
+  async function seedAt(agentId: string, createdAt: Date) {
+    await db(env)
+      .insert(personas)
+      .values({
+        agentId,
+        handle: agentId.replace('agent:', ''),
+        displayName: `Test ${agentId}`,
+        role: 'generator',
+        personaPrompt: `Prompt for ${agentId}`,
+        modelId: 'glm-4v-flash',
+        configJson: '{}',
+        createdAt,
+      })
+  }
+
+  it('includes a citizen born within the window and excludes one born before it', async () => {
+    const now = Date.now()
+    await seedAt('agent:born-recent', new Date(now - 1000)) // a second ago — inside the week
+    await seedAt('agent:born-old', new Date(now - 30 * 24 * 60 * 60 * 1000)) // 30 days ago — outside
+
+    const set = await newcomerAgentIds(env, now - NEWCOMER_WINDOW_MS)
+
+    expect(set.has('agent:born-recent')).toBe(true)
+    expect(set.has('agent:born-old')).toBe(false)
   })
 })
