@@ -3,11 +3,13 @@
 // act-layer truth) before this runs, and this only reads the snapshot + persists the utterance.
 // [LAW:one-way-deps] voice → domain (ids only); a narration failure can never corrupt the vote.
 
-import { utter, type JudgedSlop, type PersonaRef } from '~/lib/voice'
+import { utter, type JudgedSlop, type PersonaRef, type ReplyExchange, type SlopGist } from '~/lib/voice'
 import { getPersona } from '~/agents/persona'
 import { getPostById } from '~/db/feed'
-import { recordUtterance } from '~/db/utterances'
-import { AgentId, PostId, type Content, type Origin, type VoteValue } from '~/lib/domain'
+import { db } from '~/db/client'
+import { coPresentVerdicts, recordUtterance } from '~/db/utterances'
+import { feudStandingBetween } from '~/db/feud'
+import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
 
 // The slop's authored prompt — what the critic's verdict is about. A generation's is its genome
 // utterance (the composed prompt); a found slop's is its title; an upload has no authored prompt.
@@ -62,5 +64,76 @@ export async function narrateVerdict(
     occasion: 'verdict',
     targetPostId: input.postId,
     utterance,
+  })
+
+  // The verdict is recorded; now the Feud Engine reads whether it landed into a disagreement and, if so,
+  // fires the exchange. [LAW:one-way-deps] voice → domain: this narrates the now-completed clash, it
+  // never alters the vote.
+  await narrateExchange(env, { slop: target.slop, speaker: ref, ownVote: input.vote })
+}
+
+// blessed (+1) / buried (-1) — the verdict's lean, the same ±1 the vote carries.
+function dispositionOf(vote: VoteValue): VerdictDisposition {
+  return vote === 1 ? 'blessed' : 'buried'
+}
+
+// [LAW:dataflow-not-control-flow] The Feud Engine (slopspot-voice-w2v.2). When a verdict lands OPPOSING
+// an incumbent verdict on the same slop, the opposing-verdict data fires a `reply` occasion for BOTH
+// citizens — each answers the other, the visible back-and-forth. The tone is the DERIVED standing's
+// stance (feudStandingBetween, read from their shared votes, never stored). An empty opponent set reduces
+// this to a no-op WITHOUT a guard: the for-each over zero opposing verdicts simply does nothing — the
+// data decides whether an exchange happens, not a branch around the work.
+//
+// Symmetric standing: standing(B,A) counts the same pairs as standing(A,B), so one read tones both
+// replies. Each citizen's reply UPSERTS on (speaker, slop, 'reply') — one current answer per citizen per
+// slop, the same one-current-utterance model the verdict uses. [LAW:one-source-of-truth]
+async function narrateExchange(
+  env: Env,
+  newcomer: { slop: SlopGist; speaker: PersonaRef; ownVote: VoteValue },
+): Promise<void> {
+  const ownDisposition = dispositionOf(newcomer.ownVote)
+  const present = await coPresentVerdicts(db(env), newcomer.slop.postId)
+  // The incumbent this verdict clashes with: the most-recent verdict (the list is newest-first) whose
+  // disposition opposes the newcomer's. A non-citizen or same-leaning critic is not an opponent.
+  const opponent = present.find(
+    (v) => v.speaker !== newcomer.speaker.handle && v.disposition !== ownDisposition,
+  )
+  if (opponent === undefined) return // no clash — by data, the exchange does not fire
+
+  const standing = await feudStandingBetween(db(env), newcomer.speaker.handle, opponent.speaker)
+  const opponentPersona = await getPersona(env, opponent.speaker)
+  if (opponentPersona === null) return // the opponent's persona vanished mid-exchange (a race) — nothing to answer
+
+  // B answers A.
+  const newcomerReply: ReplyExchange = {
+    slop: newcomer.slop,
+    opponent: { handle: opponent.speaker as AgentId, displayName: opponent.displayName, disposition: opponent.disposition },
+    ownDisposition,
+    standing,
+  }
+  // A answers B — the standing is symmetric, so the same read tones the incumbent's reply.
+  const incumbentReply: ReplyExchange = {
+    slop: newcomer.slop,
+    opponent: { handle: newcomer.speaker.handle, displayName: newcomer.speaker.displayName, disposition: ownDisposition },
+    ownDisposition: opponent.disposition,
+    standing,
+  }
+  const incumbentRef: PersonaRef = {
+    handle: opponentPersona.agentId,
+    displayName: opponentPersona.displayName,
+    traits: opponentPersona.traits,
+  }
+
+  await recordUtterance(env, {
+    speaker: newcomer.speaker.handle,
+    occasion: 'reply',
+    targetPostId: newcomer.slop.postId,
+    utterance: utter(newcomer.speaker, 'reply', newcomerReply),
+  })
+  await recordUtterance(env, {
+    speaker: opponent.speaker,
+    occasion: 'reply',
+    targetPostId: newcomer.slop.postId,
+    utterance: utter(incumbentRef, 'reply', incumbentReply),
   })
 }
