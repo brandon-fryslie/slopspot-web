@@ -208,6 +208,49 @@ export async function getPersonaByHandle(
   return rows.length === 0 ? null : rowToPersona(rows[0])
 }
 
+// [LAW:types-are-the-program] A newborn citizen — every column the personas table needs,
+// minus createdAt (the writer stamps it). `handle` is NON-null here (a citizen is addressable
+// from birth, unlike the migration-seeded rows that minted handles later) and `config`/`traits`
+// are the typed shapes the row stores as JSON. The Birth Engine builds this; createPersona is the
+// one writer that turns it into a row.
+export type NewPersona = {
+  agentId: AgentId
+  handle: string
+  displayName: string
+  role: PersonaRole
+  personaPrompt: string
+  modelId: string
+  config: Record<string, unknown>
+  traits: TraitVector
+}
+
+// [LAW:single-enforcer] The only INSERT into the personas table — the Birth Engine writes new
+// citizens through here, the same way updatePersonaConfig is the only config UPDATE. The agentId
+// PK makes the daily birth idempotent BY CONSTRUCTION: onConflictDoNothing on a re-fire of an
+// already-settled day writes nothing and RETURNING discriminates the outcome at the single
+// statement — a returned row means THIS call created the citizen, an empty result means the day
+// was already born (mirrors recordCrowning's UNIQUE(rite_day) idempotency). No check-then-insert
+// TOCTOU. A handle collision is a UNIQUE-index violation that throws (loud) — the caller's
+// distinctness pre-check makes it unreachable, but storage integrity still fails closed.
+export async function createPersona(env: Env, p: NewPersona): Promise<{ created: boolean }> {
+  const inserted = await db(env)
+    .insert(personas)
+    .values({
+      agentId: p.agentId,
+      handle: p.handle,
+      displayName: p.displayName,
+      role: p.role,
+      personaPrompt: p.personaPrompt,
+      modelId: p.modelId,
+      configJson: JSON.stringify(p.config),
+      traitsJson: JSON.stringify(p.traits),
+      createdAt: new Date(),
+    })
+    .onConflictDoNothing({ target: personas.agentId })
+    .returning({ agentId: personas.agentId })
+  return { created: inserted.length > 0 }
+}
+
 // [LAW:single-enforcer] The only writer for persona config. All config updates
 // (admin dashboard, future migration tooling) go through here so the JSON
 // serialisation and the agentId lookup are enforced in one place.
