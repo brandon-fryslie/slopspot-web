@@ -36,6 +36,19 @@ export function listProviders(): readonly GenerationProvider<unknown>[] {
   return [...providers.values()]
 }
 
+// [LAW:one-source-of-truth] The city renders in exactly two media — an image or a
+// poem — and which one a provider produces is a property of its capabilities, not a
+// second field anyone sets. This is the ONE projection from a provider to the
+// composer's medium: a provider that produces text composes VERSE, every other
+// produces an IMAGE. Both the generator (what Haiku is asked to author) and the
+// first-poet rite (who is a verse-citizen) read this single derivation, so the
+// "is it verse?" question is answered in one place, never re-spelled at a callsite.
+export type CityMedium = 'image' | 'verse'
+
+export function mediumOf(provider: GenerationProvider<unknown>): CityMedium {
+  return provider.capabilities.producesMedia.includes('text') ? 'verse' : 'image'
+}
+
 // [LAW:single-enforcer] The one place "which providers may be PICKED by the
 // firehose for new generations" is decided. listProviders() stays unfiltered
 // (so getProvider(id) still works for legacy stored posts whose providerId

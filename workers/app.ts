@@ -5,6 +5,7 @@ import { runGenJobs, type GenJob } from "~/firehose/gen-queue"
 import { runPortraitPass } from "~/agents/portrait"
 import { runRite } from "~/agents/rite"
 import { runBirth } from "~/agents/midwife"
+import { maybeDecreeFirstPoet } from "~/agents/firstPoet"
 import { emit } from "~/observability/metrics"
 import { normalizeRoute } from "~/observability/route-normalizer"
 
@@ -78,6 +79,16 @@ export default {
         await runBirth(env, event.scheduledTime)
       } catch (err) {
         console.error('birth: unhandled error', { cron: event.cron }, err)
+      }
+      try {
+        // [LAW:dataflow-not-control-flow] The First-Poet Rite — runs UNCONDITIONALLY, AFTER the birth and
+        // in its own catch, never inside the birth event. It reads STATE (is there a verse-citizen, has the
+        // honor been recorded) and the data decides whether to decree — so a poet born THIS tick is marked
+        // now (reading the row the birth just wrote) and a poet born before this ceremony existed is caught
+        // on the next tick. Its failure cannot abort the birth/rite beside it (slopspot-beyond-image-poj.4).
+        await maybeDecreeFirstPoet(env)
+      } catch (err) {
+        console.error('first-poet: unhandled error', { cron: event.cron }, err)
       }
       return
     }
