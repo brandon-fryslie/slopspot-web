@@ -9,6 +9,7 @@ import { getPostById } from '~/db/feed'
 import { db } from '~/db/client'
 import { coPresentVerdicts, pruneRepliesExcept, recordUtterance } from '~/db/utterances'
 import { feudStandingBetween } from '~/db/feud'
+import { effectiveTraits } from '~/db/character'
 import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
 
 // The slop's authored prompt — what the critic's verdict is about. A generation's is its genome
@@ -46,10 +47,14 @@ export async function narrateVerdict(
   const post = await getPostById(env, PostId(input.postId))
   if (post === null) return // the slop vanished before narration (a race) — nothing to narrate
 
+  // [LAW:dataflow-not-control-flow] The register the citizen speaks in is its ACCRETED character: base
+  // sensibility tinted by what it has blessed/buried over time (slopspot-voice-w2v.3). The historical
+  // vector replaces the static one as the DATA utter() reads — no branch, no second voice path. This sits
+  // in the caller-try/caught narration, so a read failure logs and leaves the committed vote untouched.
   const ref: PersonaRef = {
     handle: persona.agentId,
     displayName: persona.displayName,
-    traits: persona.traits,
+    traits: await effectiveTraits(db(env), input.speaker, persona.traits, new Date()),
   }
   const target: JudgedSlop = {
     slop: { postId: PostId(input.postId), prompt: gistPrompt(post.content) },
@@ -118,10 +123,13 @@ async function narrateExchange(
     ownDisposition: opponent.disposition,
     standing,
   }
+  // [LAW:dataflow-not-control-flow] The incumbent speaks in its OWN accreted register too (.3) — the
+  // same historical tint as the newcomer's ref above; both citizens in the exchange answer in the voice
+  // their record has shaped.
   const incumbentRef: PersonaRef = {
     handle: opponentPersona.agentId,
     displayName: opponentPersona.displayName,
-    traits: opponentPersona.traits,
+    traits: await effectiveTraits(db(env), opponent.speaker, opponentPersona.traits, new Date()),
   }
 
   await recordUtterance(env, {
