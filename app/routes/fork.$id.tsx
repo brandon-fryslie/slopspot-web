@@ -122,8 +122,13 @@ export async function loader({
       disabled: true,
     })
   }
+  // [LAW:types-are-the-program] promptMaxLength is optional on providers that have no
+  // prompt length constraint (verse). Fall back to PROMPT_MAX so the fork form always
+  // has a numeric bound — the same global default the form uses when no provider is
+  // selected. Line 171's `?? PROMPT_MAX` already handles a missing map key, but this
+  // keeps the type concrete so existing consumers don't need to handle undefined.
   const promptMaxPerProvider: Record<string, number> = Object.fromEntries(
-    available.map((p) => [p.id, p.promptMaxLength]),
+    available.map((p) => [p.id, p.promptMaxLength ?? PROMPT_MAX]),
   )
 
   return {
