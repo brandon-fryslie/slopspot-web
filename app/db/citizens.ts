@@ -15,9 +15,9 @@
 // host has neither by construction (he presides; he does not make, judge, or
 // scavenge), an explicit arm, never a missing one.
 
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '~/db/client'
-import { found, generations, posts } from '~/db/schema'
+import { found, generations, lineageEdges, posts } from '~/db/schema'
 import { attributedTo, principalExpr } from '~/db/attribution'
 import { recentVotesForVoter, voterStats, type VoterStat } from '~/db/votes'
 import { guildOf, type Guild, type Persona } from '~/agents/persona'
@@ -378,69 +378,106 @@ async function makerWorks(env: Env, agentId: string): Promise<MakerLine[]> {
   return rows.map((r) => ({ postId: PostId(r.id), title: blankToNull(r.title) }))
 }
 
-// What the highlight scan reads per post — the signals each WORK axis is picked by.
-// No title/blob here: the scan ranks the whole body cheaply, and only the handful
-// of winners are hydrated for their image (the heavy column) in a second pass.
-type PickRow = { id: string; status: string | null; score: number; children: number }
+// One bounded WORK pick: the single post that won an axis. `best` carries the blessing
+// it won by, `most-bred` the lineage that earned it; `latest`/`failure` are bare
+// recency picks. Each winner is the head of a SQL-ranked read (LIMIT 1 / grouped
+// argmax), so the maker's body is ranked IN the database and only the winner — never
+// the whole body — crosses into the Worker.
+type ScoredWinner = { id: string; score: number }
+type BredWinner = { id: string; children: number }
+type RecencyWinner = { id: string }
 
-// [LAW:dataflow-not-control-flow] Each axis is a pick that EXISTS in the data or
-// does not — the highest-scored work (only if the city has voted it up), the
-// most-forked (only if it bred), the newest, the newest failure. An absent signal
-// is a null that filters out, never a branch that skips rendering; the canonical
-// order (best · most-bred · latest · a failure) is the array order. A post that
-// wins several axes appears once per axis here and is merged downstream, so the
-// pick stage stays a flat list of (post, label) the renderer never has to dedupe.
-function chooseHighlights(rows: PickRow[]): Array<{ postId: string; label: WorkLabel }> {
-  // rows arrive newest-first, so `latest` is the head and `failure` is the first
-  // failed row encountered — no separate sort, the query's order IS the recency.
-  const argmaxBy = (key: (r: PickRow) => number): PickRow | null =>
-    rows.reduce<PickRow | null>((best, r) => (best === null || key(r) > key(best) ? r : best), null)
-
-  const top = argmaxBy((r) => r.score)
-  const bred = argmaxBy((r) => r.children)
-  const latest = rows[0] ?? null
-  const failure = rows.find((r) => r.status === 'failed') ?? null
-
+// [LAW:effects-at-boundaries] Pure assembly: fold the four optional axis winners into
+// the canonical order (best · most-bred · latest · a failure), dropping the absent
+// ones. [LAW:dataflow-not-control-flow] an absent axis is an undefined winner that
+// filters out, never a branch that skips a render. A post that wins several axes
+// appears once per axis here and is merged onto a single thumbnail downstream, so this
+// stays a flat ordered list of (post, label) the renderer never has to dedupe.
+function assembleWorkPicks(axes: {
+  best: ScoredWinner | undefined
+  bred: BredWinner | undefined
+  latest: RecencyWinner | undefined
+  failure: RecencyWinner | undefined
+}): Array<{ postId: string; label: WorkLabel }> {
+  const { best, bred, latest, failure } = axes
   const picks: Array<{ postId: string; label: WorkLabel } | null> = [
-    top !== null && top.score > 0 ? { postId: top.id, label: { kind: 'best', score: top.score } } : null,
-    bred !== null && bred.children > 0
-      ? { postId: bred.id, label: { kind: 'most-bred', children: bred.children } }
-      : null,
-    latest !== null ? { postId: latest.id, label: { kind: 'latest' } } : null,
-    failure !== null ? { postId: failure.id, label: { kind: 'failure' } } : null,
+    best ? { postId: best.id, label: { kind: 'best', score: best.score } } : null,
+    bred ? { postId: bred.id, label: { kind: 'most-bred', children: bred.children } } : null,
+    latest ? { postId: latest.id, label: { kind: 'latest' } } : null,
+    failure ? { postId: failure.id, label: { kind: 'failure' } } : null,
   ]
   return picks.filter((p): p is { postId: string; label: WorkLabel } => p !== null)
 }
 
-// [LAW:single-enforcer] The WORK panel's curated highlights — the one place a
-// maker's body is ranked into its best/most-bred/latest/failure axes. The scan
-// reads the whole body cheaply (score + lineage via correlated subqueries, no
-// blobs); chooseHighlights ranks it; then the winners (≤4) are hydrated for their
-// image in one bounded read. A post that vanishes between the two reads drops out
-// rather than being `!`-asserted — a benign delete race, not a violated invariant.
+// [LAW:single-enforcer] The WORK panel's curated highlights — the one place a maker's
+// body is ranked into its best/most-bred/latest/failure axes. Each axis is a BOUNDED
+// read: the ranking is pushed into SQL (ORDER BY … LIMIT 1, or a grouped argmax) so the
+// winner — at most four rows, never the whole body — crosses into the Worker. This
+// replaced an unbounded full-body scan that evaluated two correlated subqueries per post
+// on every shrine load and grew without bound as a maker's body grew (roll-call-47p.2.1).
+// The winners (≤4) are then hydrated for their image in one read; a post that vanishes
+// between the rank and the hydrate drops out rather than being `!`-asserted — a benign
+// delete race, not a violated invariant.
+//
+// [LAW:one-source-of-truth] `best` ranks on the MATERIALIZED posts.score column (the
+// derived SUM(votes.value) cache, single-writer setVote), NOT a re-derived `sum(votes)`
+// correlated subquery. That re-aggregation was a second source of the exact value the
+// score materialization (the 2026-06-04 per-read-aggregation outage fix) exists to make
+// a plain column read — reading the column both bounds the cost and removes the second source.
+//
+// [LAW:one-source-of-truth] Across every axis the recency tiebreak is `(created_at desc,
+// id asc)`: id is the stable tiebreak under the ms-resolution created_at, so two posts
+// sharing a millisecond resolve deterministically rather than flickering between reads.
 async function makerHighlights(env: Env, agentId: string): Promise<MakerHighlight[]> {
   const database = db(env)
-  const picksRows: PickRow[] = await database
-    .select({
-      id: posts.id,
-      status: generations.status,
-      score: sql<number>`coalesce((select sum(sv.value) from votes sv where sv.post_id = ${posts.id}), 0)`,
-      // [LAW:one-source-of-truth] Descendant count is read from the lineage DAG (the edge
-      // table), the one home of heredity — a child is any genome with an edge pointing here.
-      // This counts both single and bred children (each bred child contributes one edge per
-      // parent), which is the honest "most-bred" signal.
-      children: sql<number>`(select count(*) from lineage_edges le where le.parent_genome_id = ${posts.id})`,
-    })
-    .from(posts)
-    .leftJoin(generations, eq(generations.postId, posts.id))
-    .where(and(eq(posts.contentKind, 'generation'), authoredBy(agentId)))
-    // [LAW:one-source-of-truth] id is the stable tiebreak under the ms-resolution
-    // created_at, so `latest` (rows[0]), the newest-failure scan, and the
-    // first-encountered-max in chooseHighlights all resolve deterministically
-    // rather than flickering when two posts share a millisecond.
-    .orderBy(desc(posts.createdAt), asc(posts.id))
+  const inBody = and(eq(posts.contentKind, 'generation'), authoredBy(agentId))
 
-  const picks = chooseHighlights(picksRows)
+  // [LAW:no-ambient-temporal-coupling] The four axis reads are independent — no read
+  // depends on another's result — so they are issued together and run concurrently.
+  const [bestRows, bredRows, latestRows, failureRows] = await Promise.all([
+    // best: the most-blessed piece. `score > 0` makes an unvoted body yield no winner
+    // (the absent signal), never a zero-score "best".
+    database
+      .select({ id: posts.id, score: posts.score })
+      .from(posts)
+      .where(and(inBody, gt(posts.score, 0)))
+      .orderBy(desc(posts.score), desc(posts.createdAt), asc(posts.id))
+      .limit(1),
+    // most-bred: the piece the most genomes point back at. [LAW:one-source-of-truth]
+    // descendant count is the grouped count over the lineage DAG (the edge table, the one
+    // home of heredity), seeked by lineage_edges_parent_idx — both single and bred children
+    // contribute one edge per parent. A never-forked body has no edge rows and no winner.
+    database
+      .select({ id: lineageEdges.parentGenomeId, children: sql<number>`count(*)` })
+      .from(lineageEdges)
+      .innerJoin(posts, eq(posts.id, lineageEdges.parentGenomeId))
+      .where(inBody)
+      .groupBy(lineageEdges.parentGenomeId)
+      .orderBy(desc(sql`count(*)`), desc(posts.createdAt), asc(posts.id))
+      .limit(1),
+    // latest: the newest piece (an orphan generation post, sibling-less, still counts).
+    database
+      .select({ id: posts.id })
+      .from(posts)
+      .where(inBody)
+      .orderBy(desc(posts.createdAt), asc(posts.id))
+      .limit(1),
+    // a failure: the newest piece that failed to render — pointedly shown, not hidden.
+    database
+      .select({ id: posts.id })
+      .from(posts)
+      .innerJoin(generations, eq(generations.postId, posts.id))
+      .where(and(inBody, eq(generations.status, 'failed')))
+      .orderBy(desc(posts.createdAt), asc(posts.id))
+      .limit(1),
+  ])
+
+  const picks = assembleWorkPicks({
+    best: bestRows[0],
+    bred: bredRows[0],
+    latest: latestRows[0],
+    failure: failureRows[0],
+  })
 
   // [LAW:dataflow-not-control-flow] Group the picks by post in their canonical
   // order — a Map preserves insertion order, so the first axis a post wins fixes

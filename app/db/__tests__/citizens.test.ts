@@ -149,11 +149,19 @@ async function seedVote(opts: {
   reasoning: string | null
   createdAt: number
 }) {
-  await env.DB.prepare(
-    'INSERT INTO votes (post_id, voter_id, value, created_at, reasoning) VALUES (?, ?, ?, ?, ?)',
-  )
-    .bind(opts.postId, opts.voterId, opts.value, opts.createdAt, opts.reasoning)
-    .run()
+  // [LAW:one-source-of-truth] posts.score is the MATERIALIZED SUM(votes.value) the feed
+  // and the WORK panel read as a plain column (single-writer setVote keeps it synced in
+  // prod). Mirror setVote exactly — insert the vote, then recompute score from votes in
+  // the SAME D1 batch (the later statement's subquery sees the earlier insert) — or the
+  // seeder leaves the illegal {votes present, score 0} state prod can never produce.
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO votes (post_id, voter_id, value, created_at, reasoning) VALUES (?, ?, ?, ?, ?)',
+    ).bind(opts.postId, opts.voterId, opts.value, opts.createdAt, opts.reasoning),
+    env.DB.prepare(
+      'UPDATE posts SET score = COALESCE((SELECT SUM(value) FROM votes WHERE post_id = ?), 0) WHERE id = ?',
+    ).bind(opts.postId, opts.postId),
+  ])
 }
 
 const image = (url: string): Media => ({ kind: 'image', url, w: 8, h: 8 })
@@ -542,6 +550,46 @@ describe('app/db/citizens.ts - attribution reads are index SEEKs (the perf contr
     expect(detail).toContain('SEARCH')
     expect(detail).toContain('posts_finder_attribution_idx')
     expect(detail).not.toContain('SCAN posts')
+  })
+})
+
+describe('app/db/citizens.ts - makerHighlights WORK axes are bounded reads, not a full-body scan (MEASURED)', () => {
+  // [LAW:verifiable-goals] roll-call-47p.2.1: the WORK panel once ranked the whole body
+  // with two CORRELATED subqueries per post (sum(votes), count(lineage_edges)) — unbounded,
+  // growing with the body on every shrine load. Each axis is now a single SQL-ranked read.
+  // EXPLAIN the exact predicate each axis builds and assert the planner SEEKs an index with
+  // NO correlated subquery — the per-row scan is provably gone, the only-bound proof a plan
+  // can carry (the O(1)-rows half of the bound is the LIMIT 1, pinned by the axis tests above).
+  const principal = `coalesce(json_extract(origin_json, '$.author.agentId'), json_extract(origin_json, '$.actor.agentId'))`
+
+  async function explain(sqlText: string): Promise<string> {
+    const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN ${sqlText}`)
+      .bind('generation', 'agent:x')
+      .all<{ detail: string }>()
+    const detail = plan.results.map((r) => r.detail).join(' | ')
+    console.log(`[EXPLAIN work] ${sqlText.slice(0, 40)}… -> ${detail}`)
+    return detail
+  }
+
+  it('best: ranks the materialized score column via an index SEEK, no correlated sum(votes)', async () => {
+    const detail = await explain(
+      `SELECT id, score FROM posts WHERE content_kind = ? AND ${principal} = ? AND score > 0 ` +
+        `ORDER BY score DESC, created_at DESC, id ASC LIMIT 1`,
+    )
+    expect(detail).toContain('SEARCH')
+    expect(detail).not.toContain('SCAN posts')
+    expect(detail).not.toContain('CORRELATED')
+  })
+
+  it('most-bred: counts the lineage edge table by index, no correlated count per post', async () => {
+    const detail = await explain(
+      `SELECT le.parent_genome_id AS id, count(*) AS children FROM lineage_edges le ` +
+        `JOIN posts p ON p.id = le.parent_genome_id WHERE p.content_kind = ? ` +
+        `AND coalesce(json_extract(p.origin_json, '$.author.agentId'), json_extract(p.origin_json, '$.actor.agentId')) = ? ` +
+        `GROUP BY le.parent_genome_id ORDER BY count(*) DESC, p.created_at DESC, p.id ASC LIMIT 1`,
+    )
+    expect(detail).toContain('lineage_edges_parent_idx')
+    expect(detail).not.toContain('CORRELATED')
   })
 })
 
