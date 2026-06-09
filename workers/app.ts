@@ -6,6 +6,7 @@ import { runPortraitPass } from "~/agents/portrait"
 import { runRite } from "~/agents/rite"
 import { runBirth } from "~/agents/midwife"
 import { maybeDecreeFirstPoet } from "~/agents/firstPoet"
+import { runGrace } from "~/agents/grace"
 import { emit } from "~/observability/metrics"
 import { normalizeRoute } from "~/observability/route-normalizer"
 
@@ -100,6 +101,14 @@ export default {
         await maybeDecreeFirstPoet(env)
       } catch (err) {
         console.error('first-poet: unhandled error', { cron: event.cron }, err)
+      }
+      try {
+        // The Patronage's Grace pass — a citizen may, rarely, choose a human (slopspot-patronage-ts7.8).
+        // Folded onto the same daily tick in its OWN catch so a grace failure cannot abort the
+        // rite/birth/first-poet beside it. Backings-blind by construction (lib/grace's corpus type).
+        await runGrace(env, event.scheduledTime)
+      } catch (err) {
+        console.error('grace: unhandled error', { cron: event.cron }, err)
       }
       return
     }
