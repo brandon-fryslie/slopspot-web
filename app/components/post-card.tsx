@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { Media, Origin, Actor, Content, Crowning, CrownMark, Genome, GenerationRender, GenerationStatus, HumanRole, Lineage, PersonaActor, Post, PostId, RenderablePost, RiteLens, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
 import { remarkFloor, type AnsweredWish, type PersonaRef } from "~/lib/voice"
+import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
 
@@ -777,13 +778,10 @@ const VERDICT_ROBES: Record<VerdictDisposition, { glyph: string; bylineClass: st
   buried: { glyph: "✗", bylineClass: "text-profane", accentClass: "border-profane/50" },
 }
 
-// [LAW:dataflow-not-control-flow] The lens names the honour; the mark colours it.
-// Both are total maps over the closed unions (RiteLens, CrownMark), so an eighth
-// lens or a sixth mark breaks these literals at compile time — the badge can never
-// render an underived crown. The verb-label is the city's word for the act; the tone
-// is candlelight, never bling (the-threshold.md): gilt for the sainted, profane for
-// the monstrous, tarnished bronze for the resurrected, bone for the flawless, and
-// the divided Martyr split between gilt and profane.
+// [LAW:dataflow-not-control-flow] The lens names the honour; the mark colours it. CROWN_LABEL
+// is a total map over RiteLens (an eighth lens breaks this literal at compile time — the badge
+// can never render an underived crown); the colour is the shared MARK_TONE (one source for the
+// card and the museum tile). The verb-label is the city's word for the act.
 const CROWN_LABEL: Record<RiteLens, string> = {
   saint: "Sainted",
   villain: "Villain",
@@ -793,13 +791,9 @@ const CROWN_LABEL: Record<RiteLens, string> = {
   miracle: "Miracle",
   confession: "Confession",
 }
-const CROWN_TONE: Record<CrownMark, string> = {
-  gold: "text-gilt border-gilt/40",
-  magenta: "text-profane border-profane/40",
-  bronze: "text-[#b08d57] border-[#b08d57]/40",
-  split: "text-gilt border-profane/40",
-  bone: "text-bone border-bone/30",
-}
+// [LAW:one-source-of-truth] The placard seal's tone is the shared MARK_TONE (text + border),
+// the same identity the museum tile wears — derived in one place so the two can never drift.
+const crownToneClass = (mark: CrownMark): string => `${MARK_TONE[mark].text} ${MARK_TONE[mark].border}`
 
 // [LAW:one-source-of-truth] The eternal mark — derived entirely from the Crowning
 // the read boundary built from the crowns table (lens → label + mark; the day it
@@ -820,7 +814,7 @@ export function EternalMark({ crowning }: { crowning: Crowning }) {
   const label = `${CROWN_LABEL[crowning.lens]} — crowned by ${crowning.presiding.displayName} on ${crowning.riteDay}`
   return (
     <div
-      className={`mx-3 mt-3 inline-flex items-center gap-2 rounded-sm border px-2.5 py-1 ${CROWN_TONE[crowning.mark]}`}
+      className={`mx-3 mt-3 inline-flex items-center gap-2 rounded-sm border px-2.5 py-1 ${crownToneClass(crowning.mark)}`}
       role="note"
       aria-label={label}
       title={label}

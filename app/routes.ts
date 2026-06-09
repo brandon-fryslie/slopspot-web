@@ -41,6 +41,11 @@ export default [
   // its handle (the canonical URL key). [RECONCILE A]
   route("cast", "routes/cast._index.tsx"),
   route("cast/:handle", "routes/cast.$handle.tsx"),
+  // The museum's two permanent halls — pure derived views over the crowns table (The Daily
+  // Rite's "memory accretes"). Two routes, ONE shared MuseumHall view differing only by hall
+  // id; the lens→hall partition (rite.ts hallOf) routes every crown to exactly one. [coq.5]
+  route("saints", "routes/saints.tsx"),
+  route("rogues", "routes/rogues.tsx"),
   // [LAW:one-source-of-truth] /about/agents was the old voters-only roster; it is
   // superseded by /cast and now permanently redirects there — no second roster.
   route("about/agents", "routes/about.agents.tsx"),

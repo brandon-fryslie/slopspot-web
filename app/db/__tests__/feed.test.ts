@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getFeedPage, getFeedItemById, getPostById } from '~/db/feed'
+import { getFeedPage, getFeedItemById, getFeedItemsByIds, getPostById } from '~/db/feed'
 import {
   AgentId,
   PostId,
@@ -936,5 +936,40 @@ describe('app/db/feed.ts - verdict (voice layer)', () => {
     expect(item?.verdicts).toEqual([
       { critic: 'The Gremlin', text: 'Another forest. The trees won. Buried.', disposition: 'buried' },
     ])
+  })
+})
+
+// [LAW:behavior-not-structure] Pin the batch resolver's contract: it resolves many ids to
+// RenderablePosts in one pass, keyed by id, and an id with no surviving post simply drops
+// out of the map (a real absence, never a thrown miss). The museum halls lean on this.
+describe('getFeedItemsByIds — the batch post resolver', () => {
+  it('resolves every requested id to its RenderablePost, keyed by id', async () => {
+    const a = await seedPost(env, { id: 'batch-a' })
+    const b = await seedPost(env, { id: 'batch-b' })
+    const c = await seedPost(env, { id: 'batch-c' })
+    const map = await getFeedItemsByIds(env, [a, b, c])
+    expect(map.size).toBe(3)
+    expect(map.get(a)?.post.id).toBe(a)
+    expect(map.get(b)?.post.id).toBe(b)
+    expect(map.get(c)?.post.id).toBe(c)
+  })
+
+  it('drops an id with no surviving post — a map miss, not a throw', async () => {
+    const real = await seedPost(env, { id: 'batch-real' })
+    const map = await getFeedItemsByIds(env, [real, PostId('post-does-not-exist')])
+    expect(map.size).toBe(1)
+    expect(map.has(real)).toBe(true)
+    expect(map.get(PostId('post-does-not-exist'))).toBeUndefined()
+  })
+
+  it('an empty id set yields an empty map by data, not a branch', async () => {
+    expect((await getFeedItemsByIds(env, [])).size).toBe(0)
+  })
+
+  it('carries the viewer’s own vote when a voterId is given', async () => {
+    const post = await seedPost(env, { id: 'batch-myvote' })
+    await seedVote(env, { postId: post, voterId: 'viewer-uuid', value: 1 })
+    const map = await getFeedItemsByIds(env, [post], 'viewer-uuid')
+    expect(map.get(post)?.myVote).toBe(1)
   })
 })
