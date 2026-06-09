@@ -28,6 +28,7 @@ import {
   ballotCitizens,
   devianceRanking,
   elect,
+  feastDomSet,
   hallOf,
   lensesInHall,
   markFor,
@@ -342,5 +343,46 @@ describe('hallOf / lensesInHall — the museum partition', () => {
     // lensesInHall filters the one ordered lens list, so a hall's section order is stable.
     expect(lensesInHall('rogues')).toEqual(['villain', 'heretic'])
     expect(lensesInHall('saints')).toEqual(['saint', 'relic', 'martyr', 'miracle', 'confession'])
+  })
+})
+
+// [LAW:behavior-not-structure] Pins the feast-recurrence rule: a saint's feast is the monthly
+// anniversary of its canonisation DOM, with month-end CLAMP — a saint of the 29th/30th/31st is
+// remembered on the last day of any shorter month, never silently skipped. feastDomSet returns
+// the canonisation-DOMs (zero-padded, for strftime('%d')) whose feast falls on the given UTC day.
+describe('feastDomSet — monthly feast recurrence with month-end clamp', () => {
+  const utc = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 12)
+
+  it('a mid-month day matches only its own DOM', () => {
+    expect(feastDomSet(utc(2026, 5, 15))).toEqual(['15'])
+  })
+
+  it('zero-pads single-digit days to match strftime', () => {
+    expect(feastDomSet(utc(2026, 3, 5))).toEqual(['05'])
+  })
+
+  it('the 31st of a 31-day month matches only the 31st', () => {
+    expect(feastDomSet(utc(2026, 1, 31))).toEqual(['31'])
+    expect(feastDomSet(utc(2026, 12, 31))).toEqual(['31'])
+  })
+
+  it('Apr 30 (a 30-day month-end) absorbs the 31st', () => {
+    expect(feastDomSet(utc(2026, 4, 30))).toEqual(['30', '31'])
+  })
+
+  it('Feb 28 in a non-leap year absorbs the 29th, 30th, and 31st', () => {
+    expect(feastDomSet(utc(2026, 2, 28))).toEqual(['28', '29', '30', '31'])
+  })
+
+  it('Feb 29 in a leap year absorbs only the 30th and 31st', () => {
+    expect(feastDomSet(utc(2024, 2, 29))).toEqual(['29', '30', '31'])
+  })
+
+  it('a non-last day of February does not clamp (a 27th matches only the 27th)', () => {
+    expect(feastDomSet(utc(2026, 2, 27))).toEqual(['27'])
+  })
+
+  it('the first of a month matches only the first', () => {
+    expect(feastDomSet(utc(2026, 6, 1))).toEqual(['01'])
   })
 })

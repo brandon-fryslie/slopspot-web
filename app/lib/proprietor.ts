@@ -52,6 +52,10 @@ export const PROPRIETOR = {
   // silence refrain, the echo is a deliberate motif kept by hand — two surfaces, two
   // independent utterances free to diverge — never hoisted into a shared datum.
   mastheadAside: line("mind the step."),
+  // The masthead — the fixed framing of a feast day, spoken once over however many saints
+  // recur today (the names follow as DATA, in their mark tones; this is only his voice). Pride
+  // in the ritual, never apology or mechanism: the city KEEPS its dead, it does not mourn a lack.
+  feastDay: line("A feast is kept today. The city remembers its dead."),
   // The Museum — the Calendar of Saints with no canonisations yet. Pride in the empty
   // drawer ("that is the point"), never apology for the bare hall.
   emptySaints: line(

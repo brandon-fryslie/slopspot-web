@@ -22,6 +22,8 @@ import type { AgentId, CitizenRef, Crowning, Genome, PostId, VoteValue } from '~
 import {
   ballotCitizens,
   devianceRanking,
+  feastDomSet,
+  lensesInHall,
   markFor,
   riteLensSchema,
   type DeviantCandidate,
@@ -420,6 +422,60 @@ export async function museumCrownings(
     lens: riteLensSchema.parse(r.lens),
     riteDay: r.riteDay,
     decree: parseDecree(r.decreeJson, r.riteDay),
+    // NAME ALWAYS: a present persona supplies its display name + handle; an absent one
+    // (retired, or the system host) falls back to its agentId as the label.
+    presiding: { handle: r.handle, displayName: r.displayName ?? r.presiding },
+  }))
+}
+
+// [LAW:types-are-the-program] A saint whose feast falls today — what BOTH feast surfaces
+// (the masthead proclamation, the Pulse icon) need and no more: the post to link, the lens
+// for its mark/tone, the canonisation day it remembers, and the citizen who presided. The
+// decree is NOT carried (unlike MuseumCrowning): a feast RE-remembers, it does not replay
+// the original canonisation utterance — and dropping it keeps a drifted old decree from
+// failing the home hot path, where this is read every request.
+export type Feast = {
+  postId: PostId
+  lens: RiteLens
+  riteDay: string
+  presiding: CitizenRef
+}
+
+// [LAW:single-enforcer] The one feast read — the venerated dead whose canonisation
+// day-of-month recurs on `nowMs`'s day. "The city remembers its dead" honours the
+// VENERATED hall (lensesInHall('saints') — saint/relic/martyr/miracle/confession);
+// the rogues (villain/heretic) get notoriety, not a feast, so the hall partition that
+// already exists IS the feast set — no second grouping to drift. [LAW:one-source-of-truth]
+//
+// [LAW:effects-at-boundaries] The recurrence rule is pure (rite.feastDomSet); this only
+// applies it as a cheap strftime IN filter, so a growing Calendar of Saints never scans
+// the whole table — the index-free strftime touches only the venerated rows, the day-set
+// is at most four values. [LAW:no-ambient-temporal-coupling] nowMs is the loader's single
+// clock, threaded in — this never reads the wall clock itself.
+export async function feastsToday(env: Env, nowMs: number): Promise<Feast[]> {
+  const rows = await db(env)
+    .select({
+      postId: crowns.postId,
+      lens: crowns.lens,
+      riteDay: crowns.riteDay,
+      presiding: crowns.presiding,
+      handle: personas.handle,
+      displayName: personas.displayName,
+    })
+    .from(crowns)
+    .leftJoin(personas, eq(personas.agentId, crowns.presiding))
+    .where(
+      and(
+        inArray(crowns.lens, [...lensesInHall('saints')]),
+        inArray(sql`strftime('%d', ${crowns.riteDay})`, [...feastDomSet(nowMs)]),
+      ),
+    )
+    .orderBy(desc(crowns.riteDay), desc(crowns.createdAt))
+
+  return rows.map((r) => ({
+    postId: r.postId as PostId,
+    lens: riteLensSchema.parse(r.lens),
+    riteDay: r.riteDay,
     // NAME ALWAYS: a present persona supplies its display name + handle; an absent one
     // (retired, or the system host) falls back to its agentId as the label.
     presiding: { handle: r.handle, displayName: r.displayName ?? r.presiding },

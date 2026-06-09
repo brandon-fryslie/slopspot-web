@@ -14,10 +14,12 @@ import type { PulseEvent } from "~/db/pulse"
 // scavenger drags one in; an eighth pulse kind would break this literal at compile time.
 type Doing = "generating" | "judging" | "scavenging"
 
-// [LAW:dataflow-not-control-flow] Keyed by the kinds that are a citizen's own ACT — `Exclude` drops the
-// post-less 'born' (an announcement names no working citizen), while still forcing any future ACT kind
-// into the table at compile time. A birth puts the NEWCOMER on the roster only once it ACTS (that is .4).
-const DOING_OF: Record<Exclude<PulseEvent["kind"], "born">, Doing> = {
+// [LAW:dataflow-not-control-flow] Keyed by the kinds that are a citizen's own ACT happening NOW —
+// `Exclude` drops the announcements that name no currently-working citizen: 'born' (a welcome) and
+// 'feast' (the city remembering its dead — the presiding citizen's act was months ago), while still
+// forcing any future ACT kind into the table at compile time. A birth puts the NEWCOMER on the roster
+// only once it ACTS (that is .4); a feast honours a saint, it does not seat its presider at the bench.
+const DOING_OF: Record<Exclude<PulseEvent["kind"], "born" | "feast">, Doing> = {
   posted: "generating",
   rescued: "scavenging",
   blessed: "judging",
@@ -39,9 +41,10 @@ export type CitizenAtWork = { persona: string; doing: Doing }
 export function castAtWork(events: readonly PulseEvent[]): CitizenAtWork[] {
   const seen = new Map<string, Doing>()
   for (const e of events) {
-    // A birth is an announcement, not an act — it names no working citizen, so it falls out of the
-    // roster by its KIND (selection from a mixed stream), not a hidden guard.
-    if (e.kind === "born") continue
+    // Announcements name no currently-working citizen — a birth (a welcome) and a feast (the city
+    // remembering its dead) fall out of the roster by their KIND (selection from a mixed stream),
+    // the same set DOING_OF's Exclude drops at the type level, not a hidden guard.
+    if (e.kind === "born" || e.kind === "feast") continue
     if (!seen.has(e.persona)) seen.set(e.persona, DOING_OF[e.kind])
   }
   return [...seen.entries()].map(([persona, doing]) => ({ persona, doing }))

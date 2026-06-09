@@ -243,6 +243,40 @@ export function ritePhaseClock(nowMs: number): RitePhaseClock {
   return { kind: 'deliberation', window: { sinceMs: untilMs - RITE_WINDOW_MS, untilMs } }
 }
 
+// [LAW:single-enforcer] Days in a given UTC month (monthIndex 0–11). Day 0 of the NEXT
+// month is the last day of THIS one — the calendar's own arithmetic, so leap Februaries
+// and 30/31-day months are correct by construction, never a hand-kept length table.
+function daysInUtcMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate()
+}
+
+// [LAW:types-are-the-program] The feast-recurrence rule, pure. A saint's feast = the
+// MONTHLY anniversary of its canonisation (the day-of-month of its rite_day). The whole
+// rule is one clamp: a saint canonised on day `cd` is remembered this month on
+// `min(cd, daysInMonth)` — so a saint of the 31st keeps its feast on the LAST day of any
+// shorter month (Feb 28/29, Apr 30) rather than being silently forgotten that month
+// ([LAW:no-silent-failure] — a gap in remembrance is a lie the city would tell about its
+// dead). This returns the set of canonisation-DOMs whose feast falls on `nowMs`'s day,
+// as zero-padded strings to match SQLite's strftime('%d', …): today's DOM always, plus —
+// when today IS the month's last day — every overflow DOM up to 31 (which all clamp onto
+// it).
+//
+// [LAW:dataflow-not-control-flow] The clamp is carried as a VALUE: the range ceiling
+// `upper` is the month's end on the last day and today's DOM otherwise, so the set build
+// is one uniform loop, never a branch that conditionally appends overflow days.
+// [LAW:effects-at-boundaries] Pure over one timestamp and fully unit-testable for the
+// month-length edges; crowns.feastsToday uses the returned set as a cheap strftime IN
+// filter, so the recurrence logic lives here, never in SQL.
+export function feastDomSet(nowMs: number): readonly string[] {
+  const d = new Date(nowMs)
+  const monthLen = daysInUtcMonth(d.getUTCFullYear(), d.getUTCMonth())
+  const dom = d.getUTCDate()
+  const upper = dom < monthLen ? dom : 31
+  const doms: string[] = []
+  for (let cd = dom; cd <= upper; cd++) doms.push(String(cd).padStart(2, '0'))
+  return doms
+}
+
 // [LAW:types-are-the-program] A candidate the rite weighs — discriminated by what the
 // ballot READS, because vote ballots and the deviance ballot draw on different evidence
 // and bundling both shapes into one bag-of-optionals would let every consumer reach for
