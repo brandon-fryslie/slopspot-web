@@ -861,15 +861,29 @@ function Verdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
 // The array's length is the data; no isFeud flag, no count branch in the markup.
 export function Exchange({ exchange }: { exchange: readonly Verdict[] }) {
   if (exchange.length === 0) return null
+  // [LAW:dataflow-not-control-flow] The reply thread is secondary to the opening
+  // verdicts, so it is collapsed behind ONE native <details> disclosure by default —
+  // the same treatment for a thread of one reply or many. There is no count branch:
+  // the empty case is the array (handled above), and the hidden-reply count is a VALUE
+  // shown on the closed summary (`· N`), not an `if` deciding what renders. CSS reveals
+  // the count when closed and the chevron-rotation when open; the array still drives the
+  // body. The `group/exchange` name scopes this disclosure's open-state so it cannot leak
+  // into the per-verdict clamp groups nested inside it.
   return (
-    <div className="ml-3 mt-1 border-l border-votive/15 pl-2">
-      <div className="px-3 pt-1 font-terminal text-[10px] uppercase tracking-widest text-ash/70">
+    <details className="group/exchange ml-3 mt-1 border-l border-votive/15 pl-2">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 px-3 pt-1 font-terminal text-[10px] uppercase tracking-widest text-ash/70 transition marker:content-[''] hover:text-ash [&::-webkit-details-marker]:hidden">
+        <span aria-hidden className="transition group-open/exchange:rotate-90">
+          ▸
+        </span>
         the exchange
-      </div>
+        <span aria-hidden className="text-ash/45 group-open/exchange:hidden">
+          · {exchange.length}
+        </span>
+      </summary>
       {exchange.map((v, i) => (
         <VerdictLine key={i} verdict={v} />
       ))}
-    </div>
+    </details>
   )
 }
 
@@ -879,13 +893,36 @@ export function Exchange({ exchange }: { exchange: readonly Verdict[] }) {
 // by the read boundary, so there is no "no verdict yet" branch here. The critic line
 // is the SACRED register (placard serif), the byline the profane mono — the high/low
 // typographic collision every card is built on (the-back-door.md §type-as-collision).
+//
+// [LAW:dataflow-not-control-flow] The body is clamped to a glance by default and the
+// full text is one disclosure away — the SAME treatment for every verdict, short or
+// long. No length/count branch: CSS line-clamp caps the rendered height (a short verdict
+// never reaches the cap, so nothing truncates), and the native <details> toggle that
+// lifts the clamp renders unconditionally. Display length is decided by layout against a
+// fixed cap, not by an `if` in the markup — which keeps the sacred placard register
+// legible at long lengths WITHOUT retypesetting it (the italic serif is a creative lock,
+// the-back-door.md §type-as-collision; the length cap, not a new typeface, restores
+// legibility). `group/verdict` scopes this clamp so a parent Exchange disclosure opening
+// cannot un-clamp it.
 export function VerdictLine({ verdict }: { verdict: Verdict }) {
   const robe = VERDICT_ROBES[verdict.disposition]
   return (
     <figure className={`mx-3 mb-1 mt-2 border-l-2 ${robe.accentClass} pl-3`}>
-      <blockquote className="font-placard text-[15px] italic leading-snug text-bone/90">
-        {`“${verdict.text}”`}
-      </blockquote>
+      {/* The clamped quote lives INSIDE the summary so it stays visible when closed and
+          merely UN-CLAMPS when open — a closed <details> hides every non-summary child, so
+          a hidden-sibling blockquote would vanish, not clamp. The whole line is the toggle;
+          `more/less` is a CSS-toggled hint, not a separate branch. */}
+      <details className="group/verdict">
+        <summary className="block cursor-pointer list-none marker:content-[''] [&::-webkit-details-marker]:hidden">
+          <blockquote className="font-placard text-[15px] italic leading-snug text-bone/90 line-clamp-3 group-open/verdict:line-clamp-none">
+            {`“${verdict.text}”`}
+          </blockquote>
+          <span className="mt-0.5 inline-block font-terminal text-[10px] uppercase tracking-widest text-votive/45 transition group-hover/verdict:text-votive/75">
+            <span className="group-open/verdict:hidden">more ⌄</span>
+            <span className="hidden group-open/verdict:inline">less ⌃</span>
+          </span>
+        </summary>
+      </details>
       <figcaption className="mt-1 font-terminal text-[11px] text-ash">
         — {verdict.critic} <span className={robe.bylineClass}>{robe.glyph}</span>
       </figcaption>
