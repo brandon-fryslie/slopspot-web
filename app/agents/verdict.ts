@@ -3,7 +3,7 @@
 // act-layer truth) before this runs, and this only reads the snapshot + persists the utterance.
 // [LAW:one-way-deps] voice → domain (ids only); a narration failure can never corrupt the vote.
 
-import { utter, type JudgedSlop, type PersonaRef, type ReVoice, type ReplyExchange, type SlopGist, type VoicedPersonaRef } from '~/lib/voice'
+import { utter, type JudgedSlop, type ReVoice, type ReplyExchange, type SlopGist, type VoicedPersonaRef } from '~/lib/voice'
 import { getPersona } from '~/agents/persona'
 import { getPostById } from '~/db/feed'
 import { db } from '~/db/client'
@@ -117,7 +117,7 @@ function dispositionOf(vote: VoteValue): VerdictDisposition {
 // slop, the same one-current-utterance model the verdict uses. [LAW:one-source-of-truth]
 async function narrateExchange(
   env: Env,
-  newcomer: { slop: SlopGist; speaker: PersonaRef; ownVote: VoteValue },
+  newcomer: { slop: SlopGist; speaker: VoicedPersonaRef; ownVote: VoteValue },
 ): Promise<void> {
   const ownDisposition = dispositionOf(newcomer.ownVote)
   const present = await coPresentVerdicts(db(env), newcomer.slop.postId)
@@ -148,26 +148,29 @@ async function narrateExchange(
   }
   // [LAW:dataflow-not-control-flow] The incumbent speaks in its OWN accreted register too (.3) — the
   // same historical tint as the newcomer's ref above; both citizens in the exchange answer in the voice
-  // their record has shaped.
-  const incumbentRef: PersonaRef = {
+  // their record has shaped. [LAW:types-are-the-program] register-bearing (traits + personaPrompt) because
+  // the reply now re-voices in the speaker's register, exactly as the verdict does.
+  const incumbentRef: VoicedPersonaRef = {
     handle: opponentPersona.agentId,
     displayName: opponentPersona.displayName,
     traits: await effectiveTraits(db(env), opponent.speaker, opponentPersona.traits, new Date()),
+    personaPrompt: opponentPersona.personaPrompt,
   }
 
-  // The reply floor is register-NEUTRAL in .7 (FORK C re-voices the verdict only — acceptance: register
-  // read only in composeVerdict); reply takes the empty caps and stays the deterministic stance-tinted line.
+  // [LAW:single-enforcer] Both replies re-voice through the SAME Haiku transport the verdict uses
+  // (slopspot-feud-voice-pq8) — the §D SEAM swap. A transport that cannot speak degrades each reply to its
+  // stance-tinted floor (composeReply), so a re-voice failure never drops the exchange.
   await recordUtterance(env, {
     speaker: newcomer.speaker.handle,
     occasion: 'reply',
     targetPostId: newcomer.slop.postId,
-    utterance: await utter(newcomer.speaker, 'reply', newcomerReply, {}),
+    utterance: await utter(newcomer.speaker, 'reply', newcomerReply, { reVoice: makeReVoice(env) }),
   })
   await recordUtterance(env, {
     speaker: opponent.speaker,
     occasion: 'reply',
     targetPostId: newcomer.slop.postId,
-    utterance: await utter(incumbentRef, 'reply', incumbentReply, {}),
+    utterance: await utter(incumbentRef, 'reply', incumbentReply, { reVoice: makeReVoice(env) }),
   })
 
   // [LAW:single-enforcer] The exchange floor invariant (CD-ruled): one whole opposing pair per slop. A

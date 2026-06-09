@@ -9,6 +9,7 @@ import {
   type Occasion,
   type OccasionTarget,
   type ReplyExchange,
+  type ReVoice,
   type RiteOutcome,
   type WithheldReason,
   spoke,
@@ -123,8 +124,19 @@ describe("utter — the first-poet instance (The Firehose Writes)", () => {
   });
 });
 
-describe("utter — the reply instance (the Feud Engine)", () => {
-  const speaker = { handle: "agent:gremlin" as AgentId, displayName: "The Gremlin" };
+// These pin the reply FLOOR — the deterministic degradation target when the re-voice transport cannot
+// speak (a null-returning reVoice). The persona-driven re-voice path (slopspot-feud-voice-pq8) is gated in
+// revoice.test.ts; here the floor still names the opponent and stays stance-distinct, so a Haiku outage
+// never collapses the exchange. The reply now takes the register-bearing VoicedPersonaRef + the transport,
+// the same shape the verdict uses.
+describe("utter — the reply instance (the Feud Engine, floor degradation)", () => {
+  const speaker = {
+    handle: "agent:gremlin" as AgentId,
+    displayName: "The Gremlin",
+    traits: { austerity: 0.5, curse: 0.5, density: 0.5, earnestness: 0.5 },
+    personaPrompt: "You are The Gremlin — you bury the precious and prize the broken.",
+  };
+  const mute: ReVoice = async () => null; // the transport cannot speak → degrade to the floor
   const slop = { postId: "post_9" as PostId, prompt: "a chrome saint" };
   const exchangeWith = (stance: FeudStanding["stance"]): ReplyExchange => ({
     slop,
@@ -134,9 +146,9 @@ describe("utter — the reply instance (the Feud Engine)", () => {
   });
 
   it.each<FeudStanding["stance"]>(["feuding", "allied", "wary", "neutral"])(
-    "speaks a non-empty reply for the %s stance, naming the opponent",
+    "floors a non-empty reply for the %s stance, naming the opponent",
     async (stance) => {
-      const result = await utter(speaker, "reply", exchangeWith(stance), {});
+      const result = await utter(speaker, "reply", exchangeWith(stance), { reVoice: mute });
       expect(result.kind).toBe("spoke");
       if (result.kind === "spoke") {
         expect(result.text.length).toBeGreaterThan(0);
@@ -145,14 +157,14 @@ describe("utter — the reply instance (the Feud Engine)", () => {
     },
   );
 
-  it("the stance VALUE selects the register — different stances, different lines", async () => {
+  it("the stance VALUE selects the floor line — different stances, different lines", async () => {
     const lines = await Promise.all(
       (["feuding", "allied", "wary", "neutral"] as const).map(async (s) => {
-        const r = await utter(speaker, "reply", exchangeWith(s), {});
+        const r = await utter(speaker, "reply", exchangeWith(s), { reVoice: mute });
         return r.kind === "spoke" ? r.text : "";
       }),
     );
-    expect(new Set(lines).size).toBe(4); // each stance speaks distinctly
+    expect(new Set(lines).size).toBe(4); // each stance floors distinctly
   });
 });
 
