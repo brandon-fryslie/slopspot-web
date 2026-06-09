@@ -2,18 +2,38 @@ import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { countSlops, getFeedPage, getFeedItemById } from "~/db/feed"
-import { latestCrownedPostId } from "~/db/crowns"
+import { contenderPostIds, latestCrownedPostId } from "~/db/crowns"
 import { getPulse } from "~/db/pulse"
 import { Wall } from "~/components/wall"
-import { RiteHero, type CrownedRenderable } from "~/components/rite-hero"
+import {
+  RiteHero,
+  bannerExcludeId,
+  type Contender,
+  type CrownedRenderable,
+  type RitePhase,
+} from "~/components/rite-hero"
 import { CastAtWork } from "~/components/cast-at-work"
 import { PulseStrip } from "~/components/pulse-strip"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
 import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
 import { defaultSortMode, parseSortMode, serializeSortMode, sortModeUrlQuery } from "~/lib/sort-mode"
-import type { FeedItem } from "~/lib/domain"
+import { ritePhaseClock } from "~/lib/rite"
+import type { FeedItem, RenderablePost } from "~/lib/domain"
 import { reviveFeedItem, type WireFeedItem } from "~/lib/feed-wire"
+
+// [LAW:types-are-the-program] Narrow a resolved post to a Deliberation contender: only a
+// succeeded generation carrying an image output can be teased. A null resolution or a
+// non-image post yields NO contender (flatMap drops the empty array) — a real absence at
+// the storage-read boundary, not a defensive guard hiding a bug.
+function toContender(rp: RenderablePost | null): Contender[] {
+  if (rp === null) return []
+  const c = rp.post.content
+  if (c.kind === "generation" && c.status.kind === "succeeded" && c.status.output.kind === "image") {
+    return [{ postId: rp.post.id, media: c.status.output }]
+  }
+  return []
+}
 
 export function meta(_args: Route.MetaArgs) {
   return [
@@ -41,6 +61,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   const env = context.cloudflare.env
   const voterId = readVoterId(request)
+  // [LAW:no-ambient-temporal-coupling] The rite's clock is read ONCE here, at the loader
+  // boundary; ritePhaseClock derives the banner's phase (standing crown vs the 2–3am held
+  // breath) from this single timestamp, so no component ever reaches for the wall clock.
+  const clock = ritePhaseClock(Date.now())
   // [LAW:one-source-of-truth] The hero is DERIVED from the crowns table (the latest crown),
   // not a flag — and read through the same feed reader as any post, so it carries the same
   // mark crowningsForPosts would derive in the wall. The four reads are independent; only
@@ -63,12 +87,40 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     heroPost !== null && heroPost.crowning !== undefined
       ? { ...heroPost, crowning: heroPost.crowning }
       : null
-  // [LAW:one-source-of-truth] The hero is hung above the wall; the wall is everything else.
-  // A post is one relic — showing the crown as both the gold hero AND a wall tile would be
-  // two of the same. One uniform predicate drops the hero's id (matching nothing when there
-  // is no hero), so the filter runs the same way whether or not a crown reigns. This filters page 1;
-  // the client extends the same hero-exclusion to every appended page (one relic, never also a tile).
-  const wallItems = page.items.filter((i) => i.post.id !== hero?.post.id)
+
+  // [LAW:dataflow-not-control-flow] Contenders are a Deliberation-ONLY concept — the RitePhase
+  // type carries them on that variant alone — so they are gathered only while building it, which
+  // also keeps the vote-aggregate read off the hot path the other 23 hours (the read-CPU budget
+  // E4/slopspot-efficiency guards). The night's loud front-runners, resolved to image teasers
+  // through the one feed reader; toContender drops any that can't be teased.
+  const contenders: Contender[] =
+    clock.kind === "deliberation"
+      ? (
+          await Promise.all(
+            (await contenderPostIds(env, clock.window, 3)).map((id) =>
+              getFeedItemById(env, id, voterId),
+            ),
+          )
+        ).flatMap(toContender)
+      : []
+
+  // [LAW:types-are-the-program] The phase is the discriminator RiteHero switches on. During the
+  // held breath the standing crown steps aside for the contenders; otherwise the settled crown
+  // reigns, or — if none has ever settled — the altar is empty. One value carries all three.
+  const phase: RitePhase =
+    clock.kind === "deliberation"
+      ? { phase: "deliberation", contenders }
+      : hero !== null
+        ? { phase: "settled", hero }
+        : { phase: "empty" }
+
+  // [LAW:one-source-of-truth] bannerExcludeId is the ONE owner of "what the banner already hangs":
+  // the gilt relic is excluded from the wall so it never ALSO appears as a tile. One uniform
+  // predicate drops that id (matching nothing when the banner hangs no relic — deliberation/empty),
+  // so the filter runs the same way every request. The client extends the same exclusion to every
+  // appended page (one relic, never also a tile).
+  const excludeId = bannerExcludeId(phase)
+  const wallItems = page.items.filter((i) => i.post.id !== excludeId)
 
   const serialized = serializeSortMode(sort)
   const headers: HeadersInit | undefined =
@@ -76,16 +128,19 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       ? { 'Set-Cookie': serializeSortCookie(sort, url.protocol === 'https:') }
       : undefined
 
-  // The payload merges BOTH features: #109's hero/slopCount (the masthead drama) AND the cursor
-  // page's wall items + nextCursor (the infinite scroll). page 1's wall items are hero-excluded above.
+  // The payload merges BOTH features: #109's phase/slopCount (the masthead drama) AND the cursor
+  // page's wall items + nextCursor (the infinite scroll). page 1's wall items are banner-excluded above.
   return data(
-    { items: wallItems, nextCursor: page.nextCursor, pulse, sort, hero, slopCount },
+    { items: wallItems, nextCursor: page.nextCursor, pulse, sort, phase, slopCount },
     { headers },
   )
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items: firstPage, nextCursor: firstCursor, pulse, sort, hero, slopCount } = loaderData
+  const { items: firstPage, nextCursor: firstCursor, pulse, sort, phase, slopCount } = loaderData
+  // [LAW:one-source-of-truth] The same banner-exclusion the loader applied to page 1 — derived
+  // once from the phase — extends to every appended page, so the gilt relic is never also a tile.
+  const excludeId = bannerExcludeId(phase)
 
   // [LAW:dataflow-not-control-flow] Page 1 is the loader's SSR result (the cheap real-path probe);
   // later pages are appended from /api/feed. `cursor === null` is the DATA that ends the scroll — the
@@ -113,15 +168,16 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       // revived to a Date or PostCard's relativeTime throws. The wire shape is honest (createdAt: string).
       const next = (await res.json()) as { items: WireFeedItem[]; nextCursor: string | null }
       // [LAW:one-source-of-truth] The crowned hero is hung once (the gold relic); it must never ALSO
-      // appear as a wall tile — #109 enforces this on page 1 (loader filter); the SAME uniform predicate
-      // extends it to every appended page (hero?.post.id matches nothing when no crown reigns).
-      const revived = next.items.map(reviveFeedItem).filter((i) => i.post.id !== hero?.post.id)
+      // appear as a wall tile — the loader filter enforces this on page 1; the SAME uniform predicate
+      // (excludeId, derived once from the phase) extends it to every appended page (null when the
+      // banner hangs no relic, so it matches nothing during deliberation/empty).
+      const revived = next.items.map(reviveFeedItem).filter((i) => i.post.id !== excludeId)
       setExtraItems((prev) => [...prev, ...revived])
       setCursor(next.nextCursor)
     } finally {
       setLoading(false)
     }
-  }, [loading, cursor, sort, hero])
+  }, [loading, cursor, sort, excludeId])
 
   // [LAW:dataflow-not-control-flow] One observer. `rootMargin` prefetches the next page ~600px before
   // the sentinel is visible so the scroll never stalls; when `cursor === null` the effect attaches
@@ -183,17 +239,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       </div>
       {/* the city visibly peopled + the relentless productivity, made visible. */}
       <CastAtWork events={pulse} slopCount={slopCount} />
-      {/* [LAW:dataflow-not-control-flow] RiteHero is rendered UNCONDITIONALLY; the hero
-          VALUE (a crowned relic or null) decides whether anything appears — the presence of
-          the crown is the discriminator, handled inside RiteHero, never a caller-side guard.
-          The gold Saint (or the day's rite, in its mark) above; the votive loudest-now leads
-          the wall below. Two kinds of glory, never two gilt. */}
-      <RiteHero hero={hero} />
+      {/* [LAW:dataflow-not-control-flow] RiteHero is rendered UNCONDITIONALLY; the PHASE
+          VALUE (settled crown / deliberation / empty) decides which face appears — the
+          discriminator is handled inside RiteHero, never a caller-side guard on the clock.
+          The gold Saint (or the day's rite, in its mark) above — or, 2–3am, the held breath;
+          the votive loudest-now leads the wall below. Two kinds of glory, never two gilt. */}
+      <RiteHero phase={phase} />
       {/* [LAW:dataflow-not-control-flow] Presence of slop decides what shows: a full
           wall, or the Proprietor's honest quiet. The empty copy speaks only when the
-          room is truly bare — no wall AND no standing crown — so a lone crowned relic
-          never hangs beside a "nobody's here" sign. The silence is part of it. */}
-      {items.length === 0 && hero === null ? (
+          room is truly bare — no wall AND the altar empty (no banner of any kind) — so a
+          lone crowned relic or the held breath never hangs beside a "nobody's here" sign. */}
+      {items.length === 0 && phase.phase === "empty" ? (
         <div className="mx-auto max-w-5xl">
           <p className="rounded-lg border border-dashed border-ash/30 px-4 py-16 text-center font-terminal text-sm text-ash">
             nobody&apos;s here yet — the firehose hasn&apos;t fired. the silence is part of it.

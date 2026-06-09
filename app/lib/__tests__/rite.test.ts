@@ -22,12 +22,14 @@ import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { recipeSubjectSchema, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import {
   CROWN_INTENSITY_THRESHOLD,
+  RITE_WINDOW_MS,
   RITES,
   ballotCitizens,
   devianceRanking,
   elect,
   markFor,
   riteForDay,
+  ritePhaseClock,
   type RiteBallot,
   type RiteCandidate,
 } from '~/lib/rite'
@@ -271,5 +273,35 @@ describe('the liturgical week maps each lens to the doc’s ballot', () => {
 
   it('exposes the acclaim intensity bar', () => {
     expect(CROWN_INTENSITY_THRESHOLD).toBeGreaterThan(0)
+  })
+})
+
+describe('ritePhaseClock — the banner is in the held breath only in the 2–3am UTC hour', () => {
+  // A fixed UTC instant builder so the test never reads the real clock.
+  const at = (y: number, mo: number, d: number, h: number, mi = 0) =>
+    Date.UTC(y, mo - 1, d, h, mi)
+
+  it('stands the rest of the day — every hour but the 2am hour is the standing crown', () => {
+    for (const hour of [0, 1, 3, 4, 11, 12, 17, 23]) {
+      expect(ritePhaseClock(at(2026, 6, 9, hour)).kind).toBe('standing')
+    }
+  })
+
+  it('deliberates across the whole 2am hour, start to last minute', () => {
+    expect(ritePhaseClock(at(2026, 6, 9, 2, 0)).kind).toBe('deliberation')
+    expect(ritePhaseClock(at(2026, 6, 9, 2, 59)).kind).toBe('deliberation')
+  })
+
+  it('settles at 3am sharp — the crowning instant is already the standing crown', () => {
+    expect(ritePhaseClock(at(2026, 6, 9, 3, 0)).kind).toBe('standing')
+  })
+
+  it('carries the imminent ceremony window — ending at today 3am UTC, one day wide', () => {
+    const phase = ritePhaseClock(at(2026, 6, 9, 2, 30))
+    expect(phase.kind).toBe('deliberation')
+    if (phase.kind !== 'deliberation') throw new Error('expected deliberation')
+    // the window the 3am cron will weigh: [3am − 1 day, 3am), independent of the minute now.
+    expect(phase.window.untilMs).toBe(at(2026, 6, 9, 3, 0))
+    expect(phase.window.sinceMs).toBe(at(2026, 6, 9, 3, 0) - RITE_WINDOW_MS)
   })
 })
