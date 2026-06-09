@@ -7,6 +7,7 @@
 import { eq } from 'drizzle-orm'
 import type { ZodError, ZodIssue } from 'zod'
 import { db } from '~/db/client'
+import { d1StmtResult } from '~/db/d1-batch'
 import { found, generations, lineageEdges, posts } from '~/db/schema'
 import { emit } from '~/observability/metrics'
 import { getProvider } from '~/providers'
@@ -282,7 +283,7 @@ async function createGenerationPost(
   // so per-statement failures inside a batch silently resolve without throwing.
   // Cast to the raw D1Result shape and fail loud — the orphan-post incident (May 2026)
   // was caused by exactly this silent path.
-  const postRaw = postInsert as unknown as { success: boolean; error?: string }
+  const postRaw = d1StmtResult(postInsert)
   if (!postRaw.success) {
     emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
     throw new Error(`posts INSERT failed: ${postRaw.error ?? 'unknown'}`)
@@ -290,7 +291,7 @@ async function createGenerationPost(
   // D1 batch is not transactional: the posts row may have committed even when the
   // generations INSERT reports success:false. Confirm posts succeeded before
   // deleting — if both failed, there is no orphan to clean up.
-  const genRaw = genInsert as unknown as { success: boolean; error?: string }
+  const genRaw = d1StmtResult(genInsert)
   if (!genRaw.success) {
     const genError = `generations INSERT failed: ${genRaw.error ?? 'unknown'}`
     // [LAW:dataflow-not-control-flow] cleanupNote is data that varies by outcome;
@@ -298,7 +299,7 @@ async function createGenerationPost(
     let cleanupNote = ''
     try {
       const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
-      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      const cleanupRaw = d1StmtResult(cleanupResult)
       if (!cleanupRaw.success) {
         cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
       }
@@ -313,13 +314,13 @@ async function createGenerationPost(
   // each edge the same way as the sibling rows; on failure delete the post (cascade clears the
   // generations row and any committed edges) so the read boundary never sees a half-lineage.
   for (const edgeInsert of edgeInserts) {
-    const edgeRaw = edgeInsert as unknown as { success: boolean; error?: string }
+    const edgeRaw = d1StmtResult(edgeInsert)
     if (edgeRaw.success) continue
     const edgeError = `lineage_edges INSERT failed: ${edgeRaw.error ?? 'unknown'}`
     let cleanupNote = ''
     try {
       const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
-      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      const cleanupRaw = d1StmtResult(cleanupResult)
       if (!cleanupRaw.success) {
         cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
       }
@@ -501,14 +502,14 @@ async function createFoundPost(
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
     throw err
   }
-  const postRawFound = postInsertFound as unknown as { success: boolean; error?: string }
+  const postRawFound = d1StmtResult(postInsertFound)
   if (!postRawFound.success) {
     emit('slopspot.write.batch_outcome', { content_kind: 'found', outcome: 'failed' }, 1)
     throw new Error(`posts INSERT failed: ${postRawFound.error ?? 'unknown'}`)
   }
   // D1 batch is not transactional: confirm posts succeeded before deleting to
   // ensure cleanup targets only a row this writer created, not a pre-existing one.
-  const foundRaw = foundInsert as unknown as { success: boolean; error?: string }
+  const foundRaw = d1StmtResult(foundInsert)
   if (!foundRaw.success) {
     const foundError = `found INSERT failed: ${foundRaw.error ?? 'unknown'}`
     // [LAW:dataflow-not-control-flow] same pattern as generation arm: cleanupNote
@@ -516,7 +517,7 @@ async function createFoundPost(
     let cleanupNote = ''
     try {
       const cleanupResult = await database.delete(posts).where(eq(posts.id, id))
-      const cleanupRaw = cleanupResult as unknown as { success: boolean; error?: string }
+      const cleanupRaw = d1StmtResult(cleanupResult)
       if (!cleanupRaw.success) {
         cleanupNote = `; orphan cleanup also failed: ${cleanupRaw.error ?? 'unknown'}`
       }

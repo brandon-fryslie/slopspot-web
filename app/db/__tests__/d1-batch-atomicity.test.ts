@@ -66,20 +66,6 @@ describe('D1 batch atomicity (empirical probe)', () => {
     expect(typeof row?.score).toBe('number')
   })
 
-  // [LAW:verifiable-goals] SHAPE CONTRACT (teeth on the success-check). setVote and createPost guard
-  // the non-throwing partial-commit mode (the orphan outage) by casting a batch statement result to
-  // `{ success: boolean; error?: string }` and reading `.success`. That cast bypasses the type
-  // checker — if a drizzle upgrade renames/removes the field, the defense dies SILENTLY (always-
-  // truthy -> orphan-blindness with no alarm). This proves the field is a real readable boolean
-  // (true on success), so a shape change trips RED here instead of dead-ending the defense in the dark.
-  it('SHAPE CONTRACT: a successful batch statement result exposes .success as a boolean true', async () => {
-    const postId = await seedPost(env, {})
-    const database = db(env)
-    const results = await database.batch([
-      database.insert(votes).values({ postId, voterId: 'shape-x', value: 1, createdAt: new Date() }),
-    ])
-    const raw = results[0] as unknown as { success: boolean; error?: string }
-    expect(typeof raw.success).toBe('boolean')
-    expect(raw.success).toBe(true)
-  })
+  // The SHAPE CONTRACT test — teeth on the cast that d1StmtResult now owns — lives with
+  // the helper: app/db/__tests__/d1-batch.test.ts.
 })
