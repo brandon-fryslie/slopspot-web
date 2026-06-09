@@ -2,7 +2,7 @@ import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { countSlops, getFeedPage, getFeedItemById } from "~/db/feed"
-import { contenderPostIds, latestCrownedPostId } from "~/db/crowns"
+import { contenderPostIds, feastsToday, latestCrownedPostId } from "~/db/crowns"
 import { getPulse } from "~/db/pulse"
 import { Wall } from "~/components/wall"
 import {
@@ -13,6 +13,7 @@ import {
   type RitePhase,
 } from "~/components/rite-hero"
 import { CastAtWork } from "~/components/cast-at-work"
+import { FeastProclamation } from "~/components/feast-proclamation"
 import { PulseStrip } from "~/components/pulse-strip"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
@@ -62,20 +63,25 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   const env = context.cloudflare.env
   const voterId = readVoterId(request)
-  // [LAW:no-ambient-temporal-coupling] The rite's clock is read ONCE here, at the loader
-  // boundary; ritePhaseClock derives the banner's phase (standing crown vs the 2–3am held
-  // breath) from this single timestamp, so no component ever reaches for the wall clock.
-  const clock = ritePhaseClock(Date.now())
+  // [LAW:no-ambient-temporal-coupling] The city's clock is read ONCE here, at the loader
+  // boundary, and threaded to everything time-dependent: ritePhaseClock (the banner's
+  // standing-vs-deliberation phase), the Pulse's feast source, and the masthead's feast
+  // proclamation all derive from this single timestamp — no component or reader reaches for
+  // the wall clock itself, and the feast both surfaces show is the SAME instant's feast.
+  const nowMs = Date.now()
+  const clock = ritePhaseClock(nowMs)
   // [LAW:one-source-of-truth] The hero is DERIVED from the crowns table (the latest crown),
   // not a flag — and read through the same feed reader as any post, so it carries the same
-  // mark crowningsForPosts would derive in the wall. The four reads are independent; only
-  // the hero post depends on the crown id, so it follows in a second hop. The feed read is now
-  // a cursor PAGE (getFeedPage) — page.items is page 1; the client appends the rest.
-  const [page, pulse, slopCount, heroId] = await Promise.all([
+  // mark crowningsForPosts would derive in the wall. The reads are independent; only the hero
+  // post depends on the crown id, so it follows in a second hop. The feed read is now a cursor
+  // PAGE (getFeedPage) — page.items is page 1; the client appends the rest. feastsToday is the
+  // masthead's independent read of the city's venerated dead due today (the Pulse reads its own).
+  const [page, pulse, slopCount, heroId, feasts] = await Promise.all([
     getFeedPage(env, { sort, voterId }),
-    getPulse(env),
+    getPulse(env, nowMs),
     countSlops(env),
     latestCrownedPostId(env),
+    feastsToday(env, nowMs),
   ])
   // [LAW:dataflow-not-control-flow] getFeedItemById takes the id | null and yields the post
   // | null — the null flows THROUGH (an absent crown is an empty candidate set, no rows), so
@@ -132,13 +138,13 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // The payload merges BOTH features: #109's phase/slopCount (the masthead drama) AND the cursor
   // page's wall items + nextCursor (the infinite scroll). page 1's wall items are banner-excluded above.
   return data(
-    { items: wallItems, nextCursor: page.nextCursor, pulse, sort, phase, slopCount },
+    { items: wallItems, nextCursor: page.nextCursor, pulse, sort, phase, slopCount, feasts },
     { headers },
   )
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items: firstPage, nextCursor: firstCursor, pulse, sort, phase, slopCount } = loaderData
+  const { items: firstPage, nextCursor: firstCursor, pulse, sort, phase, slopCount, feasts } = loaderData
   // [LAW:one-source-of-truth] The same banner-exclusion the loader applied to page 1 — derived
   // once from the phase — extends to every appended page, so the gilt relic is never also a tile.
   const excludeId = bannerExcludeId(phase)
@@ -218,6 +224,10 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               <p className="mt-2 font-terminal text-[11px] text-votive/60">
                 the proprietor: &quot;{PROPRIETOR.mastheadAside}&quot;
               </p>
+              {/* [LAW:dataflow-not-control-flow] The feast proclamation renders from the feast
+                  VALUE — nothing on an ordinary day (empty list), the named dead on a feast day.
+                  Orthogonal to the RiteHero banner below: a feast day still has a standing crown. */}
+              <FeastProclamation feasts={feasts} />
               {/* The back door you came in through (the-wishing-well.md). A discreet
                   entry in the masthead's atmospheric register — votive-tinted, NOT the
                   profane /submit CTA. [FRAMING:representation] The copy names only the

@@ -18,7 +18,8 @@
 import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { found, personas, posts, utterances, votes } from '~/db/schema'
-import { PostId } from '~/lib/domain'
+import { PostId, type RiteLens } from '~/lib/domain'
+import { feastsToday } from '~/db/crowns'
 
 // [LAW:types-are-the-program] A `born` event is POST-LESS — a birth welcomes a citizen, not a slop — so
 // it carries no postId (the renderer links the others to /p/:id; this one is an unlinked announcement).
@@ -30,6 +31,12 @@ export type PulseEvent =
   | { kind: 'blessed'; ts: number; persona: string; postId: PostId; title: string; reasoning: string }
   | { kind: 'buried'; ts: number; persona: string; postId: PostId; title: string; reasoning: string }
   | { kind: 'born'; ts: number; text: string }
+  // [LAW:types-are-the-program] A `feast` event is the city remembering one of its dead — a
+  // venerated slop whose canonisation anniversary falls today. It links to /p/:id (the saint
+  // returns to view) and carries its lens so the strip can wear the crown's own mark tone.
+  // Stamped with the loader's nowMs (a feast is today's standing event, not a fresh act), so
+  // it sorts to the head of the stream the whole feast day.
+  | { kind: 'feast'; ts: number; persona: string; postId: PostId; lens: RiteLens }
 
 const PULSE_LIMIT = 12
 
@@ -83,7 +90,10 @@ type Candidate =
   | { kind: 'rescued'; ts: number; agentId: string | null; postId: string }
   | { kind: 'blessed' | 'buried'; ts: number; agentId: string; postId: string; title: string; reasoning: string }
 
-export async function getPulse(env: Env): Promise<PulseEvent[]> {
+// [LAW:no-ambient-temporal-coupling] nowMs is the home loader's single clock, threaded
+// in — the Pulse never reads the wall clock itself, and the feast source it composes
+// reads against that same instant.
+export async function getPulse(env: Env, nowMs: number): Promise<PulseEvent[]> {
   const database = db(env)
 
   // Recent posts (generation → posted, found → rescued; uploads are not civic
@@ -163,6 +173,19 @@ export async function getPulse(env: Env): Promise<PulseEvent[]> {
     return { kind: 'born', ts: r.createdAt.getTime(), text: r.text }
   })
 
+  // [LAW:single-enforcer] The feast source — the city's venerated dead whose canonisation
+  // anniversary falls on `nowMs`'s day, read through crowns.feastsToday (the one crown reader).
+  // feastsToday already resolves the presiding citizen's name, so unlike a vote there is no
+  // agentId to fold into the batch lookup — the feast is a fully-named event by the time it
+  // arrives here. [LAW:dataflow-not-control-flow] no feast today is the empty list, no branch.
+  const feastEvents: PulseEvent[] = (await feastsToday(env, nowMs)).map((f) => ({
+    kind: 'feast',
+    ts: nowMs,
+    persona: f.presiding.displayName,
+    postId: f.postId,
+    lens: f.lens,
+  }))
+
   const agentIds = new Set<string>()
   for (const c of candidates) if (c.agentId !== null) agentIds.add(c.agentId)
   const names = await resolveNames(database, [...agentIds])
@@ -189,7 +212,7 @@ export async function getPulse(env: Env): Promise<PulseEvent[]> {
   // [LAW:dataflow-not-control-flow] Births merge into the one stream as data — a born event sorts by its
   // ts alongside posts and votes, no separate ticker. Both sources already capped at PULSE_LIMIT; the
   // merge re-sorts and re-caps so the most recent civic acts win regardless of which source produced them.
-  return [...namedEvents, ...bornEvents]
+  return [...namedEvents, ...bornEvents, ...feastEvents]
     .sort((a, b) => b.ts - a.ts)
     .slice(0, PULSE_LIMIT)
 }

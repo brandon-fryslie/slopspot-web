@@ -15,6 +15,7 @@ import {
   crowningForDay,
   crowningsForPosts,
   gatherCandidates,
+  feastsToday,
   recordCrowning,
 } from '~/db/crowns'
 import { getFeedPage } from '~/db/feed'
@@ -374,5 +375,48 @@ describe('museumCrownings — the hall reader', () => {
       }),
     )
     expect(await museumCrownings(env, [])).toEqual([])
+  })
+})
+
+// [LAW:behavior-not-structure] feastsToday returns the VENERATED dead whose canonisation
+// day-of-month recurs on the given UTC day — names the presiding citizen, links the post,
+// excludes the rogues (a villain gets notoriety, not a feast), and obeys the month-end clamp.
+describe('feastsToday — the venerated whose canonisation anniversary falls today', () => {
+  // agent:slop-purist (St. Vivian, handle st-vivian) is seeded by migration 0017 — the presiding
+  // name resolves from that row, so each case seeds only the posts and the crowns.
+  it('returns a saint canonised on today’s DOM, names the citizen, excludes rogues and other days', async () => {
+    const saint = await seedPost(env)
+    const villain = await seedPost(env)
+    const offDay = await seedPost(env)
+    await recordCrowning(env, { postId: saint, riteDay: '2025-11-15', lens: 'saint', presiding: VIVIAN, decree: DECREE })
+    // Same DOM (15) but a ROGUE lens — notoriety, never a feast.
+    await recordCrowning(env, { postId: villain, riteDay: '2025-12-15', lens: 'villain', presiding: VIVIAN, decree: DECREE })
+    // A venerated relic, but its DOM (9) is not today's.
+    await recordCrowning(env, { postId: offDay, riteDay: '2025-10-09', lens: 'relic', presiding: VIVIAN, decree: DECREE })
+
+    const feasts = await feastsToday(env, Date.UTC(2026, 0, 15, 12))
+    expect(feasts).toEqual([
+      {
+        postId: saint,
+        lens: 'saint',
+        riteDay: '2025-11-15',
+        presiding: { handle: 'st-vivian', displayName: 'St. Vivian' },
+      },
+    ])
+  })
+
+  it('month-end clamp: a saint of the 31st is remembered on Apr 30', async () => {
+    const saint = await seedPost(env)
+    await recordCrowning(env, { postId: saint, riteDay: '2026-01-31', lens: 'saint', presiding: VIVIAN, decree: DECREE })
+
+    expect(await feastsToday(env, Date.UTC(2026, 3, 30, 12))).toHaveLength(1)
+    // But not on Apr 29 (an ordinary day that is not the 31st nor the month's end).
+    expect(await feastsToday(env, Date.UTC(2026, 3, 29, 12))).toHaveLength(0)
+  })
+
+  it('returns nothing when no venerated crown’s anniversary falls today', async () => {
+    const saint = await seedPost(env)
+    await recordCrowning(env, { postId: saint, riteDay: '2025-11-09', lens: 'saint', presiding: VIVIAN, decree: DECREE })
+    expect(await feastsToday(env, Date.UTC(2026, 0, 15, 12))).toEqual([])
   })
 })

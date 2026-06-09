@@ -1,6 +1,8 @@
 import { Link } from "react-router"
 import type { PulseEvent } from "~/db/pulse"
+import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
+import { markFor } from "~/lib/rite"
 
 // The Pulse strip — "the city breathing". A slow ambient crawl of recent civic
 // events below the masthead. font-terminal, votive glow, on the void.
@@ -44,6 +46,17 @@ function eventBody(e: PulseEvent) {
     case "born":
       // The Proprietor's stored welcome line — it already names the newcomer, so render it verbatim.
       return <span className="text-votive">{e.text}</span>
+    case "feast": {
+      // The saint's icon returns: its presiding citizen named, wearing the crown's own mark tone
+      // (the shared MARK_TONE, so a feast line and the saint's card never drift). [LAW:one-source-of-truth]
+      const tone = MARK_TONE[markFor(e.lens)]
+      return (
+        <>
+          the feast of {maker(e.persona)}
+          <span className={tone.text}> · the {e.lens}</span>
+        </>
+      )
+    }
     default: {
       const _exhaustive: never = e
       return _exhaustive
