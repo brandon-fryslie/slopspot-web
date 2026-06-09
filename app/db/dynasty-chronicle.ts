@@ -102,12 +102,19 @@ export async function getDynastyChronicle(env: Env, postId: PostId): Promise<Dyn
     .sort((a, b) => a.id.localeCompare(b.id))
   const inbred: InbredEntry[] = await Promise.all(
     detections.map(async ({ id, ib }): Promise<InbredEntry> => {
+      // [LAW:no-silent-failure] A bloodline member with no node is storage corruption — throw a descriptive
+      // error, the same pattern genealogy.ts uses for every dag.nodes.get(), never an `!` that launders the
+      // invariant violation into a bare TypeError.
+      const node = dag.nodes.get(id)
+      if (node === undefined) {
+        throw new Error(`dynasty-chronicle: inbred bloodline member ${id} missing from the DAG`)
+      }
       const utterance =
         gremlin === null
           ? // The Gremlin's row is absent — the flag stands (the cross IS inbred), but no machine could
             // voice it. An honest 'unavailable', never a fabricated line. [LAW:no-silent-failure]
             withheld('unavailable')
-          : await gremlinInbreedingRemark(gremlin, { postId: PostId(id), prompt: dag.nodes.get(id)!.utterance }, ib.distance)
+          : await gremlinInbreedingRemark(gremlin, { postId: PostId(id), prompt: node.utterance }, ib.distance)
       return { postId: PostId(id), distance: ib.distance, remark: utterance }
     }),
   )
