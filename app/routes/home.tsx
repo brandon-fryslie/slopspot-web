@@ -214,6 +214,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               <p className="mt-2 font-terminal text-[11px] text-votive/60">
                 the proprietor: &quot;mind the step.&quot;
               </p>
+              {/* The back door you came in through (the-wishing-well.md). A discreet
+                  entry in the masthead's atmospheric register — votive-tinted, NOT the
+                  profane /submit CTA. [FRAMING:representation] The copy names only the
+                  ordinary act ("make a wish") and never the mechanism: the haunting must
+                  DAWN on the slop's card, so the door must not disclose what's behind it. */}
+              <Link
+                to="/well"
+                className="mt-3 inline-block font-terminal text-[11px] text-votive/70 transition-colors hover:text-votive"
+              >
+                ·· make a wish at the well ··
+              </Link>
             </div>
             <Link
               to="/submit"
