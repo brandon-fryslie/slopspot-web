@@ -1,6 +1,8 @@
 import { Link } from "react-router"
 import type { PulseEvent } from "~/db/pulse"
+import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
+import { markFor } from "~/lib/rite"
 
 // The Pulse strip — "the city breathing". A slow ambient crawl of recent civic
 // events below the masthead. font-terminal, votive glow, on the void.
@@ -44,6 +46,17 @@ function eventBody(e: PulseEvent) {
     case "born":
       // The Proprietor's stored welcome line — it already names the newcomer, so render it verbatim.
       return <span className="text-votive">{e.text}</span>
+    case "feast": {
+      // The saint's icon returns: its presiding citizen named, wearing the crown's own mark tone
+      // (the shared MARK_TONE, so a feast line and the saint's card never drift). [LAW:one-source-of-truth]
+      const tone = MARK_TONE[markFor(e.lens)]
+      return (
+        <>
+          the feast of {maker(e.persona)}
+          <span className={tone.text}> · the {e.lens}</span>
+        </>
+      )
+    }
     default: {
       const _exhaustive: never = e
       return _exhaustive
@@ -58,7 +71,20 @@ const reasoningOf = (e: PulseEvent): string | undefined =>
 // /p/:id to point at — the renderer reads `undefined` and draws a plain span instead of an anchor.
 const hrefOf = (e: PulseEvent): string | undefined => (e.kind === "born" ? undefined : `/p/${e.postId}`)
 
-const keyOf = (e: PulseEvent) => (e.kind === "born" ? `born:${e.ts}` : `${e.kind}:${e.postId}:${e.ts}`)
+// [LAW:no-silent-failure] Each kind keys on its own stable identity: a born event is post-less
+// (key by ts); a feast is stamped with a constant nowMs ts and a post can feast twice in a day,
+// so it keys on rite_day (the crown's globally-unique day) — a postId+ts key would collide and
+// React would silently drop the second saint. The post-act events key by post + their real ts.
+const keyOf = (e: PulseEvent) => {
+  switch (e.kind) {
+    case "born":
+      return `born:${e.ts}`
+    case "feast":
+      return `feast:${e.postId}:${e.riteDay}`
+    default:
+      return `${e.kind}:${e.postId}:${e.ts}`
+  }
+}
 
 // `duplicate` marks the second copy that exists ONLY to make the crawl seamless
 // (the -50% loop needs two identical groups). Under reduced motion the crawl is

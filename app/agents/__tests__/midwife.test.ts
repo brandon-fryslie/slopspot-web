@@ -308,7 +308,7 @@ describe('announceBirth — the Proprietor welcomes a newborn through the one Vo
     expect(rows[0]!.text).toContain('Sindri Cole')
 
     // Surfaced on the Pulse as a single 'born' event carrying the welcome line.
-    const born = (await getPulse(env)).filter((e) => e.kind === 'born')
+    const born = (await getPulse(env, Date.UTC(2026, 0, 9, 12))).filter((e) => e.kind === 'born')
     expect(born).toHaveLength(1)
     expect(born[0]!).toMatchObject({ kind: 'born', text: expect.stringContaining('Sindri Cole') })
   })
