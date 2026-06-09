@@ -196,3 +196,43 @@
     animation: none;
   }
 }
+
+/*
+  THE CROWNING — the gold SETTLES IN (the-daily-rite.md §The Crowning): a slow
+  candlelight fade, the gilt halo catching last. Never a confetti pop, never a
+  bounce — there is no transform, only opacity easing up. Once on arrival, never
+  loops. Under reduced-motion the crown is simply already there, lit.
+*/
+@keyframes crown-settle {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.crown-settle {
+  animation: crown-settle 1.6s ease-out 1 both;
+}
+
+/*
+  THE DELIBERATION — the held breath, 2–3am (the-daily-rite.md §The Deliberation).
+  The banner dims to a LOW flicker, like a sign deciding whether to stay lit. A
+  slow, shallow opacity sway — the city considering, not buzzing. Loops through the
+  hour. Under reduced-motion it holds dim and still.
+*/
+@keyframes rite-deliberate {
+  0%, 100% { opacity: 0.78; }
+  50% { opacity: 0.52; }
+}
+
+.rite-deliberate {
+  animation: rite-deliberate 4.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crown-settle {
+    animation: none;
+  }
+  .rite-deliberate {
+    animation: none;
+    opacity: 0.7;
+  }
+}

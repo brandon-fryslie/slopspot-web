@@ -161,6 +161,37 @@ export async function recordCrowning(
   return { recorded: true, id: inserted[0].id }
 }
 
+// [LAW:single-enforcer] The Deliberation's contenders — the city's loudest slops of the
+// night, read through the SAME window-bounded SUM(votes) the acclaim ballot weighs (no
+// new mechanic: every number is a vote already cast in the day). The banner shows these
+// front-runners WITHOUT a verdict — the ballot that fires at 3am may be monarchical
+// (sole/feud crown a presiding citizen's own pick, not the loudest), so the loud
+// contenders build the held breath precisely because they are not the guaranteed saint.
+// [LAW:one-source-of-truth] returns ranked postIds only; the loader resolves each to a
+// RenderablePost through the feed reader (the one post resolver), so crowns → feed stays
+// one-way and no post is reconstructed here. Ties break by postId desc to agree with
+// elect's deterministic tiebreak, so the contender order is reproducible for a feed.
+export async function contenderPostIds(
+  env: Env,
+  window: RiteWindow,
+  limit: number,
+): Promise<PostId[]> {
+  const inWindow = and(
+    gte(votes.createdAt, new Date(window.sinceMs)),
+    lt(votes.createdAt, new Date(window.untilMs)),
+  )
+  const rows = await db(env)
+    .select({ postId: generations.postId })
+    .from(generations)
+    .innerJoin(posts, eq(posts.id, generations.postId))
+    .innerJoin(votes, eq(votes.postId, generations.postId))
+    .where(and(eq(generations.status, 'succeeded'), inWindow))
+    .groupBy(generations.postId)
+    .orderBy(desc(sql`sum(${votes.value})`), desc(generations.postId))
+    .limit(limit)
+  return rows.map((r) => r.postId as PostId)
+}
+
 // [LAW:dataflow-not-control-flow] The rite reads the DAY's votes that ALREADY exist —
 // no new mechanic, and bounded to `window` (the 24h before the ceremony) so the
 // ballot is the day's judgment, never the all-time favourite. The candidate shape

@@ -169,6 +169,37 @@ export type RiteWindow = { readonly sinceMs: number; readonly untilMs: number }
 // The span of a rite's ballot — one day. The window is [ceremony − 1 day, ceremony).
 export const RITE_WINDOW_MS = 24 * 60 * 60 * 1000
 
+// The Proprietor's hour: the ceremony fires at 3am UTC (workers/app.ts `0 3 * * *`),
+// and the hour BEFORE it — [2am, 3am) UTC — is the Deliberation, the city's held
+// breath. These two constants are the ONLY place the rite's wall-clock hours are named.
+export const CROWNING_HOUR_UTC = 3
+export const DELIBERATION_HOUR_UTC = 2
+
+// [LAW:types-are-the-program] The banner's two real time-states, made data: the
+// Deliberation (the 2–3am held breath, carrying the very window the imminent ceremony
+// will weigh so the contenders shown are the ceremony's own evidence) or the Standing
+// hour (the settled crown reigns). A third "it is the crowning instant" is NOT a state
+// — 3am is the cron's, not the banner's; the crown simply becomes the new Standing crown.
+export type RitePhaseClock =
+  | { readonly kind: 'deliberation'; readonly window: RiteWindow }
+  | { readonly kind: 'standing' }
+
+// [LAW:no-ambient-temporal-coupling] The rite's clock as a PURE function of one
+// timestamp — the home loader reads `Date.now()` ONCE at its boundary and derives the
+// phase here; no component reads the wall clock, so the banner cannot drift into a
+// time-branch of its own. [LAW:dataflow-not-control-flow] the hour is the discriminator
+// the loader switches on, and the Deliberation carries its window as a VALUE rather than
+// re-deriving it downstream.
+export function ritePhaseClock(nowMs: number): RitePhaseClock {
+  const d = new Date(nowMs)
+  if (d.getUTCHours() !== DELIBERATION_HOUR_UTC) return { kind: 'standing' }
+  // The ceremony fires at 3am UTC of the SAME calendar day the 2am hour belongs to;
+  // its ballot window ends there, exactly as runRite computes it. Votes after `nowMs`
+  // do not exist yet, so an untilMs of the imminent 3am reads only what has been cast.
+  const untilMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), CROWNING_HOUR_UTC)
+  return { kind: 'deliberation', window: { sinceMs: untilMs - RITE_WINDOW_MS, untilMs } }
+}
+
 // [LAW:types-are-the-program] A candidate the rite weighs — discriminated by what the
 // ballot READS, because vote ballots and the deviance ballot draw on different evidence
 // and bundling both shapes into one bag-of-optionals would let every consumer reach for
