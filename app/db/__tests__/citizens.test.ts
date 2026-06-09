@@ -12,7 +12,7 @@ import {
   feudsAround,
   feudsFor,
   getCitizenLedger,
-  getCitizenStat,
+  getRosterStats,
   ritePresidedBy,
   signatureStat,
 } from '~/db/citizens'
@@ -456,29 +456,92 @@ describe('app/db/citizens.ts - getCitizenLedger', () => {
   })
 })
 
-describe('app/db/citizens.ts - getCitizenStat (the roster floor)', () => {
-  it('makers: returns only the count, no recent works', async () => {
+describe('app/db/citizens.ts - getRosterStats (the batched roster floor)', () => {
+  it('counts each guild by its own deed, in one batched read for the whole cast', async () => {
+    // A maker's two generations, a scavenger's one found post, a critic's split vote —
+    // the three attribution shapes (author / finder / voter) in one seed, read together.
     await seedPost({ id: 's_m1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
     await seedSucceededGeneration('s_m1', image('/media/s1'))
+    await seedPost({ id: 's_m2', createdAt: 200, contentKind: 'generation', originJson: authored('agent:maker') })
+    await seedSucceededGeneration('s_m2', image('/media/s2'))
+    await seedPost({ id: 's_f1', createdAt: 300, contentKind: 'found', originJson: foundBy('agent:scav') })
+    await seedVote({ postId: 's_m1', voterId: 'agent:critic', value: 1, reasoning: 'yes', createdAt: 1000 })
+    await seedVote({ postId: 's_m2', voterId: 'agent:critic', value: -1, reasoning: 'no', createdAt: 1100 })
 
-    const stat = await getCitizenStat(env, persona('agent:maker', 'generator'))
+    const stats = await getRosterStats(env, [
+      persona('agent:maker', 'generator'),
+      persona('agent:scav', 'discoverer'),
+      persona('agent:critic', 'voter'),
+      persona('agent:the-proprietor', 'host'),
+    ])
 
-    expect(stat).toEqual({ guild: 'makers', made: 1 })
+    expect(stats.get('agent:maker')).toEqual({ guild: 'makers', made: 2 })
+    expect(stats.get('agent:scav')).toEqual({ guild: 'scavengers', rescued: 1 })
+    expect(stats.get('agent:critic')).toEqual({ guild: 'critics', judged: 2, blessed: 1, buried: 1 })
+    // The host counts nothing yet is present in the map by construction — never a dropped key.
+    expect(stats.get('agent:the-proprietor')).toEqual({ guild: 'host' })
   })
 
-  it('critics: returns the tallies, no verdicts', async () => {
-    await seedPost({ id: 's_c1', createdAt: 100, contentKind: 'generation', originJson: authored('agent:maker') })
-    await seedSucceededGeneration('s_c1', image('/media/sc1'))
-    await seedVote({ postId: 's_c1', voterId: 'agent:critic', value: 1, reasoning: 'yes', createdAt: 1000 })
-
-    const stat = await getCitizenStat(env, persona('agent:critic', 'voter'))
-
-    expect(stat).toEqual({ guild: 'critics', judged: 1, blessed: 1, buried: 0 })
+  it('a citizen with no deeds is the honest zero, present in the map', async () => {
+    const stats = await getRosterStats(env, [
+      persona('agent:maker', 'generator'),
+      persona('agent:scav', 'discoverer'),
+      persona('agent:critic', 'voter'),
+    ])
+    expect(stats.get('agent:maker')).toEqual({ guild: 'makers', made: 0 })
+    expect(stats.get('agent:scav')).toEqual({ guild: 'scavengers', rescued: 0 })
+    expect(stats.get('agent:critic')).toEqual({ guild: 'critics', judged: 0, blessed: 0, buried: 0 })
   })
 
-  it('host: a bare stat by construction', async () => {
-    const stat = await getCitizenStat(env, persona('agent:the-proprietor', 'host'))
-    expect(stat).toEqual({ guild: 'host' })
+  it('attributes a legacy actor-shaped post to its maker (the 0016 fallback)', async () => {
+    // A pre-attribution row carries { actor: { agentId } } — the principal coalesces to it,
+    // so the deed count matches what the feed still attributes. Proves the shared predicate.
+    await seedPost({
+      id: 's_legacy',
+      createdAt: 100,
+      contentKind: 'generation',
+      originJson: JSON.stringify({ kind: 'authored', actor: { kind: 'agent', agentId: 'agent:maker' } }),
+    })
+    await seedSucceededGeneration('s_legacy', image('/media/leg'))
+
+    const stats = await getRosterStats(env, [persona('agent:maker', 'generator')])
+    expect(stats.get('agent:maker')).toEqual({ guild: 'makers', made: 1 })
+  })
+
+  it('the empty roster degrades to no query by data', async () => {
+    const stats = await getRosterStats(env, [])
+    expect(stats.size).toBe(0)
+  })
+})
+
+describe('app/db/citizens.ts - attribution reads are index SEEKs (the perf contract, MEASURED)', () => {
+  // [LAW:verifiable-goals] The whole point of 0033: a deed count must SEEK the attribution
+  // index, not full-SCAN posts evaluating json_extract per row. EXPLAIN the exact predicate
+  // the readers build (the shared principalExpr) and assert the planner uses the index.
+  async function explainAttribution(contentKind: 'generation' | 'found', slot: 'author' | 'finder'): Promise<string> {
+    const principal =
+      slot === 'author'
+        ? `coalesce(json_extract(origin_json, '$.author.agentId'), json_extract(origin_json, '$.actor.agentId'))`
+        : `coalesce(json_extract(origin_json, '$.finder.agentId'), json_extract(origin_json, '$.actor.agentId'))`
+    const sql = `SELECT ${principal} AS agent_id, count(*) FROM posts WHERE content_kind = ? AND ${principal} = ? GROUP BY agent_id`
+    const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN ${sql}`).bind(contentKind, 'agent:x').all<{ detail: string }>()
+    const detail = plan.results.map((r) => r.detail).join(' | ')
+    console.log(`[EXPLAIN attribution ${contentKind}/${slot}] ${detail}`)
+    return detail
+  }
+
+  it('makers: SEARCHes posts_author_attribution_idx (a seek), no full SCAN', async () => {
+    const detail = await explainAttribution('generation', 'author')
+    expect(detail).toContain('SEARCH')
+    expect(detail).toContain('posts_author_attribution_idx')
+    expect(detail).not.toContain('SCAN posts')
+  })
+
+  it('scavengers: SEARCHes posts_finder_attribution_idx (a seek), no full SCAN', async () => {
+    const detail = await explainAttribution('found', 'finder')
+    expect(detail).toContain('SEARCH')
+    expect(detail).toContain('posts_finder_attribution_idx')
+    expect(detail).not.toContain('SCAN posts')
   })
 })
 

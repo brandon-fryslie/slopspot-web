@@ -9,7 +9,7 @@ import { Link, useLoaderData } from 'react-router'
 import { creedOf, guildOf, listAllPersonas, newcomerAgentIds, NEWCOMER_WINDOW_MS, type Guild } from '~/agents/persona'
 import { FIRST_POET_KIND } from '~/agents/firstPoet'
 import { honorOf } from '~/db/honors'
-import { feudsFor, getCitizenStat, signatureStat } from '~/db/citizens'
+import { feudsFor, getRosterStats, signatureStat } from '~/db/citizens'
 import { getBackings } from '~/db/backings'
 import { getStandings } from '~/db/standing'
 import { readVoterId } from '~/lib/voter-cookie'
@@ -74,13 +74,21 @@ export async function loader({ context, request }: Route.LoaderArgs) {
     personas.flatMap((p) => (p.handle === null ? [] : [[p.handle, p.displayName] as const])),
   )
 
-  // The cast is small and bounded (the named roster + the host), so one stat
-  // read per citizen is acceptable here. getCitizenStat is the COUNT floor — no
-  // recent-item queries, no output_json parse — so the roster does the minimum
-  // work and a malformed image can never 500 a page that does not render images.
-  // The full ledger is the shrine's concern (cast.$handle), not the roster's.
-  const citizens = await Promise.all(
-    personas.map(async (p) => ({
+  // [LAW:single-enforcer] One batched deed-count read for the whole roster — the signature
+  // COUNT floor per citizen (no recent-item queries, no output_json parse), keyed by
+  // agentId, in O(guild) index-served GROUP BYs rather than one stat query per card. So
+  // the roster does the minimum work AND scales with the cast, and a malformed image can
+  // never 500 a page that does not render images. The full ledger is the shrine's concern
+  // (cast.$handle), not the roster's.
+  const stats = await getRosterStats(env, personas)
+
+  const citizens = personas.map((p) => {
+    // [LAW:no-silent-failure] getRosterStats returns a stat for every persona it is given
+    // (it maps over this exact list), so a miss is a violated invariant — surfaced, never
+    // rendered as a blank card or a guessed default.
+    const stat = stats.get(p.agentId)
+    if (stat === undefined) throw new Error(`cast roster: missing stat for ${p.agentId}`)
+    return {
       // agentId is the stable React key (the PK); handle is the URL key (null
       // until minted), displayName is the placard. [RECONCILE A]
       agentId: p.agentId,
@@ -93,7 +101,7 @@ export async function loader({ context, request }: Route.LoaderArgs) {
       portrait: portraitStateOf(p.config),
       // Derive the one signature stat server-side and ship the string, not the
       // ledger — the verdict text / image URLs / haul belong to the shrine alone.
-      stat: signatureStat(await getCitizenStat(env, p)),
+      stat: signatureStat(stat),
       // The standing rivalries this citizen carries, resolved to clickable flags.
       feuds: feudsFor(p.handle, byHandle),
       // The derived backer count + this viewer's backed-state. Defaulted from the
@@ -110,8 +118,8 @@ export async function loader({ context, request }: Route.LoaderArgs) {
       // newcomer mark and feud flags use, never a fabricated "steady" for a citizen that
       // has none.
       standing: standings.get(p.agentId) ?? null,
-    })),
-  )
+    }
+  })
 
   return { citizens }
 }

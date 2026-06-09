@@ -18,8 +18,9 @@
 import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { found, generations, posts } from '~/db/schema'
-import { recentVotesForVoter, voterStats } from '~/db/votes'
-import { guildOf, type Persona } from '~/agents/persona'
+import { attributedTo, principalExpr } from '~/db/attribution'
+import { recentVotesForVoter, voterStats, type VoterStat } from '~/db/votes'
+import { guildOf, type Guild, type Persona } from '~/agents/persona'
 import { PostId, type Media, type VoteValue } from '~/lib/domain'
 import { styleFamilySchema, type StyleFamily } from '~/lib/variety'
 
@@ -305,26 +306,16 @@ export function ritePresidedBy(handle: string | null): RitePresidency | null {
   return handle === null ? null : (RITES[handle] ?? null)
 }
 
-// [LAW:one-source-of-truth] The attribution predicates — the ONE definition of
-// "this citizen's posts." A maker AUTHORS, a scavenger FINDS; pre-attribution rows
-// carry the legacy `{ actor:{ agentId } }` shape that migration 0016 left in place
-// for cleanly-mappable posts, so each predicate resolves the specific slot THEN the
-// legacy actor — exactly as the feed reader's `author ?? actor` / `finder ?? actor`
-// does, or the ledger would undercount older posts the feed still attributes here.
-// Both the count (stat) and the recent-item (ledger) reads share these, so they
-// can never disagree on what counts.
+// [LAW:single-enforcer] The attribution predicate lives in ONE place (attribution.ts)
+// so the Cast deed counts here and the derived Standing arc in standing.ts read the
+// identical "whose post is this" expression — and the same expression index serves both.
+// These two are the maker/scavenger slot bindings the file reads by.
 function authoredBy(agentId: string): SQL {
-  return sql`coalesce(
-    json_extract(${posts.originJson}, '$.author.agentId'),
-    json_extract(${posts.originJson}, '$.actor.agentId')
-  ) = ${agentId}`
+  return attributedTo('author', agentId)
 }
 
 function foundBy(agentId: string): SQL {
-  return sql`coalesce(
-    json_extract(${posts.originJson}, '$.finder.agentId'),
-    json_extract(${posts.originJson}, '$.actor.agentId')
-  ) = ${agentId}`
+  return attributedTo('finder', agentId)
 }
 
 // [LAW:one-type-per-behavior] Collapse a blank line to one absence: a null
@@ -604,19 +595,49 @@ async function scavengerFinds(env: Env, agentId: string): Promise<ScavengerFind[
   return rows.map((r) => ({ postId: PostId(r.id), title: blankToNull(r.title) }))
 }
 
-// [LAW:single-enforcer] The Cast's one cheap entry point for a citizen's counts —
-// the roster reads exactly this, no recent-item queries and no output_json parse.
-// The guild (from the same total guildOf the roster groups on) selects which deed
-// to count; the host has none by construction.
-export async function getCitizenStat(env: Env, persona: Persona): Promise<CitizenStat> {
-  const guild = guildOf(persona.role)
+// [LAW:single-enforcer] The roster's ONE batched deed count per guild — generation
+// posts grouped by author, found posts grouped by finder, each in a single index-served
+// GROUP BY scoped to the cast (the principal IN the roster's agentIds). A maker/scavenger
+// with no posts is absent from the result, the honest zero the caller defaults — never a
+// dropped row. The empty roster (no makers, say) degrades to no query by data.
+async function countByPrincipal(
+  env: Env,
+  contentKind: 'generation' | 'found',
+  slot: 'author' | 'finder',
+  agentIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (agentIds.length === 0) return new Map()
+  const principal = principalExpr(slot)
+  const rows = await db(env)
+    .select({ agentId: principal, n: sql<number>`count(*)` })
+    .from(posts)
+    .where(and(eq(posts.contentKind, contentKind), inArray(principal, [...agentIds])))
+    .groupBy(principal)
+  return new Map(rows.map((r) => [r.agentId, r.n]))
+}
+
+// [LAW:types-are-the-program] The roster's stat floor for one citizen, assembled from the
+// already-batched per-guild reads. Exhaustive over the guild discriminator — each guild is
+// known by its own deed (a maker by what they MADE, a critic by what they JUDGED, a
+// scavenger by what they RESCUED), the host by none — so a new guild forces its count
+// source here. The `?? 0` is each guild's documented absence (no posts / no votes) mapped
+// to zero, the SAME honest zero the single-citizen stat readers carry, not a laundered null.
+function rosterStatFor(
+  guild: Guild,
+  agentId: string,
+  made: ReadonlyMap<string, number>,
+  rescued: ReadonlyMap<string, number>,
+  critics: ReadonlyMap<string, VoterStat>,
+): CitizenStat {
   switch (guild) {
     case 'makers':
-      return makerStat(env, persona.agentId)
-    case 'critics':
-      return criticStat(env, persona.agentId)
+      return { guild: 'makers', made: made.get(agentId) ?? 0 }
+    case 'critics': {
+      const s = critics.get(agentId)
+      return { guild: 'critics', judged: s?.voteCount ?? 0, blessed: s?.upvotes ?? 0, buried: s?.downvotes ?? 0 }
+    }
     case 'scavengers':
-      return scavengerStat(env, persona.agentId)
+      return { guild: 'scavengers', rescued: rescued.get(agentId) ?? 0 }
     case 'host':
       return { guild: 'host' }
     default: {
@@ -624,6 +645,32 @@ export async function getCitizenStat(env: Env, persona: Persona): Promise<Citize
       return _exhaustive
     }
   }
+}
+
+// [LAW:single-enforcer] The Cast roster's ONE entry point for the whole cast's signature
+// counts — the count floor (no recent items, no output_json parse) keyed by agentId. Three
+// batched reads regardless of cast size (makers grouped by author, scavengers grouped by
+// finder, the existing batched voterStats for critics — reused, never re-summed), down from
+// one stat query per citizen. The host contributes no query (it counts nothing) yet is
+// present in the map by construction. The votes aggregate stays voterStats' single read, so
+// a critic's roster count and their dashboard count can never disagree.
+export async function getRosterStats(
+  env: Env,
+  personas: readonly Persona[],
+): Promise<Map<string, CitizenStat>> {
+  const idsByGuild = (g: Guild): string[] =>
+    personas.filter((p) => guildOf(p.role) === g).map((p) => p.agentId)
+
+  const [made, rescued, critics] = await Promise.all([
+    countByPrincipal(env, 'generation', 'author', idsByGuild('makers')),
+    countByPrincipal(env, 'found', 'finder', idsByGuild('scavengers')),
+    voterStats(env, idsByGuild('critics')),
+  ])
+  const criticById = new Map(critics.map((s) => [s.voterId, s]))
+
+  return new Map(
+    personas.map((p) => [p.agentId, rosterStatFor(guildOf(p.role), p.agentId, made, rescued, criticById)]),
+  )
 }
 
 // [LAW:single-enforcer] The Cast's one entry point for a citizen's full ledger —
