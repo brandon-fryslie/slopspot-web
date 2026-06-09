@@ -16,7 +16,7 @@
 // domain shape (Content/GenerationStatus are closed discriminated unions). Everything below is the
 // residue of that one map.
 
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import {
@@ -76,6 +76,7 @@ import {
   type SortMode,
 } from '~/lib/sort-mode'
 import { decodeCursor, encodeCursor, type CursorPayload } from '~/lib/feed-cursor'
+import { seedFloat } from '~/lib/hash'
 
 // [LAW:dataflow-not-control-flow] How many posts a single feed read hydrates+renders. This is the
 // dominant multiplier on the hot-path CPU: every per-post cost (row hydration, genome assembly,
@@ -974,6 +975,68 @@ export async function getFeedItemsByIds(
   // surviving post is simply absent from the map — a real absence, never a thrown miss.
   const renderables = await hydrateRenderablePosts(database, rows, voterId)
   return new Map(renderables.map((r) => [r.post.id, r]))
+}
+
+// [LAW:no-mode-explosion] How many mates the breeding room shows at once — a deliberate WINDOW onto
+// the seeded shuffle, distinct from FEED_PAGE_SIZE (the homepage hot-path CPU lever). The pool is
+// the WHOLE breedable gene pool; this is just how much of one shuffle is on screen.
+export const BREEDING_POOL_WINDOW = 24
+
+// [LAW:decomposition] The breeding room's gene pool is its OWN concern, not "whatever sits on Hot
+// page 1." Every succeeded image generation is breedable DNA — so this reader owns that candidate
+// set directly: it filters to breedable rows at the SQL boundary (the count is then REAL, never a
+// feed page minus the found/upload posts that happened to land on it), seeded-shuffles them, and
+// windows the result. Reusing getFeedPage fused the room to Hot ranking + page size and left any
+// genome off page 1 unbreedable — contradicting "slop has heritable DNA." This is the un-fusing.
+//
+// [LAW:one-source-of-truth] The shuffle order is the city's ONE hash (seedFloat) — a deterministic
+// sort key per (seed, postId). Same seed → same order (reproducible, shareable); a fresh seed
+// reshuffles to a different slice of the SAME pool, so the whole gene pool is reachable ACROSS
+// seeds, not just one ranked page. The 'breed-pool' tag namespaces this stream so it stays
+// uncorrelated with the chooser/persona/scheduler/breed streams sharing the hash.
+//
+// [LAW:single-enforcer] Phase 2 hydrates through getFeedItemsByIds — the one rows→RenderablePost
+// path — so a mate's image, score, and verdicts parse identically to the feed; the id-keyed Map
+// lets the caller restore the shuffled order it chose in phase 1.
+//
+// [LAW:no-silent-failure] Phase 1 has no LIMIT on purpose — the seed must be able to reach any
+// genome in the pool, so the whole breedable id set is fetched (id-only, over the indexed
+// generations join) and shuffled in memory. At today's pool size this is cheap; if the pool grows
+// to many thousands this wants a stored random key or reservoir sampling (a genome-epic concern).
+// That bound is documented here, not silently enforced by a hidden cap.
+export async function getBreedablePool(
+  env: Env,
+  opts: { excludeId: PostId; seed: string; voterId?: string; window?: number },
+): Promise<RenderablePost[]> {
+  const database = db(env)
+  const window = opts.window ?? BREEDING_POOL_WINDOW
+
+  const candidates = await database
+    .select({ id: posts.id })
+    .from(posts)
+    .innerJoin(generations, eq(generations.postId, posts.id))
+    .where(
+      and(
+        eq(posts.contentKind, 'generation'),
+        eq(generations.status, 'succeeded'),
+        ne(posts.id, opts.excludeId),
+      ),
+    )
+
+  // [LAW:dataflow-not-control-flow] An empty pool flows to [] through the same map/sort/slice — no
+  // early-return branch. The sort key spreads each id deterministically under the seed.
+  const windowIds = candidates
+    .map((r) => ({ id: PostId(r.id), key: seedFloat(0, 'breed-pool', opts.seed, r.id) }))
+    .sort((a, b) => a.key - b.key)
+    .slice(0, window)
+    .map((r) => r.id)
+
+  const byId = await getFeedItemsByIds(env, windowIds, opts.voterId)
+  // Restore the shuffled order from the id-keyed map; an id with no surviving post simply drops out.
+  return windowIds.flatMap((id) => {
+    const post = byId.get(id)
+    return post === undefined ? [] : [post]
+  })
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
