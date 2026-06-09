@@ -16,6 +16,7 @@
 // The Well does not get a bespoke remark field; it gets an instance of this.
 
 import { z } from "zod";
+import { assertNever } from "~/lib/assert-never";
 import type { AgentId, PostId, ProviderId, TraitVector, VerdictDisposition, VoteValue } from "~/lib/domain";
 import type { FeudStanding } from "~/lib/feud";
 import { seedHash } from "~/lib/hash";
@@ -473,11 +474,6 @@ export function buildReplyPrompt(
 const composeReply: Voice<"reply"> = async (speaker, exchange, caps) => {
   const line = (await caps.reVoice(buildReplyPrompt(speaker.personaPrompt, speaker.traits, exchange)))?.trim();
   return line ? spoke(line) : replyFloor(exchange);
-};
-
-// A value the type proves cannot exist — the standard exhaustiveness marker.
-const assertNever = (x: never): never => {
-  throw new Error(`unhandled variant: ${JSON.stringify(x)}`);
 };
 
 // Reserved occasions bind a `never` target, so this is unreachable by type. It

@@ -4,6 +4,8 @@
 // [LAW:one-source-of-truth] Callers log the full Outcome (gate names, entryIds);
 // the HTTP body strips mechanism-identifying fields where caller-opacity applies.
 
+import { assertNever } from '~/lib/assert-never'
+
 export type Outcome =
   | { kind: 'generated';          postId: string }
   | { kind: 'token_invalid' }
@@ -12,10 +14,6 @@ export type Outcome =
   | { kind: 'form_violation';     which: 'easy' | 'hard'; detail: string }
   | { kind: 'secret_gate_failed'; gate: string }       // logged by caller; NOT in body
   | { kind: 'quota_exhausted';    retryAfter: string } // ISO UTC midnight
-
-function assertNever(x: never): never {
-  throw new Error(`Unhandled outcome: ${JSON.stringify(x)}`)
-}
 
 function json(status: number, body: unknown): Response {
   return Response.json(body, { status })
