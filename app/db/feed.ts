@@ -979,6 +979,60 @@ export async function getFeedItemById(
   }
 }
 
+// [LAW:single-enforcer] The batch sibling of getFeedItemById — resolve MANY postIds to
+// RenderablePosts in ONE pass (the museum halls resolve every crowned post's image at
+// once, so the page is a few batched queries, never N+1). Same selectFeedRows hydration
+// as the feed and the permalink, so a crowned post's image parses identically here — no
+// second Media parser. Keyed by post.id so the caller zips by id; an id with no surviving
+// post (a deleted slop a crown still references) simply drops out — a real absence in the
+// map, never a thrown miss. The map carries no order; the caller (museum) renders in the
+// crown list's order, so this reader stays order-free.
+// [LAW:dataflow-not-control-flow] An empty id set degrades to an empty map by data
+// (inArray([]) → no rows), never an early-return branch.
+export async function getFeedItemsByIds(
+  env: Env,
+  ids: readonly PostId[],
+  voterId?: string,
+): Promise<Map<string, RenderablePost>> {
+  const database = db(env)
+  const rows = await selectFeedRows(database, ids, voterId)
+
+  const visibleIds = rows.map((row) => row.post.id)
+  const [parentsByChild, depthByPost] = await Promise.all([
+    lineageParentsByChild(database, visibleIds),
+    generationDepthByPost(database, visibleIds),
+  ])
+  const renderables = rows.map((row) =>
+    rowToRenderablePost(
+      row,
+      voterId,
+      parentsByChild.get(row.post.id) ?? [],
+      depthByPost.get(row.post.id) ?? 0,
+    ),
+  )
+  const agentIds = collectAgentIds(renderables.map((r) => r.post))
+  const postIds = renderables.map((r) => r.post.id)
+  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
+    fetchCitizenRefs(database, agentIds),
+    verdictsForPosts(database, postIds),
+    repliesForPosts(database, postIds),
+    crowningsForPosts(database, postIds),
+  ])
+
+  const out = new Map<string, RenderablePost>()
+  for (const r of renderables) {
+    const crowning = crownings.get(r.post.id)
+    out.set(r.post.id, {
+      ...r,
+      post: enrichPost(r.post, refs),
+      verdicts: verdictsByPost.get(r.post.id) ?? [],
+      exchange: repliesByPost.get(r.post.id) ?? [],
+      ...(crowning !== undefined ? { crowning } : {}),
+    })
+  }
+  return out
+}
+
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
 // through here. Returns null on miss (the wire decides the 404 status; the
 // reader does not throw on absence, only on shape violations). Same toPost

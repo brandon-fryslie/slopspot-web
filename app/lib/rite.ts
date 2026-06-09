@@ -16,11 +16,13 @@ import { geneticDistance } from '~/lib/genome-distance'
 
 export type { RiteLens, CrownMark } from '~/lib/domain'
 
-// [LAW:no-silent-fallbacks] Storage-boundary parse for the lens column. The
-// crowns_lens_shape CHECK guarantees one of these, but a read re-validates the same
-// way feed.ts re-parses styleFamily/aspectRatio — a drifted value fails loud rather
-// than reaching markFor as an unhandled string.
-export const riteLensSchema: z.ZodType<RiteLens> = z.enum([
+// [LAW:one-source-of-truth] The seven lenses, named ONCE. The domain RiteLens union is
+// the type; this is its value-level twin (the storage CHECK, the Zod schema, and the
+// hall partition all read from here, so "the set of lenses" lives in exactly one place).
+// The `satisfies` keeps the two in lockstep: drop a lens here and the union no longer
+// satisfies it; add one to the union without listing it here and `hallOf` fails to route
+// it — every consumer is forced current at tsc -b.
+export const RITE_LENSES = [
   'saint',
   'villain',
   'heretic',
@@ -28,7 +30,13 @@ export const riteLensSchema: z.ZodType<RiteLens> = z.enum([
   'martyr',
   'miracle',
   'confession',
-])
+] as const satisfies readonly RiteLens[]
+
+// [LAW:no-silent-fallbacks] Storage-boundary parse for the lens column. The
+// crowns_lens_shape CHECK guarantees one of these, but a read re-validates the same
+// way feed.ts re-parses styleFamily/aspectRatio — a drifted value fails loud rather
+// than reaching markFor as an unhandled string.
+export const riteLensSchema: z.ZodType<RiteLens> = z.enum(RITE_LENSES)
 
 // [LAW:types-are-the-program] The ballot is the program: it IS which election the
 // city runs, encoded as a closed union the election switches over exhaustively.
@@ -156,6 +164,41 @@ export function markFor(lens: RiteLens): CrownMark {
       return _exhaustive
     }
   }
+}
+
+// [LAW:types-are-the-program] The museum's two permanent halls. The crowned accrete into
+// browsable halls grouped by their NATURE: the venerated (the Calendar of Saints) and the
+// beautiful monsters (the Rogues' Gallery). design-docs/the-daily-rite.md names only those
+// two halls but the city crowns by SEVEN lenses — hallOf routes every lens to exactly one,
+// so no crown is ever orphaned (an eighth lens breaks tsc -b at the `never` arm until its
+// hall is declared). The doc's Rogues' Gallery is "every Villain, every Heretic"; the rest
+// (saint, relic, martyr, miracle, confession — the city's honoured dead) are the venerated.
+export type HallId = 'saints' | 'rogues'
+
+export function hallOf(lens: RiteLens): HallId {
+  switch (lens) {
+    case 'saint':
+    case 'relic':
+    case 'martyr':
+    case 'miracle':
+    case 'confession':
+      return 'saints'
+    case 'villain':
+    case 'heretic':
+      return 'rogues'
+    default: {
+      const _exhaustive: never = lens
+      return _exhaustive
+    }
+  }
+}
+
+// [LAW:one-source-of-truth] The lenses a hall shows, DERIVED from hallOf over the one lens
+// list — never a second hand-kept set that could disagree with the router. The museum
+// reader filters crowns by this; the totality of hallOf guarantees the two halls partition
+// RITE_LENSES (every lens in exactly one), which the rite tests assert.
+export function lensesInHall(hall: HallId): RiteLens[] {
+  return RITE_LENSES.filter((lens) => hallOf(lens) === hall)
 }
 
 // [LAW:types-are-the-program] The ballot is the DAY's votes — "St. Vivian's strongest

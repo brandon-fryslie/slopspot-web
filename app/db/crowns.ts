@@ -18,7 +18,7 @@ import { db } from '~/db/client'
 import { getLineageDag } from '~/db/genome-dag'
 import { crowns, generations, personas, posts, votes } from '~/db/schema'
 import { GenomeId } from '~/lib/domain'
-import type { AgentId, Crowning, Genome, PostId, VoteValue } from '~/lib/domain'
+import type { AgentId, CitizenRef, Crowning, Genome, PostId, VoteValue } from '~/lib/domain'
 import {
   ballotCitizens,
   devianceRanking,
@@ -31,6 +31,19 @@ import {
   type RiteWindow,
 } from '~/lib/rite'
 import { utteranceSchema, type Utterance } from '~/lib/voice'
+
+// [LAW:types-are-the-program] One crown record as the MUSEUM reads it — the permanent
+// hall surfaces the decree (which the feed's lean Crowning omits, carrying only the mark)
+// alongside the post it crowned, the day it settled, and the citizen who presided. The
+// post itself (its image) is resolved separately through the feed reader; this record
+// carries everything the crowns table OWNS, so the museum orchestrator only zips.
+export type MuseumCrowning = {
+  postId: PostId
+  lens: RiteLens
+  riteDay: string
+  decree: Utterance
+  presiding: CitizenRef
+}
 
 // What recordCrowning persists: the crowned post, the liturgical day, the lens, the
 // citizen who presided (recorded as fact, not re-derived), and the Proprietor's
@@ -369,4 +382,46 @@ export async function crowningsForPosts(
     })
   }
   return crownings
+}
+
+// [LAW:single-enforcer] The museum's read — every crown of the given lenses, ordered
+// newest-first (rite_day desc, then created_at desc, the SAME order latestCrownedPostId
+// and crowningsForPosts rank by, so "the latest" agrees across every rite reader). A pure
+// DERIVED view over the crowns table: no parallel store, no second mark derivation. The
+// lens set is the museum's hall partition (lensesInHall) passed in — crowns.ts stays
+// ignorant of hall semantics; it answers "the crowns of these lenses, in order."
+// [LAW:one-source-of-truth] presiding resolves the recorded agentId into its public
+// CitizenRef the same way crowningsForPosts does (LEFT JOIN personas; a retired/absent
+// persona falls back to its agentId as the label). The lens and decree are re-validated
+// at this storage boundary (riteLensSchema / parseDecree) — a drifted row fails loud.
+// [LAW:dataflow-not-control-flow] An empty lens set degrades to no rows by data
+// (inArray([]) → WHERE false), never an early-return branch.
+export async function museumCrownings(
+  env: Env,
+  lenses: readonly RiteLens[],
+): Promise<MuseumCrowning[]> {
+  const rows = await db(env)
+    .select({
+      postId: crowns.postId,
+      lens: crowns.lens,
+      riteDay: crowns.riteDay,
+      decreeJson: crowns.decreeJson,
+      presiding: crowns.presiding,
+      handle: personas.handle,
+      displayName: personas.displayName,
+    })
+    .from(crowns)
+    .leftJoin(personas, eq(personas.agentId, crowns.presiding))
+    .where(inArray(crowns.lens, [...lenses]))
+    .orderBy(desc(crowns.riteDay), desc(crowns.createdAt))
+
+  return rows.map((r) => ({
+    postId: r.postId as PostId,
+    lens: riteLensSchema.parse(r.lens),
+    riteDay: r.riteDay,
+    decree: parseDecree(r.decreeJson, r.riteDay),
+    // NAME ALWAYS: a present persona supplies its display name + handle; an absent one
+    // (retired, or the system host) falls back to its agentId as the label.
+    presiding: { handle: r.handle, displayName: r.displayName ?? r.presiding },
+  }))
 }

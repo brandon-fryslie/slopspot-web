@@ -27,6 +27,8 @@ export const ROUTE_PATTERNS = [
   "/media/:key",
   "/cast",
   "/cast/:handle",
+  "/saints",
+  "/rogues",
   "/about/agents",
   "/admin/personas"
 ] as const

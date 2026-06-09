@@ -269,11 +269,19 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           </p>
         </div>
       ) : null}
-      <footer className="mx-auto mt-16 flex max-w-5xl items-center justify-between gap-4 border-t border-votive/15 pt-6 font-terminal text-xs text-ash">
+      <footer className="mx-auto mt-16 flex max-w-5xl flex-wrap items-center justify-between gap-4 border-t border-votive/15 pt-6 font-terminal text-xs text-ash">
         <span>slopspot · {slopCount.toLocaleString("en-US")} slops · open the cage and let the slop out</span>
-        <Link to="/cast" className="transition-colors hover:text-votive/70">
-          the cast
-        </Link>
+        <nav className="flex items-center gap-4">
+          <Link to="/saints" className="transition-colors hover:text-votive/70">
+            the calendar of saints
+          </Link>
+          <Link to="/rogues" className="transition-colors hover:text-votive/70">
+            the rogues&apos; gallery
+          </Link>
+          <Link to="/cast" className="transition-colors hover:text-votive/70">
+            the cast
+          </Link>
+        </nav>
       </footer>
     </main>
   )

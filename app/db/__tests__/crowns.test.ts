@@ -11,6 +11,7 @@ import { env } from 'cloudflare:test'
 import { db } from '~/db/client'
 import { crowns } from '~/db/schema'
 import {
+  museumCrownings,
   crowningForDay,
   crowningsForPosts,
   gatherCandidates,
@@ -291,5 +292,87 @@ describe('the feed shows the mark from the crown record alone', () => {
     // [LAW:dataflow-not-control-flow] An uncrowned post has NO crowning — absence is
     // the discriminator, not a stored flag.
     expect(uncrowned?.crowning).toBeUndefined()
+  })
+})
+
+// [LAW:behavior-not-structure] Pin the museum reader's contract: it returns the crowns of
+// exactly the lenses asked for, newest-first, with the decree parsed and the presiding
+// citizen's name resolved (or the agentId as the fallback label). This is what the Calendar
+// of Saints and the Rogues' Gallery read — the hall's order and membership, not internals.
+async function seedPresider(agentId: string, handle: string, displayName: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO personas
+       (agent_id, handle, display_name, role, persona_prompt, model_id, config_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(agentId, handle, displayName, 'host', 'p', 'm', '{}', 0)
+    .run()
+}
+
+describe('museumCrownings — the hall reader', () => {
+  it('returns only the asked-for lenses, newest-first, with decree + presiding name', async () => {
+    await seedPresider('agent:vivian-m', 'vivian', 'St. Vivian')
+    const relicPost = await seedPost(env)
+    const saintPost = await seedPost(env)
+    const villainPost = await seedPost(env)
+
+    // A relic on an earlier day, a saint on a later day, a villain (other hall) latest.
+    await recordCrowning(env, {
+      postId: relicPost,
+      riteDay: '2026-05-10',
+      lens: 'relic',
+      presiding: AgentId('agent:vivian-m'),
+      decree: spoke('Dragged back from the dead.'),
+    })
+    await recordCrowning(env, {
+      postId: saintPost,
+      riteDay: '2026-05-12',
+      lens: 'saint',
+      presiding: AgentId('agent:vivian-m'),
+      decree: spoke('Canonised through its flaw.'),
+    })
+    await recordCrowning(env, {
+      postId: villainPost,
+      riteDay: '2026-05-14',
+      lens: 'villain',
+      presiding: AgentId('agent:vivian-m'),
+      decree: spoke('Booed with love.'),
+    })
+
+    const venerated = await museumCrownings(env, ['saint', 'relic', 'martyr', 'miracle', 'confession'])
+    // The villain is excluded (other hall); the saint (later day) precedes the relic.
+    expect(venerated.map((c) => c.postId)).toEqual([saintPost, relicPost])
+    expect(venerated[0].lens).toBe('saint')
+    expect(venerated[0].decree).toEqual(spoke('Canonised through its flaw.'))
+    expect(venerated[0].presiding.displayName).toBe('St. Vivian')
+    expect(venerated[0].presiding.handle).toBe('vivian')
+  })
+
+  it('falls back to the agentId as the label when the presider has no persona', async () => {
+    const post = await seedPost(env)
+    await recordCrowning(env, {
+      postId: post,
+      riteDay: '2026-05-20',
+      lens: 'heretic',
+      presiding: AgentId('agent:ghost-presider'),
+      decree: spoke('Defied its own recipe.'),
+    })
+    const rogues = await museumCrownings(env, ['villain', 'heretic'])
+    const entry = rogues.find((c) => c.postId === post)
+    expect(entry?.presiding.displayName).toBe('agent:ghost-presider')
+    expect(entry?.presiding.handle).toBeNull()
+  })
+
+  it('an empty lens set returns no rows by data, not a branch', async () => {
+    await seedPost(env).then((p) =>
+      recordCrowning(env, {
+        postId: p,
+        riteDay: '2026-05-22',
+        lens: 'saint',
+        presiding: AgentId('agent:vivian-m'),
+        decree: spoke('x'),
+      }),
+    )
+    expect(await museumCrownings(env, [])).toEqual([])
   })
 })
