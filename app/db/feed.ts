@@ -767,6 +767,57 @@ function rowToRenderablePost(
   }
 }
 
+// [LAW:single-enforcer] The ONE rows→RenderablePost[] hydration. The clean seam is selection
+// vs hydration: the caller owns the SELECT (which ids, in what order, how many — getFeedPage's
+// keyset page, getFeedItemById's single row, getFeedItemsByIds' batch), and this owns turning
+// those rows into hydrated renderables — the two lineage reads, then the four batched enrichments
+// (persona faces, verdicts, replies, crownings), then the assembly. A new enrichment (a badge, a
+// future per-post stat) lands here ONCE and reaches every reader, instead of being added to three
+// functions in lockstep. [LAW:dataflow-not-control-flow] order is preserved (renderables follow
+// rows), so a caller that ordered its rows keeps that order; the batched reads are keyed by id, so
+// they are order-independent. Every read is over the visible set (no N+1), run concurrently.
+async function hydrateRenderablePosts(
+  database: ReturnType<typeof db>,
+  rows: readonly FeedRowWithAggregates[],
+  voterId: string | undefined,
+): Promise<RenderablePost[]> {
+  const visibleIds = rows.map((row) => row.post.id)
+  const [parentsByChild, depthByPost] = await Promise.all([
+    lineageParentsByChild(database, visibleIds),
+    generationDepthByPost(database, visibleIds),
+  ])
+  const renderables = rows.map((row) =>
+    rowToRenderablePost(
+      row,
+      voterId,
+      parentsByChild.get(row.post.id) ?? [],
+      depthByPost.get(row.post.id) ?? 0,
+    ),
+  )
+  const agentIds = collectAgentIds(renderables.map((r) => r.post))
+  const postIds = renderables.map((r) => r.post.id)
+  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
+    fetchCitizenRefs(database, agentIds),
+    verdictsForPosts(database, postIds),
+    repliesForPosts(database, postIds),
+    crowningsForPosts(database, postIds),
+  ])
+  return renderables.map((r): RenderablePost => {
+    // [LAW:dataflow-not-control-flow] The verdicts ARRAY (empty when none, ≥2 = co-present) and the
+    // crowning's PRESENCE are the discriminators the card renders by — not an isReviewed/isCrowned
+    // flag. The crowning field is genuinely ABSENT (not undefined-valued) when no crown reigns, which
+    // exactOptionalPropertyTypes demands; the conditional spread carries that absence faithfully.
+    const crowning = crownings.get(r.post.id)
+    return {
+      ...r,
+      post: enrichPost(r.post, refs),
+      verdicts: verdictsByPost.get(r.post.id) ?? [],
+      exchange: repliesByPost.get(r.post.id) ?? [],
+      ...(crowning !== undefined ? { crowning } : {}),
+    }
+  })
+}
+
 // [LAW:no-mode-explosion] One page-size knob, capped. The default page is FEED_PAGE_SIZE; a caller
 // may ask for up to MAX_FEED_PAGE (the homelab voter pulls a wider page). A missing/non-finite limit
 // folds to the default; an out-of-range one clamps — never an error, the value decides the page.
@@ -864,57 +915,12 @@ export async function getFeedPage(
     ...applySortMode(sort, { score: posts.score, createdAt: posts.createdAt, id: posts.id }),
   )
 
-  // The lineage edges for the visible set (immediate parents for toContent's lineage badge) and the
-  // generation depth (longest path to a founder, over each visible post's ancestry) — two independent
-  // lineage_edges reads over the same visible set, run concurrently. [LAW:single-enforcer]
-  const visibleIds = rows.map((row) => row.post.id)
-  const [parentsByChild, depthByPost] = await Promise.all([
-    lineageParentsByChild(database, visibleIds),
-    generationDepthByPost(database, visibleIds),
-  ])
-  const renderables = rows.map((row) =>
-    rowToRenderablePost(
-      row,
-      voterId,
-      parentsByChild.get(row.post.id) ?? [],
-      depthByPost.get(row.post.id) ?? 0,
-    ),
-  )
-  // Two independent post-hydration resolutions over the same visible set: persona faces (by agentId)
-  // and critic verdicts + crownings (by postId). Neither depends on the other, so they run
-  // concurrently — one round-trip's latency, not three.
-  const agentIds = collectAgentIds(renderables.map((r) => r.post))
-  const postIds = renderables.map((r) => r.post.id)
-  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
-    fetchCitizenRefs(database, agentIds),
-    verdictsForPosts(database, postIds),
-    repliesForPosts(database, postIds),
-    crowningsForPosts(database, postIds),
-  ])
-
-  const items = renderables.map((r, i): FeedItem => {
-    // [LAW:dataflow-not-control-flow] The verdicts ARRAY (empty for an un-judged slop, ≥2 = co-present)
-    // and the crowning's PRESENCE are the discriminators — its length/absence is the data the card
-    // renders by, not an `isReviewed`/`isCrowned` flag. The crowning field is genuinely absent (not
-    // `undefined`-valued) when no crown reigns, which exactOptionalPropertyTypes demands. `rank` is
-    // page-relative (1..limit); the focal/crowned-relic treatment is a page-1 concern the client owns.
-    const crowning = crownings.get(r.post.id)
-    return {
-      post: enrichPost(r.post, refs),
-      score: r.score,
-      myVote: r.myVote,
-      commentCount: r.commentCount,
-      viewerIsModifier: r.viewerIsModifier,
-      verdicts: verdictsByPost.get(r.post.id) ?? [],
-      exchange: repliesByPost.get(r.post.id) ?? [],
-      ...(crowning !== undefined ? { crowning } : {}),
-      // [LAW:dataflow-not-control-flow] The lineage scalars ride through from the renderable — the card
-      // renders "gen N" / "N bred" by the number (0 → nothing), no isRoot branch.
-      generationDepth: r.generationDepth,
-      descendantCount: r.descendantCount,
-      rank: i + 1,
-    }
-  })
+  // [LAW:single-enforcer] Hydrate the page through the one rows→RenderablePost[] path; the page's
+  // sole addition is `rank` (1..limit, page-relative) — the FeedItem IS a RenderablePost plus its
+  // list position. [LAW:dataflow-not-control-flow] rank rides the display order the rows already
+  // carry (applySortMode above); the focal/crowned-relic treatment is a page-1 concern the client owns.
+  const renderables = await hydrateRenderablePosts(database, rows, voterId)
+  const items = renderables.map((r, i): FeedItem => ({ ...r, rank: i + 1 }))
 
   return { items, nextCursor }
 }
@@ -947,36 +953,11 @@ export async function getFeedItemById(
   // materialized posts.score, no voteScoreSubquery). Both preserved: the null→[] handling AND the
   // direct-return shape.
   const rows = await selectFeedRows(database, id === null ? [] : [id], voterId).limit(1)
-  if (rows.length === 0) return null
-
-  const [parentsByChild, depthByPost] = await Promise.all([
-    lineageParentsByChild(database, [rows[0].post.id]),
-    generationDepthByPost(database, [rows[0].post.id]),
-  ])
-  const renderable = rowToRenderablePost(
-    rows[0],
-    voterId,
-    parentsByChild.get(rows[0].post.id) ?? [],
-    depthByPost.get(rows[0].post.id) ?? 0,
-  )
-  const agentIds = collectAgentIds([renderable.post])
-  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
-    fetchCitizenRefs(database, agentIds),
-    verdictsForPosts(database, [renderable.post.id]),
-    repliesForPosts(database, [renderable.post.id]),
-    crowningsForPosts(database, [renderable.post.id]),
-  ])
-  // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed does, so it
-  // carries the verdicts (the co-present critic lines) and the eternal mark the same way — the array
-  // (empty when none) and the crown's presence are the data the card renders by.
-  const crowning = crownings.get(renderable.post.id)
-  return {
-    ...renderable,
-    post: enrichPost(renderable.post, refs),
-    verdicts: verdictsByPost.get(renderable.post.id) ?? [],
-    exchange: repliesByPost.get(renderable.post.id) ?? [],
-    ...(crowning !== undefined ? { crowning } : {}),
-  }
+  // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed does — same
+  // verdicts, same eternal mark — because it hydrates through the same one path. A single row in,
+  // its one renderable out; an empty selection (a null id or a miss) is the empty array → null.
+  const [renderable] = await hydrateRenderablePosts(database, rows, voterId)
+  return renderable ?? null
 }
 
 // [LAW:single-enforcer] The batch sibling of getFeedItemById — resolve MANY postIds to
@@ -996,41 +977,11 @@ export async function getFeedItemsByIds(
 ): Promise<Map<string, RenderablePost>> {
   const database = db(env)
   const rows = await selectFeedRows(database, ids, voterId)
-
-  const visibleIds = rows.map((row) => row.post.id)
-  const [parentsByChild, depthByPost] = await Promise.all([
-    lineageParentsByChild(database, visibleIds),
-    generationDepthByPost(database, visibleIds),
-  ])
-  const renderables = rows.map((row) =>
-    rowToRenderablePost(
-      row,
-      voterId,
-      parentsByChild.get(row.post.id) ?? [],
-      depthByPost.get(row.post.id) ?? 0,
-    ),
-  )
-  const agentIds = collectAgentIds(renderables.map((r) => r.post))
-  const postIds = renderables.map((r) => r.post.id)
-  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
-    fetchCitizenRefs(database, agentIds),
-    verdictsForPosts(database, postIds),
-    repliesForPosts(database, postIds),
-    crowningsForPosts(database, postIds),
-  ])
-
-  const out = new Map<string, RenderablePost>()
-  for (const r of renderables) {
-    const crowning = crownings.get(r.post.id)
-    out.set(r.post.id, {
-      ...r,
-      post: enrichPost(r.post, refs),
-      verdicts: verdictsByPost.get(r.post.id) ?? [],
-      exchange: repliesByPost.get(r.post.id) ?? [],
-      ...(crowning !== undefined ? { crowning } : {}),
-    })
-  }
-  return out
+  // [LAW:single-enforcer] Same one hydration path as the page and the permalink, so a crowned post's
+  // image and mark parse identically here. Keyed by post.id so the caller zips by id; an id with no
+  // surviving post is simply absent from the map — a real absence, never a thrown miss.
+  const renderables = await hydrateRenderablePosts(database, rows, voterId)
+  return new Map(renderables.map((r) => [r.post.id, r]))
 }
 
 // [LAW:single-enforcer] Single-post lookup — fork's parent-recipe fetch funnels
