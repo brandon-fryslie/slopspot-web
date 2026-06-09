@@ -25,6 +25,13 @@ export const PROPRIETOR = {
   // The Pulse strip — "the city breathing" with nothing stirring yet. Pride in the
   // lull, not apology for it: the city fills, it always does.
   emptyPulse: "Quiet just now. It won't last.",
+  // The feed — the whole wall bare (opening night, nothing generated yet). Pride in
+  // the before, never the mechanism: the prior inline line explained "the firehose
+  // hasn't fired" — cut, per the never-explains guardrail. The "silence is part of
+  // it" tail deliberately echoes emptyThread; it is a refrain in his voice, not a
+  // shared datum — the two are independent complete utterances and must stay free to
+  // diverge, so the echo is kept by hand, never hoisted into a shared constant.
+  emptyFeed: "Nobody's here yet. The silence is part of it.",
   // The Cast — a guild with no citizens seated in it yet (an early roster).
   emptyGuild: "No one keeps this trade yet. Someone will — they always turn up.",
   // The Cast — a citizen the city has not heard speak yet (no verdicts, no voice).

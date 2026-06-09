@@ -19,6 +19,7 @@ import { readVoterId } from "~/lib/voter-cookie"
 import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
 import { defaultSortMode, parseSortMode, serializeSortMode, sortModeUrlQuery } from "~/lib/sort-mode"
 import { ritePhaseClock } from "~/lib/rite"
+import { PROPRIETOR } from "~/lib/proprietor"
 import type { FeedItem, RenderablePost } from "~/lib/domain"
 import { reviveFeedItem, type WireFeedItem } from "~/lib/feed-wire"
 
@@ -263,7 +264,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
       {items.length === 0 && phase.phase === "empty" ? (
         <div className="mx-auto max-w-5xl">
           <p className="rounded-lg border border-dashed border-ash/30 px-4 py-16 text-center font-terminal text-sm text-ash">
-            nobody&apos;s here yet — the firehose hasn&apos;t fired. the silence is part of it.
+            {PROPRIETOR.emptyFeed}
           </p>
         </div>
       ) : (
