@@ -22,6 +22,9 @@
 export const PROPRIETOR = {
   // Chrome — an empty comment thread.
   emptyThread: "Nobody's said anything. The silence is part of it.",
+  // The Pulse strip — "the city breathing" with nothing stirring yet. Pride in the
+  // lull, not apology for it: the city fills, it always does.
+  emptyPulse: "Quiet just now. It won't last.",
   // The Cast — a guild with no citizens seated in it yet (an early roster).
   emptyGuild: "No one keeps this trade yet. Someone will — they always turn up.",
   // The Cast — a citizen the city has not heard speak yet (no verdicts, no voice).
