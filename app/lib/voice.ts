@@ -251,17 +251,18 @@ export interface ReVoicePrompt {
 }
 export type ReVoice = (prompt: ReVoicePrompt) => Promise<string | null>;
 
-// [LAW:types-are-the-program] The speaker shape PER occasion: the verdict re-voices, so its speaker is
-// the register-bearing `VoicedPersonaRef` (traits + personaPrompt required); every other occasion takes
-// the base ref. Calling utter('verdict', …) with a speaker that lacks the register is a COMPILE error,
-// not a runtime guard.
-type SpeakerFor<O extends Occasion> = O extends "verdict" ? VoicedPersonaRef : PersonaRef;
+// [LAW:types-are-the-program] The speaker shape PER occasion: the re-voicing occasions (the verdict and
+// the Feud reply) speak in the citizen's register, so their speaker is the register-bearing
+// `VoicedPersonaRef` (traits + personaPrompt required); every other occasion takes the base ref. Calling
+// utter('verdict' | 'reply', …) with a speaker that lacks the register is a COMPILE error, not a runtime
+// guard.
+type SpeakerFor<O extends Occasion> = O extends "verdict" | "reply" ? VoicedPersonaRef : PersonaRef;
 
-// [LAW:types-are-the-program] The capabilities PER occasion: the verdict REQUIRES the reVoice transport;
-// every other occasion takes none (the empty object). So the type forces the verdict caller to inject the
-// transport AND frees the sync callers (decree/remark) from constructing one they would never use —
-// CapsFor is what makes the injection land at exactly the right callers, no more.
-type CapsFor<O extends Occasion> = O extends "verdict"
+// [LAW:types-are-the-program] The capabilities PER occasion: the re-voicing occasions (verdict, reply)
+// REQUIRE the reVoice transport; every other occasion takes none (the empty object). So the type forces
+// those callers to inject the transport AND frees the sync callers (decree/remark/birth) from constructing
+// one they would never use — CapsFor is what makes the injection land at exactly the right callers, no more.
+type CapsFor<O extends Occasion> = O extends "verdict" | "reply"
   ? { readonly reVoice: ReVoice }
   : Record<string, never>;
 
@@ -403,18 +404,11 @@ const DISPOSITION_VERB: Record<VerdictDisposition, { present: string; past: stri
   buried: { present: "bury", past: "buried" },
 };
 
-// The reply instance (the Feud Engine, voice-w2v.2). One citizen answers another's OPPOSING verdict, and
-// the tone is the DERIVED standing's stance — not a stored mood, the read of their shared history.
-//
-// [LAW:dataflow-not-control-flow] the stance VALUE selects the line via a total map over the closed
-// FeudStance union; a fifth stance breaks this literal at compile time. No `if (feuding)` chain — the
-// data picks the register, the same way the decree's outcome picks its arm.
-//
-// ⚠️ §D SEAM (mirrors composeVerdict): this FLOOR voices a deterministic, register-neutral line. The
-// LLM-backed Feud voice swaps THIS body (only) to author the answer in the speaker's register
-// (personaPrompt + traitBias(speaker.traits) + the standing) — the signature is unchanged, the seam
-// holds. Until then the floor proves the dataflow: opposing verdicts → a stance-tinted exchange.
-const composeReply: Voice<"reply"> = (speaker, exchange) => {
+// The reply FLOOR — the deterministic, register-neutral stance line. [LAW:no-silent-fallbacks] this is the
+// degradation target when the re-voice transport cannot speak (null/empty: no key, timeout, failure), never
+// a dropped reply. [LAW:dataflow-not-control-flow] the stance VALUE selects the line via a total map over
+// the closed FeudStance union; a fifth stance breaks this literal at compile time. No `if (feuding)` chain.
+export function replyFloor(exchange: ReplyExchange): Utterance {
   const them = exchange.opponent.displayName;
   const own = DISPOSITION_VERB[exchange.ownDisposition];
   const theirs = DISPOSITION_VERB[exchange.opponent.disposition];
@@ -429,6 +423,56 @@ const composeReply: Voice<"reply"> = (speaker, exchange) => {
     neutral: `${them} ${theirs.past} it. I ${own.present} it. First time we have crossed.`,
   };
   return spoke(line[exchange.standing.stance]);
+}
+
+// The reply's relationship COLOUR — a total map over the closed FeudStance giving the re-voice the
+// standing's flavour without naming the opponent (the byline is interpolated at the callsite). A fifth
+// stance breaks this literal at compile time, the same guard the floor's `line` map carries.
+const REPLY_STANCE_NOTE: Record<FeudStanding["stance"], string> = {
+  feuding: "You two carry a standing grudge — this clash is one more skirmish in a long war.",
+  allied: "You two almost always agree, so splitting here is a genuine, public shock.",
+  wary: "You two rarely line up; the standing is uneasy and guarded, no warmth owed.",
+  neutral: "You have never crossed before — strangers, sizing each other up for the first time.",
+};
+
+// [LAW:single-enforcer] The reply re-voice PROMPT — built in ONE pure place (mirrors buildReVoicePrompt)
+// so CI proves its shape deterministically. SUBSTANCE is the concrete disagreement (THIS opponent, THIS
+// slop, the two opposing leans); REGISTER is traitBias(traits) — the SAME projection the verdict re-voice
+// and the image composer embed (one vector, many consumers). The directive is the crux: the line must be
+// about THIS clash over THIS slop — the cross-card mail-merge sameness the floor produced is exactly what
+// re-voice must not reproduce. (slopspot-feud-voice-pq8)
+export function buildReplyPrompt(
+  personaPrompt: string,
+  traits: TraitVector,
+  exchange: ReplyExchange,
+): ReVoicePrompt {
+  const register = traitBias(traits);
+  const them = exchange.opponent.displayName;
+  const own = DISPOSITION_VERB[exchange.ownDisposition];
+  const theirs = DISPOSITION_VERB[exchange.opponent.disposition];
+  const system = [
+    personaPrompt,
+    // [LAW:dataflow-not-control-flow] a neutral vector projects to '' → no register line (a value-shaped
+    // omission, the same as the verdict re-voice and the composer).
+    register ? `Speak in this register: ${register}.` : null,
+    `You delivered your verdict on a slop and a fellow critic, ${them}, delivered the OPPOSING verdict — you ${own.present} it; they ${theirs.past} it. ${REPLY_STANCE_NOTE[exchange.standing.stance]}`,
+    `Answer ${them} in a single short line, in your own register, addressing them by name. Make it about THIS specific slop and THIS disagreement — concrete, never a line that could be pasted under any other clash. Reply with ONLY the line — no preamble, no quotation marks, no explanation.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return { system, user: `The slop you both judged: ${exchange.slop.prompt}` };
+}
+
+// The reply instance (the Feud Engine, voice-w2v.2 floor → re-voice, slopspot-feud-voice-pq8). One citizen
+// answers another's OPPOSING verdict, authored in the speaker's register via the injected transport — the
+// §D SEAM swap the floor was holding. Mirrors composeVerdict's FORK C exactly: one transport, one seam, no
+// second voice path. [LAW:dataflow-not-control-flow] the produced VALUE picks the arm — a usable re-voiced
+// line is Spoke; a transport that cannot speak (null/empty: no key, timeout, failure) degrades to
+// replyFloor, the stance-tinted deterministic line, behaviour-identical to w2v.2. The register only renders
+// when the LLM body answers.
+const composeReply: Voice<"reply"> = async (speaker, exchange, caps) => {
+  const line = (await caps.reVoice(buildReplyPrompt(speaker.personaPrompt, speaker.traits, exchange)))?.trim();
+  return line ? spoke(line) : replyFloor(exchange);
 };
 
 // A value the type proves cannot exist — the standard exhaustiveness marker.
