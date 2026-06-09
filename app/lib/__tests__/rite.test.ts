@@ -22,14 +22,18 @@ import { NEUTRAL_TRAITS } from '~/lib/traits'
 import { recipeSubjectSchema, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import {
   CROWN_INTENSITY_THRESHOLD,
+  RITE_LENSES,
   RITE_WINDOW_MS,
   RITES,
   ballotCitizens,
   devianceRanking,
   elect,
+  hallOf,
+  lensesInHall,
   markFor,
   riteForDay,
   ritePhaseClock,
+  type HallId,
   type RiteBallot,
   type RiteCandidate,
 } from '~/lib/rite'
@@ -303,5 +307,40 @@ describe('ritePhaseClock — the banner is in the held breath only in the 2–3a
     // the window the 3am cron will weigh: [3am − 1 day, 3am), independent of the minute now.
     expect(phase.window.untilMs).toBe(at(2026, 6, 9, 3, 0))
     expect(phase.window.sinceMs).toBe(at(2026, 6, 9, 3, 0) - RITE_WINDOW_MS)
+  })
+})
+
+// [LAW:behavior-not-structure] Pin the museum's hall PARTITION: every one of the seven
+// lenses is routed to exactly one hall (no orphan, no double-home), and the two halls'
+// lens sets cover RITE_LENSES exactly. This is the invariant the museum leans on — a crown
+// of any lens has a home — so it is asserted directly, not left to the type checker alone.
+describe('hallOf / lensesInHall — the museum partition', () => {
+  it('routes every lens to a hall (rogues = the monsters, saints = the rest)', () => {
+    expect(hallOf('villain')).toBe('rogues')
+    expect(hallOf('heretic')).toBe('rogues')
+    for (const lens of ['saint', 'relic', 'martyr', 'miracle', 'confession'] as const) {
+      expect(hallOf(lens)).toBe('saints')
+    }
+  })
+
+  it('the two halls partition RITE_LENSES — disjoint and covering', () => {
+    const saints = lensesInHall('saints')
+    const rogues = lensesInHall('rogues')
+    // Covering: every lens lands in one of the two halls.
+    expect([...saints, ...rogues].sort()).toEqual([...RITE_LENSES].sort())
+    // Disjoint: no lens is in both.
+    const overlap = saints.filter((l) => rogues.includes(l))
+    expect(overlap).toEqual([])
+    // Total: hallOf places each lens into the very hall lensesInHall reports it under.
+    for (const lens of RITE_LENSES) {
+      const hall: HallId = hallOf(lens)
+      expect(lensesInHall(hall)).toContain(lens)
+    }
+  })
+
+  it('a hall shows its lenses in the canonical RITE_LENSES order', () => {
+    // lensesInHall filters the one ordered lens list, so a hall's section order is stable.
+    expect(lensesInHall('rogues')).toEqual(['villain', 'heretic'])
+    expect(lensesInHall('saints')).toEqual(['saint', 'relic', 'martyr', 'miracle', 'confession'])
   })
 })
