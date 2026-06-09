@@ -75,6 +75,7 @@ import {
   windowFilter,
   type SortMode,
 } from '~/lib/sort-mode'
+import { backedCitizenIds } from '~/db/backings'
 import { decodeCursor, encodeCursor, type CursorPayload } from '~/lib/feed-cursor'
 import { seedFloat } from '~/lib/hash'
 
@@ -846,6 +847,35 @@ function resolveCursor(sort: SortMode, raw: string | null): CursorPayload | null
 // came back short (fewer than `limit` candidates), never a guess.
 export type FeedPage = { items: FeedItem[]; nextCursor: string | null }
 
+// [LAW:single-enforcer] The within-page backing-lens affinity aggregate (the-roll-call.md,
+// roll-call-47p.7). Σ vote values cast by the viewer's backed citizens, SCOPED to this page's ids —
+// so the work is O(K) over the hydrated slab, never a global sum over the votes table. The shape is
+// the same SUM(votes.value) the score is, filtered to (page ids ∩ backed-citizen votes).
+// [LAW:dataflow-not-control-flow] When the viewer backs no one, `backed` is empty and
+// inArray(votes.voterId, [])→`false` SQL ⇒ `WHERE … AND false` ⇒ SQLite scans no votes ⇒ the subquery
+// is empty ⇒ the leftJoin yields NULL ⇒ coalesce 0 for every post. No `if (backed.length)`, no toggle:
+// the unbacked path costs ~nothing and the affinity is 0 by data. The inner SUM column is named
+// distinctly (mirrors voteScoreSubquery's per-alias naming) so a Drizzle bare reference stays
+// unambiguous if another vote aggregate shares the FROM.
+function backingAffinitySubquery(
+  database: ReturnType<typeof db>,
+  ids: readonly string[],
+  backed: readonly string[],
+) {
+  const affinityScore = database
+    .select({
+      postId: votes.postId,
+      sum: sql<number>`sum(${votes.value})`.as('backing_affinity__sum'),
+    })
+    .from(votes)
+    .where(and(inArray(votes.postId, ids), inArray(votes.voterId, backed)))
+    .groupBy(votes.postId)
+    .as('backing_affinity')
+
+  const affinity = sql<number>`coalesce(${affinityScore.sum}, 0)`
+  return { affinityScore, affinity }
+}
+
 // [LAW:single-enforcer] The read-side feed reader — the homepage list (/), the JSON feed (/api/feed),
 // and the breeding-room mate pool (/breed/:id) all funnel through here. The mirror of createPost's
 // discriminator-write, in a two-phase keyset shape:
@@ -864,8 +894,17 @@ export type FeedPage = { items: FeedItem[]; nextCursor: string | null }
 //
 // [LAW:dataflow-not-control-flow] windowFilter / cursorFilter return predicates ANDed into the WHERE
 // unconditionally (undefined = no-op); an empty candidate set flows to `[]` through inArray([])→false,
-// no early-return branch. The viewer's backing lens is the flagged follow-up roll-call-47p.7 (not in
-// this core): the keyset is the bare stored score for every viewer.
+// no early-return branch.
+//
+// The viewer's backing lens (the-roll-call.md, roll-call-47p.7) is a WITHIN-PAGE display re-rank: it
+// rides Phase 2's applySortMode (the bounded re-sort of the ≤limit hydrated rows) via a per-post
+// affinity term, NEVER Phase 1's keyset seek. Phase 1 keysets on the bare stored score for EVERY
+// viewer (KeysetCtx carries no affinity field — the lens is a compile-time impossibility there), so
+// the index seek and the nextCursor boundary are identical for backed and unbacked viewers; the lens
+// only reorders the rows that were already selected onto this page. [LAW:dataflow-not-control-flow]
+// the affinity is a VALUE that is 0 for every post when the viewer backs no one (the aggregate
+// degrades to no rows by data), so the unbacked display order — and thus the returned page — is
+// byte-identical to the lens-free feed, with no branch.
 export async function getFeedPage(
   env: Env,
   opts: { sort?: SortMode; voterId?: string; limit?: number; cursor?: string | null },
@@ -903,10 +942,19 @@ export async function getFeedPage(
   const ids = keysetRows.map((r) => r.id)
 
   // Phase 2: hydrate the page in DISPLAY order. applySortMode over the ≤limit selected rows is the
-  // keyset order for top/new (a no-op re-sort) and the hotness re-sort for hot.
-  const rows = await selectFeedRows(database, ids, voterId).orderBy(
-    ...applySortMode(sort, { score: posts.score, createdAt: posts.createdAt, id: posts.id }),
-  )
+  // keyset order for top/new (a no-op re-sort) and the hotness re-sort for hot — now biased by the
+  // viewer's within-page backing lens.
+  //
+  // [LAW:dataflow-not-control-flow] The lens enters here and ONLY here. `backed` is the viewer's
+  // pledged citizens; the affinity aggregate is their Σ vote-value over THIS page's ids, joined in and
+  // flowed through applySortMode's ctx.affinity. An empty `backed` makes the aggregate 0 for every post
+  // (inArray([])→false), so effectiveScore == posts.score and this re-sort is byte-identical to the
+  // lens-free order — no branch, the page membership and nextCursor (both Phase 1) are untouched.
+  const backed = await backedCitizenIds(env, voterId)
+  const { affinityScore, affinity } = backingAffinitySubquery(database, ids, backed)
+  const rows = await selectFeedRows(database, ids, voterId)
+    .leftJoin(affinityScore, eq(affinityScore.postId, posts.id))
+    .orderBy(...applySortMode(sort, { score: posts.score, affinity, createdAt: posts.createdAt, id: posts.id }))
 
   // [LAW:single-enforcer] Hydrate the page through the one rows→RenderablePost[] path; the page's
   // sole addition is `rank` (1..limit, page-relative) — the FeedItem IS a RenderablePost plus its

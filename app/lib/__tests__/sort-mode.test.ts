@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm'
 import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import {
+  BACKING_WEIGHT,
   HOT_WINDOW_MS,
   HOTNESS_DECAY_S,
   HOTNESS_REFERENCE_EPOCH,
@@ -28,11 +29,14 @@ import {
 } from '~/lib/sort-mode'
 
 const dialect = new SQLiteSyncDialect({ casing: 'snake_case' })
-// [LAW:dataflow-not-control-flow] ctx.score IS the sort-score expression (here the bare "score"
-// column, as getFeedPage flows it). SortCtx no longer carries `affinity` — the backed lens that
-// would weight this expression is the follow-up roll-call-47p.7, not a field every ctx must carry.
+// [LAW:dataflow-not-control-flow] The DISPLAY ctx applySortMode consumes: `score` is the bare "score"
+// column (as getFeedPage flows it) and `affinity` is the per-post backing-lens term (the within-page
+// Σ of backed-citizen votes, roll-call-47p.7). Here `affinity` is a readable `"affinity"` marker so
+// the lens-blend assertions can pin where it lands in the ORDER BY. KeysetCtx (keysetOrderBy /
+// cursorFilter) carries NO affinity — those consume a structural subset of this ctx.
 const mockCtx = {
   score: sql`"score"`,
+  affinity: sql`"affinity"`,
   createdAt: sql`"created_at"`,
   id: sql`"id"`,
 }
@@ -180,17 +184,17 @@ describe('app/lib/sort-mode.ts', () => {
       expect(dialect.sqlToQuery(exprs[1]).sql).toBe('"id" desc')
     })
 
-    it('all top windows emit score DESC, createdAt DESC, id DESC (window is a WHERE concern)', () => {
+    it('all top windows emit the lens-blended effectiveScore DESC, createdAt DESC, id DESC', () => {
       for (const window of ['all', 'day', 'week'] as const) {
         const exprs = applySortMode({ mode: 'top', window }, mockCtx)
         expect(exprs).toHaveLength(3)
-        // [LAW:dataflow-not-control-flow] The primary key is the bare ctx.score expression — no
-        // internal weighting, so ORDER BY === the keyset by construction and the (score,…) index
-        // SEEKS it. The backed lens would flow a weighted expression through ctx.score (47p.7); here
-        // it is the bare "score" column.
+        // [LAW:dataflow-not-control-flow] The DISPLAY primary key is effectiveScore = score +
+        // BACKING_WEIGHT * affinity (roll-call-47p.7's within-page lens). Both terms are present and
+        // BACKING_WEIGHT (10) rides as a bound param. The KEYSET (keysetOrderBy, asserted below) stays
+        // the bare score — the lens lives in the display re-sort, never the index seek.
         const { sql: primary, params } = dialect.sqlToQuery(exprs[0])
-        expect(primary).toBe('"score" desc')
-        expect(params).toEqual([])
+        expect(primary).toBe('("score" + ? * "affinity") desc')
+        expect(params).toEqual([BACKING_WEIGHT])
         expect(dialect.sqlToQuery(exprs[1]).sql).toBe('"created_at" desc')
         expect(dialect.sqlToQuery(exprs[2]).sql).toBe('"id" desc')
       }
@@ -236,21 +240,24 @@ describe('app/lib/sort-mode.ts', () => {
       expect(postB).toBeGreaterThan(postC)
     })
 
-    // [LAW:dataflow-not-control-flow] ctx.score is the single quality axis the modes consume. These
-    // pin where it lands: hot folds it into the hotness expression; 'new' (strict chronology) has no
-    // quality axis and ignores it. The backed lens (47p.7) would substitute a weighted expression for
-    // ctx.score — these contracts hold for whatever expression flows through, bare or weighted.
+    // [LAW:dataflow-not-control-flow] effectiveScore (score + BACKING_WEIGHT*affinity) is the single
+    // quality axis the score-ranked modes consume. These pin where it lands: top ranks by it directly,
+    // hot folds it into the hotness expression, 'new' (strict chronology) ignores it entirely. The
+    // backing lens (47p.7) rides inside it via the affinity term — so every score-ranked mode carries
+    // the lens through one expression, never a per-mode re-derivation.
     describe('score axis', () => {
-      it('hot folds ctx.score into the hotness quality axis', () => {
+      it('hot folds the lens-blended effectiveScore (score AND affinity) into the hotness axis', () => {
         const primary = dialect.sqlToQuery(applySortMode({ mode: 'hot' }, mockCtx)[0]).sql
         expect(primary).toContain('"score"')
+        expect(primary).toContain('"affinity"') // the lens rides inside hotness, not as a separate term
         expect(primary).toContain('log(')
       })
 
-      it('new ignores the score axis — chronology has no quality term to rank by', () => {
+      it('new ignores the score axis AND the lens — chronology has no quality term to rank by', () => {
         const exprs = applySortMode({ mode: 'new' }, mockCtx)
         for (const expr of exprs) {
           expect(dialect.sqlToQuery(expr).sql).not.toContain('score')
+          expect(dialect.sqlToQuery(expr).sql).not.toContain('affinity')
         }
       })
     })
