@@ -4,6 +4,7 @@ import { remarkFloor, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
+import { assertNever } from "~/lib/assert-never"
 
 // [LAW:types-are-the-program] How grandly a slop is FRAMED is a closed union, never a
 // loose flag. Each container assigns the level — a feed by prominence, a permalink as a
@@ -305,14 +306,6 @@ function VoteControls({
       </button>
     </span>
   )
-}
-
-// [LAW:types-are-the-program] The compile-time exhaustiveness gate for this file's
-// closed-union switches: an unhandled variant reaches a `default` as a non-never value
-// and fails tsc -b. Local to this module, matching the codebase's per-file convention
-// (sort-mode, voice, challenge-outcome each carry their own).
-function assertNever(x: never): never {
-  throw new Error(`unhandled variant: ${JSON.stringify(x)}`)
 }
 
 // [LAW:types-are-the-program] Closed unions → exhaustive switches, the assertNever

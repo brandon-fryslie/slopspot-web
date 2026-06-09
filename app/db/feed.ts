@@ -52,6 +52,7 @@ import {
   type TraitVector,
   type VoteValue,
 } from '~/lib/domain'
+import { assertNever } from '~/lib/assert-never'
 import { authorLabel } from '~/lib/author-label'
 import { crowningsForPosts } from '~/db/crowns'
 import { repliesForPosts, verdictsForPosts } from '~/db/utterances'
@@ -161,15 +162,6 @@ function requiredSibling<T>(
     )
   }
   return value
-}
-
-// [LAW:types-are-the-program] Exhaustiveness guard for the status discriminator.
-// In the default arm `value` narrows to `never`, so this compiles only while every
-// arm is handled — add a status to the schema enum and the reader stops compiling
-// until updated. At runtime it doubles as the boundary's fail-loud guard for a
-// status no CHECK should have admitted. [LAW:no-silent-fallbacks]
-function assertNever(value: never, what: string): never {
-  throw new Error(`feed: unexpected ${what} at storage boundary: ${String(value)}`)
 }
 
 // JSON columns hold exactly what createPost serialized — our own shapes, not foreign

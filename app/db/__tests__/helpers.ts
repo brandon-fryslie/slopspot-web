@@ -25,6 +25,7 @@ import {
   type TraitVector,
   type VoteValue,
 } from '~/lib/domain'
+import { assertNever } from '~/lib/assert-never'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 import type { AspectRatio } from '~/lib/variety'
 
@@ -98,15 +99,6 @@ export type SeedPostOpts = {
   content?: SeedPostContent
 }
 
-// [LAW:types-are-the-program] Exhaustiveness guard for the status discriminator
-// — mirrors feed.ts's `assertNever`. In the default arm `value` narrows to
-// `never`, so this compiles only while every GenerationStatus variant is
-// handled. Adding a variant in app/lib/domain.ts breaks the build at the
-// `: never` assignment, not at runtime by spreading `undefined` columns.
-function assertNever(value: never, what: string): never {
-  throw new Error(`helpers: unexpected ${what} at seed boundary: ${String(value)}`)
-}
-
 // [LAW:types-are-the-program] One per-arm projection from GenerationStatus to
 // the column shape the generations_status_shape CHECK demands. Mirrors
 // createPost's transition logic but applies it at insert time (no running →
@@ -156,13 +148,6 @@ function statusColumns(status: GenerationStatus) {
     default:
       return assertNever(status, 'GenerationStatus arm')
   }
-}
-
-// [LAW:types-are-the-program] Exhaustiveness guard for SeedPostContent — the
-// switch mirrors createPost's storage-side discriminator. Adding a Content
-// variant fires this `: never` assignment in the default arm before runtime.
-function assertNeverContent(value: never, what: string): never {
-  throw new Error(`helpers: unexpected ${what} at seed boundary: ${String(value)}`)
 }
 
 // [LAW:dataflow-not-control-flow] Default seed time is "just now", not a fixed past
@@ -254,7 +239,7 @@ export async function seedPost(env: Env, opts: SeedPostOpts = {}): Promise<PostI
       return PostId(id)
     }
     default:
-      return assertNeverContent(content, 'SeedPostContent arm')
+      return assertNever(content, 'SeedPostContent arm')
   }
 }
 

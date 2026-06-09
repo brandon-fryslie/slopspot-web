@@ -8,6 +8,7 @@
 // attack classes: positional/mechanical vs. creative/LLM-required.
 
 import cmuSyllables from './cmu-syllables.json'
+import { assertNever } from '~/lib/assert-never'
 
 // ─── Shared result type ───────────────────────────────────────────────────────
 
@@ -450,10 +451,6 @@ const HARD_FORMS: { [K in HardForm['kind']]: FormHandler<Extract<HardForm, { kin
 }
 
 // ─── Dispatchers ─────────────────────────────────────────────────────────────
-
-function assertNever(x: never): never {
-  throw new Error(`Unhandled form variant: ${JSON.stringify(x)}`)
-}
 
 // [LAW:dataflow-not-control-flow] switch on discriminator; variability lives
 // in the form value, not in which checks execute.
