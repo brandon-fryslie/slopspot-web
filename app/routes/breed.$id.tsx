@@ -2,7 +2,7 @@ import type { Route } from "./+types/breed.$id"
 import { useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { z } from "zod"
-import { getFeedItemById, getFeedPage } from "~/db/feed"
+import { getBreedablePool, getFeedItemById } from "~/db/feed"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostId, type RenderablePost } from "~/lib/domain"
 import { breedPauseHeadline, forkPause } from "~/lib/breed-failure"
@@ -50,11 +50,19 @@ export async function loader({ request, params, context }: Route.LoaderArgs): Pr
   // / upload / pending post has no genome to cross — defend the direct-URL path loudly.
   if (parent === null) throw new Response("only finished generations can be bred", { status: 400 })
 
-  // The room is for finding mate B — the recent gene pool, parent A excluded. A grid of REAL
-  // candidates (not a blank catalog): you arrived with one slop loved; here you meet the others.
-  // One page (the default Hot page) is the gene pool; the room does not paginate, so no cursor.
-  const { items } = await getFeedPage(env, { voterId })
-  const mates = items.map(toSlop).filter((s): s is Slop => s !== null && s.id !== parent.id)
+  // The room is for finding mate B from the WHOLE breedable gene pool (every succeeded generation),
+  // not one page of the homepage Hot feed. The pool is seeded-shuffled and windowed: a `seed` in the
+  // URL drives a deterministic slice (reproducible, shareable), and a fresh seed reshuffles to a
+  // different slice — so over reshuffles every genome is reachable as a mate, honoring "slop has
+  // heritable DNA." Absent `seed` defaults to parent A's id: a stable, shareable first look per slop.
+  const url = new URL(request.url)
+  const seed = url.searchParams.get("seed") ?? params.id
+
+  const pool = await getBreedablePool(env, { excludeId: PostId(params.id), seed, voterId })
+  // [LAW:types-are-the-program] The pool is already breedable by construction (the query filters to
+  // succeeded generations, parent excluded), so toSlop drops nothing here — the filter only narrows
+  // the Slop|null projection. The mate count is now REAL, never a feed page minus ineligible posts.
+  const mates = pool.map(toSlop).filter((s): s is Slop => s !== null)
 
   return { parent, mates }
 }
@@ -94,6 +102,14 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
       setPauseHeadline(breedPauseHeadline(forkPause(0)))
       setPending(false)
     }
+  }
+
+  // Reshuffle = a fresh seed in the URL → the loader draws a different slice of the same gene pool.
+  // Clearing the selection first keeps the chosen mate honest: the picked slop need not survive into
+  // the new window, so a stale selection is dropped rather than left pointing at a hidden card.
+  function reshuffle() {
+    setMateId(null)
+    navigate(`?seed=${crypto.randomUUID()}`)
   }
 
   const mate = mateId === null ? null : mates.find((m) => m.id === mateId) ?? null
@@ -170,7 +186,16 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
       </div>
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-placard text-lg text-bone">Find the mate</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-placard text-lg text-bone">Find the mate</h2>
+          <button
+            type="button"
+            onClick={reshuffle}
+            className="font-terminal text-xs uppercase tracking-[0.2em] text-ash transition-colors hover:text-bone"
+          >
+            ↻ different mates
+          </button>
+        </div>
         {mates.length === 0 ? (
           <p className="font-civic text-sm text-ash">
             The gene pool is thin right now — no other slops to cross with yet.
