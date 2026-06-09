@@ -10,8 +10,10 @@
 // orchestrates the Rite over the db/crowns I/O boundary.
 
 import { getPersonaByHandle } from '~/agents/persona'
-import { readGraceCorpus, recordGrace } from '~/db/grace'
+import { readGraceCorpus, readGraceReveal, recordGrace } from '~/db/grace'
+import { recordUtterance } from '~/db/utterances'
 import { chooseGrace, DEFAULT_GRACE_FALL_RATE, type GraceEdge } from '~/lib/grace'
+import { utter, type PersonaRef } from '~/lib/voice'
 import { emit } from '~/observability/metrics'
 
 // The host whose persona config holds the live rarity knob. The Proprietor presides over the city's
@@ -78,10 +80,62 @@ export async function runGrace(env: Env, scheduledTimeMs: number): Promise<Grace
   })
   emit('slopspot.grace.outcome', { outcome: res.recorded ? 'fell' : 'already-fell' }, 1)
   if (res.recorded) {
-    // The recorded fact only — never the human, never a notification. The reveal (ts7.9) is the citizen's
-    // own third-person line to the city; the human is never told here.
+    // The recorded fact only — never a notification TO the human. The reveal below is the citizen's own
+    // third-person line to the city; the human is still never told.
     console.log('[grace] fell', { citizen: edge.citizen, human: edge.human, postId: edge.postId, graceDay })
+    // [LAW:no-ambient-temporal-coupling] The reveal NARRATES a choice that is now recorded — it runs AFTER
+    // recordGrace, and only on a fresh record (a settled-day re-fire is `already-fell` and never reaches
+    // here), riding the grace's OWN idempotency (UNIQUE grace_day) the way announceBirth rides the personas
+    // PK. revealGrace is self-isolated (its own catch), so a reveal failure never un-records this grace.
+    await revealGrace(env, edge)
     return { kind: 'fell', edge }
   }
   return { kind: 'already-fell' }
+}
+
+// [LAW:single-enforcer][LAW:no-silent-fallbacks] The Third-Person Reveal (slopspot-patronage-ts7.9). The
+// choosing citizen narrates its grace to the CITY through the ONE Voice mechanism (utter → recordUtterance),
+// the same shape announceBirth uses for the Birth Rite. Voice NARRATES a choice that ALREADY happened: this
+// runs only AFTER recordGrace, so the line is the consequence of a recorded grace, never its cause.
+//
+// ISOLATED + TOTAL: the grace (the graces row) is PRIMARY TRUTH; this line is best-effort NARRATION. A
+// failure here (the maker unseated, a D1 write error) must NOT un-record a grace, so it is caught and
+// surfaced on its OWN signal (slopspot.grace.reveal + a loud log), never propagated as a grace failure.
+//
+// THE DAWNING is type-guaranteed upstream, not by this body: the GraceChoice target (lib/voice) carries no
+// human and readGraceReveal selects none, so the recorded line CANNOT name the chosen — a tourist reading the
+// city cannot tell who was chosen, and the chosen is never addressed. Exported (not inlined) so the gate is
+// verifiable without the rarity/record path: given a recorded edge, this records exactly one third-person,
+// human-free line.
+export async function revealGrace(env: Env, edge: GraceEdge): Promise<void> {
+  try {
+    const reveal = await readGraceReveal(env, edge)
+    if (reveal === null) {
+      // [LAW:no-defensive-null-guards] Not a silent skip: a GENUINE storage absence (the made-thing or its
+      // maker vanished between record and reveal) leaves no subject to ground a line. Surfaced on its own
+      // outcome and logged loud; the grace stays recorded. The else is meaningful — this is real optionality.
+      emit('slopspot.grace.reveal', { outcome: 'absent' }, 1)
+      console.warn('[grace] reveal absent — grace recorded, but its made-thing/maker is gone; nothing to voice', {
+        citizen: edge.citizen,
+        postId: edge.postId,
+      })
+      return
+    }
+    // The speaker is the choosing citizen itself — a base PersonaRef (grace does not re-voice, so empty caps).
+    const speaker: PersonaRef = { handle: reveal.citizen, displayName: reveal.makerName }
+    const utterance = await utter(speaker, 'grace', { slop: reveal.slop }, {})
+    await recordUtterance(env, {
+      speaker: reveal.citizen,
+      occasion: 'grace',
+      targetPostId: reveal.slop.postId,
+      utterance,
+    })
+    emit('slopspot.grace.reveal', { outcome: utterance.kind }, 1)
+  } catch (err) {
+    emit('slopspot.grace.reveal', { outcome: 'failed' }, 1)
+    console.error('[grace] reveal failed — grace recorded but unspoken (observable, not an un-grace)', {
+      citizen: edge.citizen,
+      err,
+    })
+  }
 }

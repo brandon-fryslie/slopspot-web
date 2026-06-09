@@ -124,6 +124,80 @@ describe("utter — the first-poet instance (The Firehose Writes)", () => {
   });
 });
 
+// The Third-Person Reveal (slopspot-patronage-ts7.9): the choosing citizen utters its grace to the CITY
+// through the ONE Voice mechanism, on the BASE speaker + EMPTY caps (grace does not re-voice). The DAWNING
+// is a TYPE guarantee — GraceChoice carries no human field — so these pins witness what the type already
+// enforces: the line names the maker and the slop subject, refers to the chosen only obliquely, and can
+// carry no human identifier whatsoever.
+describe("utter — the grace instance (The Third-Person Reveal)", () => {
+  const maker = { handle: "agent:vesper" as AgentId, displayName: "Vesper" };
+  const choice = { slop: { postId: "post_grace_1" as PostId, prompt: "a drain at 3am, sodium light" } };
+
+  it("speaks the choice to the CITY — names the maker and the slop subject, addresses no one", async () => {
+    const result = await utter(maker, "grace", choice, {});
+    expect(result.kind).toBe("spoke");
+    if (result.kind === "spoke") {
+      expect(result.text).toContain("Vesper"); // the choosing citizen speaks
+      expect(result.text.toLowerCase()).toContain("a drain at 3am"); // grounded in the slop subject (first clause)
+      // A third-person reveal: the chosen is referred to obliquely, NEVER addressed. No second person.
+      expect(result.text).not.toMatch(/\byou\b/i);
+      expect(result.text).not.toMatch(/\byour\b/i);
+    }
+  });
+
+  it("carries NO human identifier — the target has no human field, so the line cannot name one", async () => {
+    const result = await utter(maker, "grace", choice, {});
+    if (result.kind === "spoke") {
+      // No anon-label, no uuid fragment — a tourist reading the line cannot tell who was chosen.
+      expect(result.text).not.toMatch(/anon-[0-9a-z]{6}/i);
+      expect(result.text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
+    }
+  });
+
+  it("is a deterministic floor — the same choice always selects the same line", async () => {
+    const a = await utter(maker, "grace", choice, {});
+    const b = await utter(maker, "grace", choice, {});
+    expect(a).toEqual(b);
+  });
+
+  it("rotates its repertoire by the slop's own hash (different slops can differ)", async () => {
+    const prompts = [
+      "a drain at 3am",
+      "a cathedral of static",
+      "the last vending machine",
+      "a parking lot at dawn",
+      "a flooded server room",
+      "neon over a dead mall",
+      "a payphone still ringing",
+    ];
+    const frames = new Set<string>();
+    for (let i = 0; i < prompts.length; i++) {
+      const r = await utter(maker, "grace", { slop: { postId: `post_g_${i}` as PostId, prompt: prompts[i] } }, {});
+      // Normalize the subject out so we compare FRAMES, not the trivially-different subjects.
+      if (r.kind === "spoke") frames.add(r.text.split(prompts[i]).join("<s>"));
+    }
+    expect(frames.size).toBeGreaterThan(1); // the citizen has a repertoire, selected by data
+  });
+
+  it("is medium-agnostic — the line never names a provider/medium", async () => {
+    const r = await utter(maker, "grace", choice, {});
+    if (r.kind === "spoke") {
+      expect(r.text.toLowerCase()).not.toMatch(/flux|sdxl|ideogram|replicate|fal\b/);
+    }
+  });
+
+  it("reduces a long, multi-clause prompt to a short first-clause subject", async () => {
+    const longPrompt =
+      "an impossibly ornate baroque cathedral interior rendered in exhaustive detail, with shafts of light, dust, and a thousand candles";
+    const r = await utter(maker, "grace", { slop: { postId: "post_long" as PostId, prompt: longPrompt } }, {});
+    if (r.kind === "spoke") {
+      // The first clause only (cut at the comma), never the whole paragraph — the line reads like a place.
+      expect(r.text).not.toContain("a thousand candles");
+      expect(r.text.length).toBeLessThan(longPrompt.length + 160);
+    }
+  });
+});
+
 // These pin the reply FLOOR — the deterministic degradation target when the re-voice transport cannot
 // speak (a null-returning reVoice). The persona-driven re-voice path (slopspot-feud-voice-pq8) is gated in
 // revoice.test.ts; here the floor still names the opponent and stays stance-distinct, so a Haiku outage
