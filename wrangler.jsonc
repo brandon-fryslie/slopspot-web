@@ -50,10 +50,19 @@
   //   is billed on the queue consumer invocation, never this scheduled (serving-
   //   class) one. "Right-sizing the cadence" is achieved by making the tick cheap,
   //   not by coarsening the cron (which would throw away the prime-period schedule).
-  // "0 3 * * *": bank-gen — ~1000 BankEntry records daily at 03:00 UTC with
+  // "0 2 * * *": bank-gen — ~1000 BankEntry records daily at 02:00 UTC with
   //   48h TTL overlap. Model: claude-haiku-4-5-20251001 (cost-efficient bulk gen).
+  //   [LAW:no-ambient-temporal-coupling] bank-gen gets its OWN cron — therefore its
+  //   own invocation — because it is a BULK job: ~1000 Anthropic fetch() calls, at
+  //   or above Cloudflare's 1000-subrequest-per-invocation cap. Cohabiting an
+  //   invocation with the 03:00 ceremonies starved them of subrequests (the midwife's
+  //   fetch threw "Too many subrequests" → no citizen was ever born). The invocation
+  //   boundary owns the subrequest budget; one bulk job per invocation, by construction.
+  // "0 3 * * *": the daily ceremonies — portrait drift, the Rite, the Birth, the
+  //   First-Poet rite. All LIGHT (tens of subrequests total), so they share one
+  //   invocation's budget without contention now that bank-gen no longer rides it.
   "triggers": {
-    "crons": ["* * * * *", "0 3 * * *"]
+    "crons": ["* * * * *", "0 2 * * *", "0 3 * * *"]
   },
   // [LAW:locality-or-seam] GEN_QUEUE is the seam between the cron producer
   // (scheduled handler, serving-class invocation) and the generation consumer

@@ -147,7 +147,7 @@ Route specifics:
 
 ### Generation pipeline (cron, in-Worker)
 
-- **`workers/app.ts`** — single Worker entry. `fetch` wraps `createRequestHandler`; `scheduled` dispatches by `event.cron`: `0 3 * * *` → `runBankGen`, everything else (`* * * * *`) → `runScheduled`. The only place Cloudflare bindings cross into the app world.
+- **`workers/app.ts`** — single Worker entry. `fetch` wraps `createRequestHandler`; `scheduled` dispatches by `event.cron`: `0 2 * * *` → `runBankGen` (a bulk job, isolated in its own invocation so its ~1000 Anthropic subrequests can't starve the ceremonies), `0 3 * * *` → the daily ceremonies (`runPortraitPass`/`runRite`/`runBirth`/`maybeDecreeFirstPoet`), everything else (`* * * * *`) → `runScheduled`. The only place Cloudflare bindings cross into the app world.
 - **`app/firehose/schedule.ts`** — **source of truth** for firing cadence. `SCHEDULES` is a list of prime-period channels (47/53/73 min, offsets 0/17/41 → ~77 fires/day, joint pattern LCM ≈ 126 days). `chooseFires(scheduledTimeMs, schedules)` is pure. The wrangler cron is every-minute *granularity* only — it carries no schedule semantics.
 - **`app/firehose/scheduled.ts`** — orchestrates a tick: `chooseFires` → (empty list = no-op, the ~95% case) → `checkBudget` once per tick → per channel sequentially `runGeneratorPass` (sequential await is **load-bearing for anti-rep** — channel B reads recent recipes after A commits). Emits a per-channel `firehose.fire` metric (`fired | skipped-budget | skipped-error`).
 - **`app/firehose/budget.ts`** — `checkBudget`: **single enforcer** for the daily spend cap. Over-budget is a deliberate outcome (logged + metric), not an error.
@@ -182,7 +182,7 @@ Both are standalone Node containers (own `package-lock.json`, Dockerfile, vitest
 ### Challenge / bank-gen
 
 - **`app/lib/challenge.ts`** — `verifyChallenge`: single enforcer for the read-the-briefing proof gate on `/api/generate` (`SLOPSPOT_CHALLENGE_SECRET`). `app/lib/quota.ts` + the `challenge_quota` table cap daily generated posts globally.
-- **`workers/bank-gen.ts`** — `runBankGen`: daily (`0 3 * * *`) Haiku-generated `BankEntry` records written to the `CHALLENGE_BANK` KV namespace with 48h TTL; the challenge endpoint reads from it. See `design-docs/challenge-architecture.md`.
+- **`workers/bank-gen.ts`** — `runBankGen`: daily (`0 2 * * *`, its own invocation) Haiku-generated `BankEntry` records written to the `CHALLENGE_BANK` KV namespace with 48h TTL; the challenge endpoint reads from it. See `design-docs/challenge-architecture.md`.
 
 ### Supporting `app/lib/` helpers
 
@@ -204,6 +204,6 @@ Both are standalone Node containers (own `package-lock.json`, Dockerfile, vitest
 
 Per the workspace laws: goals must be machine-verifiable, and "tests pass" alone is not "done." For UI/feature work, run `pnpm dev` and exercise the feature in a browser (chrome-devtools-mcp is available) before declaring complete. When in doubt about Workers-runtime behavior, spot-check with `pnpm exec wrangler dev`. Type-checking and lint verify code correctness, not feature correctness — say so explicitly if you cannot verify behaviorally.
 
-**Cron triggers (local):** `@cloudflare/vite-plugin` exposes `GET /cdn-cgi/handler/scheduled` as the local-dev URL for firing the `scheduled` handler. Run `pnpm dev`, then `curl 'http://localhost:<port>/cdn-cgi/handler/scheduled?time=<unix-ms>&cron=*+*+*+*+*'` (use the URL vite prints). `?time=` sets `event.scheduledTime`, which the chooser/persona-pick hash deterministically — same `time` always picks the same recipe and persona, useful for reproducing a specific fire. The handler runs end-to-end against the configured provider and writes a row to local D1 (~$0.003/fire against real fal.ai; free if a mock is chosen with `SLOPSPOT_ENV=dev`). To fire bank-gen locally, pass `cron=0+3+*+*+*`.
+**Cron triggers (local):** `@cloudflare/vite-plugin` exposes `GET /cdn-cgi/handler/scheduled` as the local-dev URL for firing the `scheduled` handler. Run `pnpm dev`, then `curl 'http://localhost:<port>/cdn-cgi/handler/scheduled?time=<unix-ms>&cron=*+*+*+*+*'` (use the URL vite prints). `?time=` sets `event.scheduledTime`, which the chooser/persona-pick hash deterministically — same `time` always picks the same recipe and persona, useful for reproducing a specific fire. The handler runs end-to-end against the configured provider and writes a row to local D1 (~$0.003/fire against real fal.ai; free if a mock is chosen with `SLOPSPOT_ENV=dev`). To fire bank-gen locally, pass `cron=0+2+*+*+*`; to fire the daily ceremonies (portrait/rite/birth/first-poet), pass `cron=0+3+*+*+*`.
 
 Don't try `wrangler dev --test-scheduled` or `GET /__scheduled` — that contract is wrangler's bundler-middleware and is not injected into vite-plugin builds. The URL above is the one that works here.
