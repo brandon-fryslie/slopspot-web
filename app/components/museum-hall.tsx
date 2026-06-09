@@ -4,6 +4,7 @@ import { lensesInHall, type HallId } from '~/lib/rite'
 import { MARK_TONE } from '~/lib/crown-tone'
 import type { MuseumEntry, MuseumHallData } from '~/db/museum'
 import type { Utterance } from '~/lib/voice'
+import { PROPRIETOR, type ProprietorLine } from '~/lib/proprietor'
 
 // THE MUSEUM HALL — the permanent, browsable hall the crown records accrete into
 // (design-docs/the-daily-rite.md §"Where the crowned go"). One component, two instances:
@@ -14,16 +15,19 @@ import type { Utterance } from '~/lib/voice'
 // [LAW:types-are-the-program] The hall's chrome as a total map over HallId — a third hall
 // breaks this literal at compile time. The empty line is the Proprietor's honest quiet when
 // a hall is still bare (sparse-but-honest is the museum-retention loop starting, not a bug).
-const HALL_CHROME: Record<HallId, { title: string; tagline: string; empty: string }> = {
+// [LAW:one-source-of-truth][LAW:make-it-impossible] The empty line is the Proprietor's voice,
+// so it is a ProprietorLine sourced from proprietor.ts — its only home. The brand makes an
+// inline raw string in this slot a compile error, not a leak a future audit has to re-find.
+const HALL_CHROME: Record<HallId, { title: string; tagline: string; empty: ProprietorLine }> = {
   saints: {
     title: 'The Calendar of Saints',
     tagline: "the city's honoured dead — every canonisation, kept",
-    empty: 'No saints yet. The crown has found no one worthy. It stays in the drawer — that is the point.',
+    empty: PROPRIETOR.emptySaints,
   },
   rogues: {
     title: "The Rogues' Gallery",
     tagline: "the city's hall of beautiful monsters",
-    empty: 'No monsters yet. Nobody has been ugly enough to love. Give it time.',
+    empty: PROPRIETOR.emptyRogues,
   },
 }
 
