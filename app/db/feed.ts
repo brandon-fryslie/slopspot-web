@@ -76,6 +76,7 @@ import {
   type SortMode,
 } from '~/lib/sort-mode'
 import { backedCitizenIds } from '~/db/backings'
+import { principalExpr } from '~/db/attribution'
 import { decodeCursor, encodeCursor, type CursorPayload } from '~/lib/feed-cursor'
 import { seedFloat } from '~/lib/hash'
 
@@ -847,16 +848,25 @@ function resolveCursor(sort: SortMode, raw: string | null): CursorPayload | null
 // came back short (fewer than `limit` candidates), never a guess.
 export type FeedPage = { items: FeedItem[]; nextCursor: string | null }
 
-// [LAW:single-enforcer] The within-page backing-lens affinity aggregate (the-roll-call.md,
-// roll-call-47p.7). Σ vote values cast by the viewer's backed citizens, SCOPED to this page's ids —
-// so the work is O(K) over the hydrated slab, never a global sum over the votes table. The shape is
-// the same SUM(votes.value) the score is, filtered to (page ids ∩ backed-citizen votes).
-// [LAW:dataflow-not-control-flow] When the viewer backs no one, `backed` is empty and
-// inArray(votes.voterId, [])→`false` SQL ⇒ `WHERE … AND false` ⇒ SQLite scans no votes ⇒ the subquery
-// is empty ⇒ the leftJoin yields NULL ⇒ coalesce 0 for every post. No `if (backed.length)`, no toggle:
-// the unbacked path costs ~nothing and the affinity is 0 by data. The inner SUM column is named
-// distinctly (mirrors voteScoreSubquery's per-alias naming) so a Drizzle bare reference stays
-// unambiguous if another vote aggregate shares the FROM.
+// [LAW:single-enforcer] The within-page backing-lens affinity (the-roll-call.md, roll-call-47p.7 +
+// roll-call-xgi). One value: the weight of "slops this viewer's backed citizens STAND BEHIND," SCOPED
+// to this page's ids — so the work is O(K) over the hydrated slab, never a global scan. A backed
+// citizen stands behind a slop in exactly two ways, and both are +1 into the SAME sum:
+//   • by VOTING on it — Σ vote values, the same SUM(votes.value) the score is (page ids ∩ backed votes).
+//   • by AUTHORING it — authorship = the maker's implicit vote on his own work (the-roll-call.md
+//     §"Backing a citizen": "Back GutterMonk and the stark devotional work surfaces"). A maker carries
+//     no votes from himself, so without this term a backed maker's work would never rise; with it,
+//     backing a maker feels exactly as potent as backing a critic — you chose a CITIZEN, not a
+//     citizen-of-the-right-role. [LAW:one-type-per-behavior] one concept, one weight (BACKING_WEIGHT),
+//     not two competing terms; stacking (a backed maker's slop a backed critic ALSO blessed earns both)
+//     falls out of the single sum for free.
+// The author principal is read through attribution.ts's principalExpr — the ONE home for "whose post is
+// this" ([LAW:one-source-of-truth]); no denormalized author column, no second author truth to drift.
+// [LAW:dataflow-not-control-flow] When the viewer backs no one, `backed` is empty: inArray(…, [])→`false`
+// SQL ⇒ the vote subquery scans no rows (leftJoin NULL ⇒ coalesce 0) AND the author CASE is `else 0` for
+// every post ⇒ affinity is 0 everywhere by data, the display order byte-identical to the lens-free feed.
+// No `if (backed.length)`, no toggle. The inner SUM column is named distinctly (mirrors voteScoreSubquery's
+// per-alias naming) so a Drizzle bare reference stays unambiguous if another vote aggregate shares the FROM.
 function backingAffinitySubquery(
   database: ReturnType<typeof db>,
   ids: readonly string[],
@@ -872,7 +882,13 @@ function backingAffinitySubquery(
     .groupBy(votes.postId)
     .as('backing_affinity')
 
-  const affinity = sql<number>`coalesce(${affinityScore.sum}, 0)`
+  // The backed citizens' votes on this slop, 0 when none stand behind it by voting.
+  const backedVotes = sql<number>`coalesce(${affinityScore.sum}, 0)`
+  // The maker's implicit vote: +1 iff a backed citizen AUTHORED this slop. principalExpr emits literal
+  // json paths, so the author principal is read the same way attribution.ts defines it everywhere. The
+  // CASE rides the outer SELECT's posts row (≤K page rows), not a new join — free at the slab's scale.
+  const backedAuthorship = sql<number>`(case when ${inArray(principalExpr('author'), backed)} then 1 else 0 end)`
+  const affinity = sql<number>`(${backedVotes} + ${backedAuthorship})`
   return { affinityScore, affinity }
 }
 

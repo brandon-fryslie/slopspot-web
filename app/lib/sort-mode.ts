@@ -67,20 +67,24 @@ const LOG10_E = 0.4342944819032518
 type KeysetCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
 
 // [LAW:dataflow-not-control-flow] The DISPLAY context — KeysetCtx plus the per-post backing-lens
-// term. `affinity` is Σ of the vote values cast by citizens this viewer backs (getFeedPage computes
-// it within-page, scoped to the hydrated slab's ids). It is 0 for every post when the viewer backs
-// no one (the affinity aggregate degrades to no rows by data), so effectiveScore equals `score`
-// exactly in the unbacked case — the byte-identical normal display, with no branch. Only
+// term. `affinity` is the weight of what the citizens this viewer backs STAND BEHIND on a post
+// (getFeedPage computes it within-page, scoped to the hydrated slab's ids): Σ their vote values PLUS
+// +1 if one of them AUTHORED it — authorship being the maker's implicit vote on his own work
+// (the-roll-call.md, roll-call-47p.7 + roll-call-xgi). It is 0 for every post when the viewer backs
+// no one (the aggregate degrades to no rows AND the authorship CASE is 0 by data), so effectiveScore
+// equals `score` exactly in the unbacked case — the byte-identical normal display, with no branch. Only
 // applySortMode (the Phase-2 re-sort over the already-selected page) consumes this wider ctx.
 type DisplayCtx = KeysetCtx & { affinity: SQLWrapper }
 
-// [LAW:one-source-of-truth] The single weight a backed citizen's expressed opinion carries in the
+// [LAW:one-source-of-truth] The single weight a backed citizen's standing-behind carries in the
 // viewer's ranking — the backing lens (the-roll-call.md). Each unit of `affinity` (one votes-
-// equivalent of backed-citizen opinion on a post) is worth BACKING_WEIGHT of the post's own score
-// when the page is re-ranked: a backed critic's blessing (+1) lifts a post by BACKING_WEIGHT, a
-// burial (−1) sinks it by the same. A BIAS on the display order, never a filter (no post is removed)
-// and never on the selection keyset (it stays within the fetched page). Calibrate against real vote
-// velocity as traffic grows, the same way DECAY_CONSTANT will be.
+// equivalent of a backed citizen standing behind a post — a vote OR authorship, weighted the same)
+// is worth BACKING_WEIGHT of the post's own score when the page is re-ranked: a backed critic's
+// blessing (+1) lifts a post by BACKING_WEIGHT, a burial (−1) sinks it by the same, and a backed
+// maker's authorship (+1) lifts his work by the same — backing a maker is exactly as potent as backing
+// a critic. A BIAS on the display order, never a filter (no post is removed) and never on the selection
+// keyset (it stays within the fetched page). Calibrate against real vote velocity as traffic grows, the
+// same way DECAY_CONSTANT will be.
 export const BACKING_WEIGHT = 10
 
 // [LAW:dataflow-not-control-flow] The quality axis every score-ranked mode displays by: the post's
