@@ -150,9 +150,17 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
       </section>
 
       <div className="flex flex-col items-center gap-2">
+        {/* [LAW:types-are-the-program] The idle↔busy label is a DISCRETE state (it
+            swaps atomically with `pending`); the hover tint is a CONTINUOUS
+            affordance. `transition-colors` (not the broad `transition`) animates
+            only the colour group, so `disabled:opacity-40` flips instantly instead
+            of riding a 150ms opacity transition that promotes the button to its own
+            compositor layer and cross-fades the old label's paint into the new one —
+            the two states becoming legible at once. Scoping the transition makes them
+            mutually exclusive at the paint layer by construction, not on a timer. */}
         <button
           type="button"
-          className="rounded border border-profane/60 bg-profane/20 px-6 py-2 font-civic text-sm font-semibold uppercase tracking-wider text-profane transition hover:bg-profane/30 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded border border-profane/60 bg-profane/20 px-6 py-2 font-civic text-sm font-semibold uppercase tracking-wider text-profane transition-colors hover:bg-profane/30 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={mateId === null || pending}
           onClick={breed}
         >

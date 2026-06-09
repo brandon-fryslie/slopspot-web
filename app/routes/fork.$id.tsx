@@ -503,10 +503,19 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
           <span className="font-mono text-[11px] text-white/40">
             {phase === "editing" ? "submit to fork" : phase === "rewriting" ? "rewriting prompt…" : "generating image…"}
           </span>
+          {/* [LAW:types-are-the-program] The idle↔busy label is a DISCRETE state
+              ({buttonLabel} swaps atomically with `phase`); the hover tint is a
+              CONTINUOUS affordance. `transition-colors` (not the broad `transition`)
+              animates only the colour group, so `disabled:opacity-40` flips
+              instantly instead of riding a 150ms opacity transition. A transitioned
+              opacity promotes the button to its own compositor layer and cross-fades
+              the old label's paint into the new one — the two states becoming legible
+              at once. Scoping the transition makes them mutually exclusive at the
+              paint layer by construction, not by hiding the overlap on a timer. */}
           <button
             type="submit"
             disabled={locked || prompt.trim().length === 0 || prompt.trim().length > promptMax}
-            className="rounded bg-emerald-400/20 px-4 py-2 font-mono text-xs uppercase tracking-wider text-emerald-300 transition hover:bg-emerald-400/30 disabled:opacity-40"
+            className="rounded bg-emerald-400/20 px-4 py-2 font-mono text-xs uppercase tracking-wider text-emerald-300 transition-colors hover:bg-emerald-400/30 disabled:opacity-40"
           >
             {buttonLabel}
           </button>
