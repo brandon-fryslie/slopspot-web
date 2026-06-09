@@ -1,0 +1,116 @@
+// [LAW:single-enforcer] The annotated-bloodline read-model for the dynasty page — the SURFACE of the
+// genealogy folds (founders, speciation drift, inbreeding) for ONE post's bloodline. Distinct from
+// getDynasty (genealogy-view.ts), which is the thumbnail FOREST: this is the genome-material annotation
+// (genes/traits → distance), a different behavior over the same lineage source, so a different read.
+// [LAW:one-type-per-behavior] the thumbnail tree and the annotated chronicle are two read-models, joined
+// at the view by post id — never one type carrying both the Media tree and the genetic verdicts.
+//
+// [LAW:one-source-of-truth] Founder / drift / inbreeding are FOLDS over (the lineage DAG + genome distance),
+// never stored statuses. This loads the whole DAG (a page read, not the hot feed — the access pattern the
+// epic blessed for single-post/dynasty PAGES) and folds it; nothing here is persisted.
+// [LAW:effects-at-boundaries] the only I/O is the DAG read + the Gremlin persona read; the verdicts are pure.
+
+import { getLineageDag } from '~/db/genome-dag'
+import {
+  ancestralFounders,
+  descendants,
+  founders as allFounders,
+  generationDepth,
+  inbreedingOf,
+  speciation,
+  type Inbreeding,
+  type Speciation,
+} from '~/lib/genealogy'
+import { gremlinInbreedingRemark } from '~/lib/inbreeding-voice'
+import { getPersona } from '~/agents/persona'
+import { GenomeId, PostId } from '~/lib/domain'
+import { withheld, type Utterance, type VoicedPersonaRef } from '~/lib/voice'
+import type { GeneticDistance } from '~/lib/genome-distance'
+
+// The city's skeptic — the designated noticer of inbreeding (the-cast.md). The persona ROW (its traits +
+// character bible) is the source of truth for who the Gremlin is; this is only its stable lookup key, the
+// same way rite.ts keys the presiding citizens by handle.
+const GREMLIN = 'agent:skeptic'
+
+// A founder of this bloodline, honored by the size of the line it rooted — a Relic candidate (the Wednesday
+// rite resurrects old roots; the Calendar of Saints venerates the crowned Relics).
+export type FounderHonor = { postId: PostId; descendantCount: number }
+
+// One generation's drift: its depth from the founder(s) and the speciation verdict — the distance it has
+// wandered from every root it descends from. Ordered founder→leaf, this is the drift you can scroll.
+export type DriftEntry = { postId: PostId; depth: number; speciation: Speciation }
+
+// A bred node whose two parents fell within the inbreeding epsilon — flagged, with the closeness that
+// earned the flag and the Gremlin's spoken verdict on it.
+export type InbredEntry = { postId: PostId; distance: GeneticDistance; remark: Utterance }
+
+// [LAW:types-are-the-program] The whole annotated chronicle for a post's bloodline. Three empty arrays is a
+// post with no resolvable bloodline (degenerate) — the renderer shows nothing by data, no flag.
+export type DynastyChronicle = {
+  founders: readonly FounderHonor[]
+  drift: readonly DriftEntry[]
+  inbred: readonly InbredEntry[]
+}
+
+// The Gremlin's VoicedPersonaRef, or null when the persona row is absent (a misconfiguration the page must
+// not 500 on). Base traits, not accreted: the page renders the inbreeding aside from its deterministic floor,
+// which reads neither traits nor prompt — they are carried only to satisfy the verdict speaker's type.
+async function loadGremlin(env: Env): Promise<VoicedPersonaRef | null> {
+  const persona = await getPersona(env, GREMLIN)
+  return persona === null
+    ? null
+    : {
+        handle: persona.agentId,
+        displayName: persona.displayName,
+        traits: persona.traits,
+        personaPrompt: persona.personaPrompt,
+      }
+}
+
+export async function getDynastyChronicle(env: Env, postId: PostId): Promise<DynastyChronicle> {
+  const dag = await getLineageDag(env)
+  const root = GenomeId(postId)
+  // A non-generation or unknown id has no genome in the DAG and thus no bloodline to chronicle.
+  if (!dag.nodes.has(root)) return { founders: [], drift: [], inbred: [] }
+
+  // The founders THIS post descends from (its bloodline's roots) — scoped to the bloodline, never the whole
+  // DAG's founders. Their whole descendant lines are the bloodline node set.
+  const founderIds = ancestralFounders(dag, root)
+  const bloodline = new Set<GenomeId>()
+  for (const f of founderIds) {
+    bloodline.add(f)
+    for (const d of descendants(dag, f)) bloodline.add(d)
+  }
+
+  // Founder honor — each root of this bloodline, weighted by the line it rooted (most-founding first).
+  const descendantCount = new Map(allFounders(dag).map((f) => [f.id, f.descendantCount]))
+  const founders: FounderHonor[] = founderIds
+    .map((id) => ({ postId: PostId(id), descendantCount: descendantCount.get(id) ?? 0 }))
+    .sort((a, b) => b.descendantCount - a.descendantCount || a.postId.localeCompare(b.postId))
+
+  // Drift — every bloodline node's speciation verdict, ordered founder→leaf (depth, then id for stability).
+  const drift: DriftEntry[] = [...bloodline]
+    .map((id) => ({ postId: PostId(id), depth: generationDepth(dag, id), speciation: speciation(dag, id) }))
+    .sort((a, b) => a.depth - b.depth || a.postId.localeCompare(b.postId))
+
+  // Inbreeding — the bred nodes whose two parents fell within epsilon. The detection is a pure filter over
+  // the bloodline; the Gremlin then notices each (one verdict utterance per flagged node).
+  const gremlin = await loadGremlin(env)
+  const detections = [...bloodline]
+    .map((id) => ({ id, ib: inbreedingOf(dag, id) }))
+    .filter((x): x is { id: GenomeId; ib: Inbreeding } => x.ib !== null && x.ib.inbred)
+    .sort((a, b) => a.id.localeCompare(b.id))
+  const inbred: InbredEntry[] = await Promise.all(
+    detections.map(async ({ id, ib }): Promise<InbredEntry> => {
+      const utterance =
+        gremlin === null
+          ? // The Gremlin's row is absent — the flag stands (the cross IS inbred), but no machine could
+            // voice it. An honest 'unavailable', never a fabricated line. [LAW:no-silent-failure]
+            withheld('unavailable')
+          : await gremlinInbreedingRemark(gremlin, { postId: PostId(id), prompt: dag.nodes.get(id)!.utterance }, ib.distance)
+      return { postId: PostId(id), distance: ib.distance, remark: utterance }
+    }),
+  )
+
+  return { founders, drift, inbred }
+}

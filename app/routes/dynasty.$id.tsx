@@ -1,8 +1,9 @@
 import type { Route } from "./+types/dynasty.$id"
 import { Link } from "react-router"
 import { getDynasty } from "~/db/genealogy-view"
+import { getDynastyChronicle } from "~/db/dynasty-chronicle"
 import { getPostById } from "~/db/feed"
-import { DynastyView } from "~/components/genealogy"
+import { DynastyChronicleView, DynastyView } from "~/components/genealogy"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer][LAW:one-type-per-behavior] The whole-DYNASTY route (slopspot-genome-p6z.2):
@@ -23,11 +24,15 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   if (post === null || post.content.kind !== "generation") {
     throw new Response("dynasty not found", { status: 404 })
   }
-  return { dynasty: await getDynasty(env, postId) }
+  const [dynasty, chronicle] = await Promise.all([
+    getDynasty(env, postId),
+    getDynastyChronicle(env, postId),
+  ])
+  return { dynasty, chronicle }
 }
 
 export default function DynastyPage({ loaderData }: Route.ComponentProps) {
-  const { dynasty } = loaderData
+  const { dynasty, chronicle } = loaderData
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
       <Link to="/" className="font-terminal text-[11px] text-ash hover:text-votive/80">
@@ -35,6 +40,7 @@ export default function DynastyPage({ loaderData }: Route.ComponentProps) {
       </Link>
       <div className="mt-4">
         <DynastyView dynasty={dynasty} />
+        <DynastyChronicleView chronicle={chronicle} />
       </div>
     </main>
   )
