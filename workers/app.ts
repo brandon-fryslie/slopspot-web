@@ -50,18 +50,29 @@ export default {
   // [LAW:locality-or-seam] event.cron is the discriminator; variability lives
   // in the value, not in shared state or flags.
   async scheduled(event, env, _ctx) {
-    if (event.cron === '0 3 * * *') {
-      // [LAW:dataflow-not-control-flow] The daily cron runs INDEPENDENT jobs, each
-      // in its own catch so one's failure cannot abort the others or kill the
-      // worker. They share only the trigger, not state — bank-gen refills the
-      // challenge bank; the portrait pass drifts the Cast faces (roll-call-47p.6);
-      // the Rite crowns the city's own (the-daily-rite.md). All folded onto the
-      // existing daily tick rather than a parallel scheduler.
+    // [LAW:no-ambient-temporal-coupling] bank-gen is a BULK job (~1000 Anthropic
+    // fetch() calls), so it runs in its OWN invocation. A Cloudflare invocation has
+    // a finite subrequest budget (~1000 fetch()); jobs that share an invocation share
+    // that budget. When bank-gen rode the 03:00 invocation it exhausted the budget
+    // before the ceremonies ran, so the midwife's fetch threw "Too many subrequests"
+    // and no citizen was ever born (slopspot-growing-cast-7ni.1). Its own cron =
+    // its own invocation = a fresh budget; the invocation boundary owns the budget.
+    if (event.cron === '0 2 * * *') {
       try {
         await runBankGen(env)
       } catch (err) {
         console.error('bank-gen: unhandled error', { cron: event.cron }, err)
       }
+      return
+    }
+    if (event.cron === '0 3 * * *') {
+      // [LAW:dataflow-not-control-flow] The daily ceremonies run as INDEPENDENT jobs,
+      // each in its own catch so one's failure cannot abort the others or kill the
+      // worker. They share only the trigger, not state — the portrait pass drifts the
+      // Cast faces (roll-call-47p.6); the Rite crowns the city's own (the-daily-rite.md);
+      // the midwife births a citizen; the First-Poet rite decrees the first poet. All
+      // are LIGHT (tens of subrequests total), so they share one invocation's budget —
+      // the bulk bank-gen that once starved them now runs in its own invocation (02:00).
       try {
         await runPortraitPass(env, event.scheduledTime)
       } catch (err) {
