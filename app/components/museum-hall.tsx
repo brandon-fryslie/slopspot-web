@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
-import type { CrownMark, RiteLens } from '~/lib/domain'
+import type { RiteLens } from '~/lib/domain'
 import { lensesInHall, type HallId } from '~/lib/rite'
+import { MARK_TONE } from '~/lib/crown-tone'
 import type { MuseumEntry, MuseumHallData } from '~/db/museum'
 import type { Utterance } from '~/lib/voice'
 
@@ -39,18 +40,6 @@ const LENS_HEADING: Record<RiteLens, string> = {
   heretic: 'The Heretics',
 }
 
-// [LAW:one-source-of-truth] The mark's tile dress — a total map over CrownMark (the SAME
-// five tones markFor derives), so the tile colour and the eternal mark on the card can never
-// disagree. Gold gilds the sainted, magenta profanes the monstrous, bronze tarnishes the
-// resurrected relic, split honours the divided, bone is the flawless.
-const MARK_TONE: Record<CrownMark, { ring: string; ink: string }> = {
-  gold: { ring: 'border-gilt/45', ink: 'text-gilt' },
-  magenta: { ring: 'border-profane/45', ink: 'text-profane' },
-  bronze: { ring: 'border-[#b08d57]/45', ink: 'text-[#b08d57]' },
-  split: { ring: 'border-gilt/40', ink: 'text-gilt' },
-  bone: { ring: 'border-bone/40', ink: 'text-bone' },
-}
-
 // [LAW:dataflow-not-control-flow] The decree is the Proprietor's whole Utterance — a spoken
 // line is quoted; a meant silence (a withheld decree) renders as the silence it is, never an
 // empty quote. The kind is the discriminator, not a truthiness check on the text.
@@ -76,9 +65,11 @@ function Decree({ decree }: { decree: Utterance }) {
 }
 
 function Tile({ entry }: { entry: MuseumEntry }) {
+  // [LAW:one-source-of-truth] The tile's tone is the shared MARK_TONE — the same text+border
+  // identity the card's eternal mark wears, so a tile and a card of the same mark never drift.
   const tone = MARK_TONE[entry.mark]
   return (
-    <article className={`overflow-hidden rounded-lg border bg-panel/60 ${tone.ring}`}>
+    <article className={`overflow-hidden rounded-lg border bg-panel/60 ${tone.border}`}>
       <Link to={`/p/${entry.postId}`} aria-label="the crowned slop" className="block">
         <img
           src={entry.media.url}
@@ -91,7 +82,7 @@ function Tile({ entry }: { entry: MuseumEntry }) {
       </Link>
       <div className="px-3 py-3">
         <p className="flex items-center justify-between font-terminal text-[11px] uppercase tracking-[0.2em]">
-          <span className={tone.ink}>✚ presided by {entry.presiding.displayName}</span>
+          <span className={tone.text}>✚ presided by {entry.presiding.displayName}</span>
           <span className="text-ash">{entry.riteDay}</span>
         </p>
         <Decree decree={entry.decree} />
