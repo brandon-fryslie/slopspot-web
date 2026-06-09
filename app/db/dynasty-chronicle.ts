@@ -76,16 +76,21 @@ export async function getDynastyChronicle(env: Env, postId: PostId): Promise<Dyn
   // The founders THIS post descends from (its bloodline's roots) — scoped to the bloodline, never the whole
   // DAG's founders. Their whole descendant lines are the bloodline node set.
   const founderIds = ancestralFounders(dag, root)
+  const founderSet = new Set(founderIds)
   const bloodline = new Set<GenomeId>()
   for (const f of founderIds) {
     bloodline.add(f)
     for (const d of descendants(dag, f)) bloodline.add(d)
   }
 
-  // Founder honor — each root of this bloodline, weighted by the line it rooted (most-founding first).
-  const descendantCount = new Map(allFounders(dag).map((f) => [f.id, f.descendantCount]))
-  const founders: FounderHonor[] = founderIds
-    .map((id) => ({ postId: PostId(id), descendantCount: descendantCount.get(id) ?? 0 }))
+  // [LAW:no-silent-failure][LAW:types-are-the-program] Founder honor — derived DIRECTLY from the founder
+  // stats, never a Map-then-rejoin with a `?? 0` fallback that would hide a missing founder behind a
+  // plausible zero. allFounders already pairs each 0-parent node with its descendant count; this bloodline's
+  // founders are exactly those in the ancestral set, so a filter (not a lookup that can miss) yields the
+  // honor list. Most-founding first.
+  const founders: FounderHonor[] = allFounders(dag)
+    .filter((f) => founderSet.has(f.id))
+    .map((f) => ({ postId: PostId(f.id), descendantCount: f.descendantCount }))
     .sort((a, b) => b.descendantCount - a.descendantCount || a.postId.localeCompare(b.postId))
 
   // Drift — every bloodline node's speciation verdict, ordered founder→leaf (depth, then id for stability).
