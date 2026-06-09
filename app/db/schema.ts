@@ -436,6 +436,47 @@ export const crowns = sqliteTable(
   ],
 )
 
+// [LAW:one-source-of-truth] Graces: the ONE record of a Grace — a citizen→human edge (slopspot-patronage-ts7.8).
+// The Patronage runs the social graph the OTHER way: a citizen, corpus-derived and unexplained, chooses a
+// human, grants them nothing, tells them nothing. This table records that CHOICE AS FACT. The "chosen" mark a
+// human or a slop might carry is NEVER a stored flag — it is derived at read time from a row here, the same
+// shape crowns' eternal mark and score=SUM(votes) take. There is no is_chosen column to drift.
+//
+// [LAW:one-way-deps] Grace → corpus (votes ⋈ authorship), NEVER → backings. The choosing citizen, the chosen
+// human, and the made-thing the choice attaches to are all the table holds; the prayer (the backings table,
+// human→citizen) is a SEPARATE edge that grace never reads. Conflating the two is the hatch the epic deleted.
+//
+// `citizen` is the CHOOSER recorded as historical fact — FK-less (actor-side, like crowns.presiding and
+// votes.voter_id): a later persona retirement must NOT cascade-delete a grace it gave. `human` is the chosen
+// anon voter (a cookie UUID, FK-less like votes.voter_id — humans have no table). `post_id` is the made-thing
+// the grace attaches to (the slop the human engaged that occasioned the choice) — FK ON DELETE CASCADE
+// (a grace over a deleted post is meaningless, mirroring crowns/votes).
+//
+// [LAW:types-are-the-program] The UNIQUE index on grace_day IS the "at most one grace falls per day" invariant
+// — the daily corpus pass records at most one grace, so the 3am ceremony re-running is idempotent BY
+// CONSTRUCTION (ON CONFLICT(grace_day) DO NOTHING). This mirrors crowns' UNIQUE(rite_day): a Grace is a
+// citizen→human edge recorded by a daily fold over the corpus, the way a crown is a post won by the day's votes.
+export const graces = sqliteTable(
+  'graces',
+  {
+    id: text('id').primaryKey(),
+    citizen: text('citizen').notNull(),
+    human: text('human').notNull(),
+    postId: text('post_id')
+      .notNull()
+      .references(() => posts.id, { onDelete: 'cascade' }),
+    graceDay: text('grace_day').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('graces_grace_day_unique').on(t.graceDay),
+    // The per-human read (ts7.10: "did a citizen choose ME?") and the per-citizen read
+    // (ts7.9: a citizen's own line about whom it chose) are both index-covered.
+    index('graces_human_idx').on(t.human),
+    index('graces_citizen_idx').on(t.citizen),
+  ],
+)
+
 // [LAW:types-are-the-program] A city HONOR — a once-ever, first-of-kind decree the city pronounces over
 // one of its own (the first poet; later, the first of every new medium). Distinct from a crown: a crown is
 // a POST won by the day's votes and recurs nightly (keyed by rite_day); an honor is a CITIZEN marked for a
@@ -596,3 +637,5 @@ export type DbUtterance = typeof utterances.$inferSelect
 export type NewDbUtterance = typeof utterances.$inferInsert
 export type DbHonor = typeof honors.$inferSelect
 export type NewDbHonor = typeof honors.$inferInsert
+export type DbGrace = typeof graces.$inferSelect
+export type NewDbGrace = typeof graces.$inferInsert
