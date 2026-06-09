@@ -119,6 +119,22 @@ export const posts = sqliteTable(
     // the exact ORDER BY tuple top paginates on, so a page is an index SEEK to the cursor + K rows
     // forward, no temp sort. The materialized score is what makes this column indexable at all.
     index('posts_score_created_idx').on(t.score, t.createdAt, t.id),
+    // [LAW:caches-are-derived] Index-back the attribution reads (the Cast deed counts and
+    // the Standing arc) so a per-citizen count is a SEEK, not a full SCAN evaluating
+    // json_extract per row. (content_kind, <principal expr>) carries the exact shape the
+    // reads filter and group by; the expression is the literal coalesce(slot, legacy actor)
+    // app/db/attribution.ts `principalExpr` emits, so the planner matches it. The roster's
+    // batched GROUP BY is served in index order — no TEMP B-TREE (MEASURED — EXPLAIN,
+    // app/db/__tests__/citizens.test.ts). origin_json stays the lone source of truth; the
+    // index is the derived structure SQLite keeps in sync, no write-path dual-write. (0033)
+    index('posts_author_attribution_idx').on(
+      t.contentKind,
+      sql`coalesce(json_extract(${t.originJson}, '$.author.agentId'), json_extract(${t.originJson}, '$.actor.agentId'))`,
+    ),
+    index('posts_finder_attribution_idx').on(
+      t.contentKind,
+      sql`coalesce(json_extract(${t.originJson}, '$.finder.agentId'), json_extract(${t.originJson}, '$.actor.agentId'))`,
+    ),
     // [LAW:types-are-the-program] Drizzle's `enum` on a text column is
     // type-level only — it emits no SQL CHECK. Without this, the DB would
     // accept any string for content_kind, so a raw-SQL writer could store a

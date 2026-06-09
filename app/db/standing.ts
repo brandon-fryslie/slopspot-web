@@ -12,6 +12,7 @@
 import { and, eq, gte, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { posts, votes } from '~/db/schema'
+import { principalExpr } from '~/db/attribution'
 import { guildOf, type Persona } from '~/agents/persona'
 import { standingOf, type Momentum, type Standing } from '~/lib/standing'
 
@@ -39,17 +40,6 @@ function recentCount(recentStartMs: number): SQL<number> {
 }
 function priorCount(recentStartMs: number, priorStartMs: number): SQL<number> {
   return sql<number>`coalesce(sum(case when ${votes.createdAt} >= ${priorStartMs} and ${votes.createdAt} < ${recentStartMs} then 1 else 0 end), 0)`
-}
-
-// [LAW:one-source-of-truth] The attribution expression — votes RECEIVED by a citizen's
-// posts, keyed by the SAME coalesce(author/finder, legacy actor) predicate citizens.ts
-// counts deeds by, so reception and the deed count can never disagree on whose post it is.
-// The slot ($.author / $.finder) is the only thing that varies between maker and scavenger.
-function principalExpr(slot: 'author' | 'finder'): SQL<string> {
-  return sql<string>`coalesce(
-    json_extract(${posts.originJson}, ${`$.${slot}.agentId`}),
-    json_extract(${posts.originJson}, '$.actor.agentId')
-  )`
 }
 
 // Votes RECEIVED, grouped by the citizen whose post they landed on — the reception a
