@@ -11,10 +11,12 @@ import { FIRST_POET_KIND } from '~/agents/firstPoet'
 import { honorOf } from '~/db/honors'
 import { feudsFor, getCitizenStat, signatureStat } from '~/db/citizens'
 import { getBackings } from '~/db/backings'
+import { getStandings } from '~/db/standing'
 import { readVoterId } from '~/lib/voter-cookie'
 import { PortraitFrame } from '~/components/portrait-frame'
 import { portraitStateOf } from '~/lib/portrait'
 import { BackButton } from '~/components/back-button'
+import { StandingBadge } from '~/components/standing-badge'
 import { PROPRIETOR } from '~/lib/proprietor'
 import type { Route } from './+types/cast._index'
 
@@ -56,6 +58,14 @@ export async function loader({ context, request }: Route.LoaderArgs) {
   // never mints identity, so an un-backed visitor sees counts with viewerBacks false.
   const backings = await getBackings(env, personas.map((p) => p.agentId), readVoterId(request))
 
+  // [LAW:one-source-of-truth] One batched standing read for the whole roster — the
+  // derived ASCENDANT/STEADY/FADING arc per citizen, recomputed from recent reception,
+  // never a stored status. Date.now() is the window boundary, passed in so the same
+  // "now" splits the windows for every card in this one request. The host has no arc and
+  // is simply absent from the map (→ no badge), the same empty-by-data render the feud
+  // flags use.
+  const standings = await getStandings(env, personas, Date.now())
+
   // [LAW:one-source-of-truth] The feud flags resolve against the SAME loaded
   // roster — one handle→displayName map, no second query — so a flag's rival name
   // and the rival's own card can never disagree. Un-minted citizens carry no
@@ -95,6 +105,11 @@ export async function loader({ context, request }: Route.LoaderArgs) {
       // [LAW:dataflow-not-control-flow] The city's first poet — a derived flag (does THIS citizen hold the
       // once-ever honor), never a stored column. At most one citizen matches, by construction of the honor.
       isFirstPoet: firstPoet !== null && firstPoet.agentId === p.agentId,
+      // [LAW:dataflow-not-control-flow] The derived standing arc, or null for the host (no
+      // arc by construction). A null selects no badge — the same empty-by-data render the
+      // newcomer mark and feud flags use, never a fabricated "steady" for a citizen that
+      // has none.
+      standing: standings.get(p.agentId) ?? null,
     })),
   )
 
@@ -151,6 +166,14 @@ function CitizenCard({ citizen }: { citizen: Citizen }) {
       <p className="mt-3 font-terminal text-[11px] uppercase tracking-wider text-votive/70">
         {citizen.stat}
       </p>
+      {/* [LAW:dataflow-not-control-flow] The standing chip renders only for a citizen
+          that HAS an arc — a null (the host) selects nothing, the same empty-by-data
+          render the newcomer mark and feud flags use. */}
+      {citizen.standing !== null && (
+        <div className="mt-2">
+          <StandingBadge standing={citizen.standing} />
+        </div>
+      )}
       <FeudFlags feuds={citizen.feuds} />
       {/* [LAW:dataflow-not-control-flow] handle presence selects button-vs-nothing,
           the same render CitizenName uses: an un-minted citizen has no /cast page

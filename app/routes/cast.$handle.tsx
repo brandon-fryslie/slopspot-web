@@ -32,10 +32,12 @@ import {
   type WorkLabel,
 } from '~/db/citizens'
 import { getBackings } from '~/db/backings'
+import { getStandings } from '~/db/standing'
 import { readVoterId } from '~/lib/voter-cookie'
 import { PortraitFrame } from '~/components/portrait-frame'
 import { portraitStateOf } from '~/lib/portrait'
 import { BackButton } from '~/components/back-button'
+import { StandingBadge } from '~/components/standing-badge'
 import { listProviders } from '~/providers'
 import { PROPRIETOR } from '~/lib/proprietor'
 import { wishGapCaption } from '~/lib/wish-copy'
@@ -73,10 +75,14 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
   // identity; the cookie is minted on the first BACK. Absent cookie → viewerBacks
   // false, the count still renders. The shrine reads exactly this one citizen's
   // backing.
-  const [ledger, roster, backing] = await Promise.all([
+  const [ledger, roster, backing, standings] = await Promise.all([
     getCitizenLedger(env, persona),
     listAllPersonas(env),
     getBackings(env, [persona.agentId], readVoterId(request)),
+    // [LAW:single-enforcer] The SAME derived-standing read the roster uses, for this one
+    // citizen (a one-element list). Date.now() is the window boundary, passed in so the
+    // arc is recomputed at read time, never read from a stored status.
+    getStandings(env, [persona], Date.now()),
   ])
 
   // [LAW:one-source-of-truth] The feuds resolve against the SAME live roster the
@@ -104,6 +110,9 @@ export async function loader({ context, params, request }: Route.LoaderArgs) {
     // getBackings was queried with exactly this citizen, so the map holds its entry
     // by construction (un-backed citizens default to {0,false}). [LAW:one-source-of-truth]
     backing: backing.get(persona.agentId) ?? { backerCount: 0, viewerBacks: false },
+    // The derived standing arc, or null for the host (which has none by construction) —
+    // the header renders the chip only when present, never a fabricated "steady".
+    standing: standings.get(persona.agentId) ?? null,
     ledger,
     // The two citizen-shaped panels: every feud touching this handle (declared or
     // received), and the rite they preside over (null for the citizens the
@@ -465,7 +474,7 @@ function PresidesPanel({ presides }: { presides: RitePresidency | null }) {
 }
 
 export default function CastCitizen() {
-  const { citizen, backing, ledger, world, presides } = useLoaderData<typeof loader>()
+  const { citizen, backing, ledger, world, presides, standing } = useLoaderData<typeof loader>()
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -493,6 +502,14 @@ export default function CastCitizen() {
           <p className="mt-3 font-terminal text-[11px] uppercase tracking-wider text-votive/70">
             {signatureStat(ledger)}
           </p>
+          {/* [LAW:dataflow-not-control-flow] The standing arc — "▲ standing: ASCENDANT"
+              (the-roll-call.md). Rendered only when present: the host has no arc (null →
+              nothing), never a fabricated steady. */}
+          {standing !== null && (
+            <p className="mt-3 font-terminal text-[11px] uppercase tracking-wider text-ash">
+              standing: <StandingBadge standing={standing} />
+            </p>
+          )}
           {/* The allegiance verb — where a tourist crosses from "there are
               characters here" to "this one is mine." [the-roll-call.md] */}
           <div className="mt-4">
