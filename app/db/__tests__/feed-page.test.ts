@@ -26,7 +26,7 @@ import {
   windowFilter,
   type SortMode,
 } from '~/lib/sort-mode'
-import { PostId } from '~/lib/domain'
+import { PostId, AgentId, type Origin } from '~/lib/domain'
 import { seedPost, seedVote } from './helpers'
 
 const TOP_ALL: SortMode = { mode: 'top', window: 'all' }
@@ -373,5 +373,89 @@ describe('getFeedPage — within-page backing lens (roll-call-47p.7)', () => {
     await setBacking({ handle: 'test-critic', voterId: BACKER, backed: false }, { env })
     const restored = (await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 10 })).items.map((i) => i.post.id)
     expect(restored).toEqual(plainOrder) // withdrawing the pledge restores the normal feed by data
+  })
+})
+
+// [LAW:behavior-not-structure] Maker-authorship affinity (the-roll-call.md §"Backing a citizen",
+// roll-call-xgi). The sibling suite above pins the lens for a backed CRITIC, whose VOTES move the slab.
+// This pins the other half of the same promise: a backed MAKER's authored work surfaces even with ZERO
+// critic votes on it — because authorship is the maker's implicit vote on his own work, +1 into the SAME
+// affinity sum at the SAME weight. "Back GutterMonk and the stark devotional work surfaces." A maker
+// carries no votes from himself, so without this term his work could never rise; the contract here is
+// that backing a maker is exactly as potent as backing a critic.
+describe('getFeedPage — maker-authorship affinity (roll-call-xgi)', () => {
+  // A generator persona the backing edge can reference (backings.citizen FK → personas.agent_id) and
+  // that authors slops (origin_json `$.author.agentId`, what principalExpr('author') reads).
+  async function seedMaker(agentId: string, handle: string): Promise<void> {
+    await env.DB.prepare(
+      `INSERT INTO personas (agent_id, handle, display_name, role, persona_prompt, model_id, config_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(agentId, handle, `Test ${handle}`, 'generator', 'p', 'm', '{}', 0)
+      .run()
+  }
+
+  const BACKER = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' // a human cookie who backs the maker
+  const MAKER = 'agent:test-maker'
+  const makerOrigin: Origin = { kind: 'authored', author: { kind: 'agent', agentId: AgentId(MAKER) } }
+
+  // Four posts, distinct bare scores A>B>C>D, distinct created_at so the score axis alone decides the
+  // unbacked order. A/B/C are authored by an UN-backed citizen (the seed default). D — the LOWEST score
+  // — is authored by the backed MAKER and carries NO vote from him. For a viewer backing the maker, D's
+  // effectiveScore = score + BACKING_WEIGHT*1 (authorship) jumps it to the top of its page, purely on
+  // authorship: the exact "stark devotional work surfaces" the critic's vote-based lens cannot deliver.
+  async function seedMakerFixture(): Promise<void> {
+    await seedMaker(MAKER, 'test-maker')
+    const base = new Date('2026-04-01T00:00:00Z').getTime()
+    const mk = async (id: string, score: number, ageRank: number, origin?: Origin) => {
+      await seedPost(env, { id, createdAt: new Date(base - ageRank * 60_000), ...(origin ? { origin } : {}) })
+      for (let v = 0; v < score; v++) {
+        await seedVote(env, { postId: PostId(id), voterId: `plain-${id}-${v}`, value: 1 })
+      }
+    }
+    await mk('mk-A', 10, 0)
+    await mk('mk-B', 8, 1)
+    await mk('mk-C', 6, 2)
+    // D: 4 plain up-votes, authored by the backed maker, ZERO votes from the maker himself.
+    await mk('mk-D', 4, 3, makerOrigin)
+  }
+
+  it("a backed maker's work surfaces on authorship alone — no critic vote required, WITHIN the page", async () => {
+    await seedMakerFixture()
+    await setBacking({ handle: 'test-maker', voterId: BACKER, backed: true }, { env })
+
+    // limit 2 ⇒ page 1 = {A(10), B(8)} for EVERY viewer (Phase-1 bare-score keyset). Authorship cannot
+    // pull D across the page boundary — within-page boundedness, identical to the critic lens.
+    const backerP1 = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2 })
+    expect(backerP1.items.map((i) => i.post.id)).toEqual(['mk-A', 'mk-B'])
+
+    // Page 2 holds {C(6), D(4)}. Unbacked: by score ⇒ [C, D]. Backing the maker: effectiveScore(D) =
+    // 4 + 10*1 = 14 > effectiveScore(C) = 6 ⇒ [D, C]. The lift is pure authorship — D has no maker vote.
+    const backerP2 = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2, cursor: backerP1.nextCursor })
+    expect(backerP2.items.map((i) => i.post.id)).toEqual(['mk-D', 'mk-C'])
+    const d = backerP2.items.find((i) => i.post.id === 'mk-D')
+    expect(d?.score).toBe(4) // effectiveScore never leaks into the shown score — order only, never the number
+  })
+
+  it('a viewer who backs no one sees the byte-identical lens-free order even with maker-authored posts', async () => {
+    await seedMakerFixture()
+    const expected = await fullOrder(TOP_ALL)
+    const page = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 10 })
+    expect(page.items.map((i) => i.post.id)).toEqual(expected) // unbacked: authorship term is 0 by data
+  })
+
+  it('authorship and a backed vote STACK in one sum — the whole entourage agreeing tops the slab', async () => {
+    // The maker is ALSO a citizen who can vote (a generator persona can carry a vote row). Back the maker
+    // and have him both author D AND up-vote it: effectiveScore(D) = score + 10*(1 author + 1 vote). One
+    // sum, both terms — the design's "stacking falls out for free."
+    await seedMakerFixture()
+    await seedVote(env, { postId: PostId('mk-D'), voterId: MAKER, value: 1 }) // D bare score now 5
+    await setBacking({ handle: 'test-maker', voterId: BACKER, backed: true }, { env })
+
+    // Page 2 = {C(6), D(5)}. effectiveScore(D) = 5 + 10*(authorship 1 + maker-vote 1) = 25 > C's 6 ⇒ [D, C].
+    const p1 = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2 })
+    const p2 = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2, cursor: p1.nextCursor })
+    expect(p2.items.map((i) => i.post.id)).toEqual(['mk-D', 'mk-C'])
+    expect(p2.items.find((i) => i.post.id === 'mk-D')?.score).toBe(5) // 4 plain + 1 maker = 5, never 25
   })
 })
