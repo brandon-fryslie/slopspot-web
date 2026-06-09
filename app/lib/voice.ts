@@ -140,6 +140,19 @@ export interface Newcomer {
   readonly medium: ProviderId;
 }
 
+// The target of a `grace` (The Third-Person Reveal, slopspot-patronage-ts7.9): a citizen has quietly
+// chosen a human, and narrates that choice to the CITY in third person. The target carries ONLY the
+// made-thing the chosen kept returning to (`slop`) — there is NO human field, and that absence is the
+// whole point: [LAW:make-it-impossible] composeGrace has no human identifier in scope, so the rendered
+// line CANNOT name the chosen. The reveal DAWNS — a tourist reading it cannot tell who was chosen, and
+// the chosen is never addressed (there is no `you` the type could carry). This mirrors lib/grace's
+// GraceCorpus, whose type carries no field a backing could occupy: the invariant lives in the shape.
+// [LAW:one-source-of-truth] reuses SlopGist (the same made-thing snapshot the remark/verdict narrate),
+// not a second slop model. The speaker is the choosing citizen itself; its displayName is the maker.
+export interface GraceChoice {
+  readonly slop: SlopGist;
+}
+
 // The target of a `first-poet` decree (The Firehose Writes, slopspot-beyond-image-poj.4): the citizen the
 // city marks AS its first poet. The voice NARRATES a first-of-kind that the city DERIVED from state — a
 // verse-citizen exists and none was honored before it — never a seeded flag. `bornOn` is the poet's birth
@@ -170,7 +183,8 @@ export type Occasion =
   | "comment"
   | "eulogy"
   | "birth"
-  | "first-poet";
+  | "first-poet"
+  | "grace";
 
 // The legal target for each occasion (design-docs/the-voice-layer.md pairing table). `verdict`
 // (voice-w2v.1), `remark` (foundation.7), `decree` (The Daily Rite), and `reply` (the Feud Engine,
@@ -188,6 +202,7 @@ export interface OccasionTarget {
   eulogy: never;
   birth: Newcomer;
   "first-poet": FirstPoet;
+  grace: GraceChoice;
 }
 
 // --- the result (utterance) -------------------------------------------------
@@ -352,6 +367,55 @@ const composeFirstPoet: Voice<"first-poet"> = (speaker, poet) =>
     `${speaker.displayName} marks a first: ${poet.displayName} is the city's first poet, born ${poet.bornOn}. "${poet.creed}" — the machines have begun to speak. Mind the relics; some of them rhyme now.`,
   );
 
+// [LAW:single-enforcer] A short, evocative reference to the slop the chosen kept returning to — the
+// grounding the third-person line hangs on ("the one who keeps returning to the drain at 3am"). A PURE
+// reduction of the made-thing's prompt to its first clause, capped at a word boundary: the floor reads
+// like a place in the city, not a pasted paragraph. It NEVER names a human — the prompt is AI-authored
+// about the IMAGE, so by construction it carries no voter id; the reveal's identity-freeness does not
+// depend on this (the type already withholds the human), but the subject stays human-free regardless.
+function slopSubject(prompt: string): string {
+  const firstClause = prompt.split(/[,.;:\n]/)[0]!.trim();
+  const collapsed = firstClause.replace(/\s+/g, " ");
+  if (collapsed.length <= 56) return collapsed;
+  const cut = collapsed.slice(0, 56);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+// [LAW:dataflow-not-control-flow][LAW:one-type-per-behavior] The citizen's REPERTOIRE of third-person
+// reveals — a maker has more than one way to confess an interest to the city. Each frame names the
+// SPEAKER (the choosing citizen) and the SLOP SUBJECT the chosen keeps returning to, and refers to the
+// chosen ONLY in oblique third person ("the one who", "someone", "a regular") — never a `you`, never an
+// identifier. Three things every frame carries, because the epic deleted exactly these three hatches:
+// no notice to the chosen (the city overhears; the chosen never will), no gift (grants nothing), no
+// transaction (asks nothing back). The frame is selected by DATA (the slop's own hash), never a branch
+// and never an LLM — a pure deterministic floor the LLM-backed citizen voice can replace later, the
+// signature unchanged (the same room composeVerdict/composeBirth left).
+const GRACE_FRAMES: ReadonlyArray<(maker: string, subject: string) => string> = [
+  (maker, subject) =>
+    `${maker} has taken a quiet interest in the one who keeps returning to ${subject}. It says nothing to them, grants them nothing, and turns back to the work.`,
+  (maker, subject) =>
+    `Someone keeps coming back to ${subject}. ${maker} has noticed, and chosen them — and will neither say who nor tell them so.`,
+  (maker, subject) =>
+    `${maker} marks one of the faithful: the one who lingers at ${subject}. No bell, no notice, no favour owed. The city may overhear; the chosen never will.`,
+  (maker, subject) =>
+    `There is a regular at ${subject}. ${maker} has settled on them, told no one their name, and asked nothing in return.`,
+  (maker, subject) =>
+    `${maker} confesses to the room: somebody will not stop returning to ${subject}, and it has come to care which one. It keeps the name to itself.`,
+];
+
+// The grace instance (The Third-Person Reveal, slopspot-patronage-ts7.9). The choosing citizen utters its
+// choice to the CITY — third-person, identity-free, medium-agnostic — modeled on composeBirth / composeDecree
+// (a pure deterministic floor that NAMES the speaker and the slop subject and rotates its repertoire by the
+// made-thing's hash). [LAW:make-it-impossible] the target carries NO human, so the line cannot name the
+// chosen: the reveal dawns, never discloses. [LAW:dataflow-not-control-flow] the slop VALUE selects the
+// frame (seedHash over its postId — the reproducible hash the chooser/scheduler share) AND supplies the
+// subject; grace never branches on "did grace fall" — runGrace utters ONLY for a recorded fall.
+const composeGrace: Voice<"grace"> = (speaker, choice) => {
+  const frame = GRACE_FRAMES[seedHash(0, choice.slop.postId) % GRACE_FRAMES.length]!;
+  return spoke(frame(speaker.displayName, slopSubject(choice.slop.prompt)));
+};
+
 // [LAW:single-enforcer] The verdict re-voice PROMPT — built in ONE pure place so CI can prove its
 // shape deterministically (the grounding seam). SUBSTANCE is the critic's image-grounded observation
 // (`reasoning`); REGISTER is traitBias(traits) — the SAME lib/register projection the image composer
@@ -494,6 +558,7 @@ const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   eulogy: reserved,
   birth: composeBirth,
   "first-poet": composeFirstPoet,
+  grace: composeGrace,
 };
 
 // [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice that throws OR rejects (a

@@ -186,6 +186,15 @@ export type MetricLabels = {
   'slopspot.grace.outcome': {
     outcome: 'fell' | 'already-fell' | 'withheld' | 'barren'
   }
+  // [LAW:no-silent-fallbacks] The Third-Person Reveal's OWN signal (ts7.9) — separate from grace.outcome
+  // because the reveal (the citizen's third-person line) can fail to compose or persist WITHOUT un-recording
+  // the grace, so its outcome is observable on its own axis (mirrors birth.announce): `spoke` = the line was
+  // uttered and recorded; `withheld` = the voice degraded to a recorded silence; `absent` = the made-thing or
+  // its maker had vanished, nothing to ground (best-effort skip, the grace stays recorded); `failed` = the
+  // compose/persist threw (caught, surfaced, never an un-grace).
+  'slopspot.grace.reveal': {
+    outcome: 'spoke' | 'withheld' | 'absent' | 'failed'
+  }
 }
 
 export type MetricName = keyof MetricLabels

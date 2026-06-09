@@ -5,7 +5,7 @@
 // RETIRING feed.ts's ad-hoc derivation from votes.reasoning — the utterance store is now the single
 // source for the rendered line. [LAW:one-source-of-truth]
 
-import { and, asc, desc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
 import { personas, utterances, votes } from '~/db/schema'
 import type { Occasion, Utterance } from '~/lib/voice'
@@ -177,6 +177,58 @@ export function repliesForPosts(
   postIds: readonly string[],
 ): Promise<Map<string, Verdict[]>> {
   return spokenLinesForPosts(database, postIds, 'reply')
+}
+
+// A grace reveal surfaced for the city PULL — the third-person line and the slop it hangs on. Carries no
+// human (the row never held one), so it is safe to render to anyone.
+export type GraceLine = {
+  readonly postId: string
+  readonly speaker: string
+  readonly displayName: string
+  readonly text: string
+  readonly createdAt: Date
+}
+
+// [LAW:single-enforcer] The city PULL of grace reveals (slopspot-patronage-ts7.9) — the third-person lines a
+// citizen utters when it chooses a human. VIEWER-INDEPENDENT BY CONSTRUCTION: this takes no voter param and
+// the rows carry no human, so the stream reads IDENTICALLY for everyone — the chosen finds the grace sideways,
+// by reading the city, never by a notice addressed to them (the marker the epic deleted has no surface here).
+// [LAW:dataflow-not-control-flow] Distinct from the verdict/reply reads above precisely because a grace speaker
+// AUTHORED the slop, it did not VOTE on it — so there is NO votes INNER JOIN. That same join is why a grace
+// line can never leak INTO the verdict/reply surfaces, and why grace needs this dedicated read. The
+// targetPostId IS NOT NULL filter makes the made-thing reference total, so the projection reads it without an
+// `!`-laundered null. Newest-first, capped — the rest live in the record for the cast page to read.
+export async function graceLinesForCity(database: DB, limit = CO_PRESENCE_CAP): Promise<GraceLine[]> {
+  const rows = await database
+    .select({
+      postId: utterances.targetPostId,
+      speaker: utterances.speaker,
+      displayName: personas.displayName,
+      text: utterances.text,
+      createdAt: utterances.createdAt,
+    })
+    .from(utterances)
+    .innerJoin(personas, eq(personas.agentId, utterances.speaker))
+    .where(
+      and(
+        eq(utterances.occasion, 'grace'),
+        eq(utterances.kind, 'spoke'),
+        isNotNull(utterances.targetPostId),
+        sql`trim(${personas.displayName}) <> ''`,
+      ),
+    )
+    .orderBy(desc(utterances.createdAt), desc(utterances.speaker))
+    .limit(limit)
+
+  return rows.map((r) => ({
+    // targetPostId is non-null (the WHERE filters it); text is non-null by the kind='spoke' filter + the
+    // utterances_shape CHECK — the same boundary discipline spokenLinesForPosts holds.
+    postId: r.postId!,
+    speaker: r.speaker,
+    displayName: r.displayName.trim(),
+    text: r.text!.trim(),
+    createdAt: r.createdAt,
+  }))
 }
 
 // [LAW:single-enforcer] The Feud Engine's trigger read: the spoken verdicts already standing on ONE slop,

@@ -19,7 +19,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
 import { principalExpr } from '~/db/attribution'
-import { graces, personas, posts, votes } from '~/db/schema'
+import { generations, graces, personas, posts, votes } from '~/db/schema'
 import { AgentId, PostId } from '~/lib/domain'
 import type { GraceCorpus, GraceEdge } from '~/lib/grace'
 
@@ -102,6 +102,36 @@ export async function graceForDay(env: Env, graceDay: string): Promise<StoredGra
   if (rows.length === 0) return null
   const r = rows[0]
   return { citizen: AgentId(r.citizen), human: r.human, postId: PostId(r.postId) }
+}
+
+// [LAW:make-it-impossible] What the third-person reveal (ts7.9) needs to render the citizen's line — and
+// NOTHING THE HUMAN COULD BE NAMED BY. The maker's display name (the speaker) and the made-thing's prompt
+// (the subject the chosen keeps returning to); the chosen human is NEVER selected, so the reveal this feeds
+// has no human identifier in scope — the same discipline readGraceCorpus holds against backings, here held
+// against the chosen's identity. The reveal DAWNS because the data it is built from withholds the name.
+export type GraceRevealData = {
+  readonly citizen: AgentId
+  readonly makerName: string
+  readonly slop: { readonly postId: PostId; readonly prompt: string }
+}
+
+// [LAW:single-enforcer] The grace SURFACE derivation — the made-thing + its maker, for a recorded grace
+// edge. generations.utterance is the canonical composed prompt (the subject the line hangs on); the INNER
+// JOINs require the maker to be a real persona AND the made-thing to be a generation, so a vanished post or
+// an FK-less system author yields null (best-effort narration skips it, never throws — the grace stays
+// recorded). [LAW:one-way-deps] returns plain data; the voice target (GraceChoice) is assembled in the
+// agent layer, which owns the presentation type.
+export async function readGraceReveal(env: Env, edge: GraceEdge): Promise<GraceRevealData | null> {
+  const rows = await db(env)
+    .select({ makerName: personas.displayName, prompt: generations.utterance })
+    .from(generations)
+    // The maker is the choosing citizen — a constant-keyed INNER JOIN: no maker persona, no reveal.
+    .innerJoin(personas, eq(personas.agentId, edge.citizen))
+    .where(eq(generations.postId, edge.postId))
+    .limit(1)
+  if (rows.length === 0) return null
+  const r = rows[0]
+  return { citizen: edge.citizen, makerName: r.makerName, slop: { postId: edge.postId, prompt: r.prompt } }
 }
 
 // [LAW:single-enforcer][LAW:types-are-the-program] The one writer of a grace row. The UNIQUE(grace_day)

@@ -511,7 +511,7 @@ export const utterances = sqliteTable(
     // The citizen who spoke — an AgentId. The voice's sole source.
     speaker: text('speaker').notNull(),
     occasion: text('occasion', {
-      enum: ['caption', 'verdict', 'remark', 'decree', 'chrome', 'reply', 'comment', 'eulogy', 'birth', 'first-poet'],
+      enum: ['caption', 'verdict', 'remark', 'decree', 'chrome', 'reply', 'comment', 'eulogy', 'birth', 'first-poet', 'grace'],
     }).notNull(),
     // The slop spoken about. Nullable: occasions with no post target (eulogy, chrome) carry none.
     targetPostId: text('target_post_id').references(() => posts.id, { onDelete: 'cascade' }),
