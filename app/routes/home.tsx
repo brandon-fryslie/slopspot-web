@@ -212,8 +212,11 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               <p className="mt-4 font-civic text-xs font-medium uppercase tracking-[0.35em] text-ash">
                 ·· the back door of the internet ··
               </p>
+              {/* [LAW:one-source-of-truth] His words come from proprietor.ts — the
+                  single home for the Proprietor's voice; only the "the proprietor:"
+                  attribution and the quotes are chrome structure owned by this surface. */}
               <p className="mt-2 font-terminal text-[11px] text-votive/60">
-                the proprietor: &quot;mind the step.&quot;
+                the proprietor: &quot;{PROPRIETOR.mastheadAside}&quot;
               </p>
               {/* The back door you came in through (the-wishing-well.md). A discreet
                   entry in the masthead's atmospheric register — votive-tinted, NOT the
