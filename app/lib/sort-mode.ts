@@ -54,17 +54,44 @@ const LOG10_E = 0.4342944819032518
 // EXPRESSION the mode ranks by — variance lives in WHICH expression the caller flows through this
 // field, never in a branch inside applySortMode/keysetOrderBy/cursorFilter. getFeedPage sets it to
 // the BARE `posts.score` column, so the `(score, created_at, id)` index SEEKS the keyset instead of
-// SCANning a computed expression. [LAW:one-source-of-truth] applySortMode's ORDER BY,
-// keysetOrderBy's selection axis, and cursorFilter's keyset predicate all consume THIS one field,
-// so display order, selection order, and the cursor WHERE cannot disagree (disagreement is the
-// skip/dupe bug).
+// SCANning a computed expression. [LAW:one-source-of-truth] keysetOrderBy's selection axis and
+// cursorFilter's keyset predicate consume THIS one field, so selection order and the cursor WHERE
+// cannot disagree (disagreement is the skip/dupe bug).
 //
-// The viewer-specific backing lens (the-roll-call.md) — which would flow a weighted
-// `posts.score + W*affinity` expression through this same field for backed viewers — is the
-// flagged follow-up slopspot-roll-call-47p.7 (within-page affinity re-rank, blocked on operator
-// sign-off). It is deliberately NOT in this core: that expression is not index-seekable, so it
-// cannot serve the keyset the same way the bare column does.
-type SortCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
+// [LAW:types-are-the-program] KeysetCtx carries NO `affinity` field BY DESIGN. The viewer-specific
+// backing lens (the-roll-call.md, roll-call-47p.7) is a within-page DISPLAY re-rank: its weighted
+// `score + W*affinity` term is not index-seekable, so it must NEVER reach the Phase-1 keyset seek
+// (folding it there is option B's O(K)→SCAN regression). Splitting the ctx type — KeysetCtx here,
+// DisplayCtx (= KeysetCtx + affinity) below — makes "affinity in the keyset" a COMPILE ERROR rather
+// than a discipline rule: keysetOrderBy/cursorFilter literally cannot see the lens.
+type KeysetCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
+
+// [LAW:dataflow-not-control-flow] The DISPLAY context — KeysetCtx plus the per-post backing-lens
+// term. `affinity` is Σ of the vote values cast by citizens this viewer backs (getFeedPage computes
+// it within-page, scoped to the hydrated slab's ids). It is 0 for every post when the viewer backs
+// no one (the affinity aggregate degrades to no rows by data), so effectiveScore equals `score`
+// exactly in the unbacked case — the byte-identical normal display, with no branch. Only
+// applySortMode (the Phase-2 re-sort over the already-selected page) consumes this wider ctx.
+type DisplayCtx = KeysetCtx & { affinity: SQLWrapper }
+
+// [LAW:one-source-of-truth] The single weight a backed citizen's expressed opinion carries in the
+// viewer's ranking — the backing lens (the-roll-call.md). Each unit of `affinity` (one votes-
+// equivalent of backed-citizen opinion on a post) is worth BACKING_WEIGHT of the post's own score
+// when the page is re-ranked: a backed critic's blessing (+1) lifts a post by BACKING_WEIGHT, a
+// burial (−1) sinks it by the same. A BIAS on the display order, never a filter (no post is removed)
+// and never on the selection keyset (it stays within the fetched page). Calibrate against real vote
+// velocity as traffic grows, the same way DECAY_CONSTANT will be.
+export const BACKING_WEIGHT = 10
+
+// [LAW:dataflow-not-control-flow] The quality axis every score-ranked mode displays by: the post's
+// real score, biased by the viewer's backing lens. `affinity` is a VALUE that is 0 for every post
+// when the viewer backs no one, so this expression equals `score` exactly in the unbacked case — the
+// normal feed, no branch. Both 'top' and 'hot' route their display score through here so the lens
+// lands in one place; 'new' has no quality axis and ignores it (strict chronology), the same way
+// 'new' ignores score.
+function effectiveScore(ctx: DisplayCtx): SQL {
+  return sql`(${ctx.score} + ${BACKING_WEIGHT} * ${ctx.affinity})`
+}
 
 // [LAW:dataflow-not-control-flow] Returns the ORDER BY SQL expressions for the given
 // mode. The caller spreads these into .orderBy(). Both the CTE inner query (which
@@ -73,14 +100,16 @@ type SortCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
 // [LAW:types-are-the-program] Nested switch: exhaustive over modes and windows.
 // All top windows share the same ORDER BY; the window cutoff is a WHERE predicate
 // applied via windowFilter(), which is a separate concern from ordering.
-export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
+export function applySortMode(sort: SortMode, ctx: DisplayCtx): SQL[] {
   switch (sort.mode) {
     case 'top':
       switch (sort.window) {
         case 'all':
         case 'day':
         case 'week':
-          return [desc(ctx.score), desc(ctx.createdAt), desc(ctx.id)]
+          // [LAW:dataflow-not-control-flow] effectiveScore folds the backing lens in; ctx.affinity is
+          // 0 for every post when unbacked, so this is `desc(score)` exactly in the normal case.
+          return [desc(effectiveScore(ctx)), desc(ctx.createdAt), desc(ctx.id)]
         default:
           return assertNever(sort.window)
       }
@@ -91,12 +120,14 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
       //   log10(max(|score|,1)) * sign(score) + (createdAt_s - REFERENCE_EPOCH) / DECAY_S
       // D1 has no log10; log(x) is ln(x), so log10(x) = log(x) * LOG10_E.
       // createdAt is stored as Unix ms (timestamp_ms mode) — divide by 1000 for seconds.
-      // The score term is ctx.score — the bare posts.score column getFeedPage flows through. This is
-      // hot's DISPLAY order, applied over an already-selected page (getFeedPage selects the page by
-      // keysetOrderBy on the stable created_at axis, then re-sorts that bounded page by this hotness
-      // — the §4.2 within-slab re-sort). Hotness is not index-seekable, so it ranks the page, never
-      // selects it.
-      const s = ctx.score
+      // The score term is the backing-lens-biased effectiveScore over getFeedPage's bare posts.score
+      // (plus within-page affinity). This is hot's DISPLAY order, applied over an already-selected
+      // page (getFeedPage selects the page by keysetOrderBy on the stable created_at axis, then
+      // re-sorts that bounded page by this hotness — the §4.2 within-slab re-sort). Hotness is not
+      // index-seekable, so it ranks the page, never selects it; the lens enters the hotness exactly
+      // as extra votes would, so backed opinion and vote velocity share one quality axis rather than
+      // competing as two ORDER BY terms. ctx.affinity is 0 when unbacked ⇒ effectiveScore == score.
+      const s = effectiveScore(ctx)
       const hotnessExpr = sql<number>`
         ${LOG10_E} * log(max(abs(${s}), 1)) * sign(${s})
         + (${ctx.createdAt} / 1000 - ${HOTNESS_REFERENCE_EPOCH}) / ${HOTNESS_DECAY_S}`
@@ -124,7 +155,7 @@ export function applySortMode(sort: SortMode, ctx: SortCtx): SQL[] {
 // mismatch decodes to page 1, no cursor, no call here), so this reads the cursor's own variant. The
 // window cutoff is a SEPARATE WHERE (windowFilter), ANDed in by the caller. [LAW:types-are-the-program]
 // exhaustive over the cursor union.
-export function cursorFilter(cursor: CursorPayload, ctx: SortCtx): SQL {
+export function cursorFilter(cursor: CursorPayload, ctx: KeysetCtx): SQL {
   switch (cursor.m) {
     case 'top':
       return sql`(${ctx.score}, ${ctx.createdAt}, ${ctx.id}) < (${cursor.s}, ${cursor.t}, ${cursor.id})`
@@ -144,7 +175,7 @@ export function cursorFilter(cursor: CursorPayload, ctx: SortCtx): SQL {
 // applySortMode's hotness afterward. That divergence is the entire reason this function exists
 // apart from applySortMode. Same DESC directions as cursorFilter so ORDER BY and WHERE agree by
 // construction. [LAW:types-are-the-program] exhaustive over modes (+ top windows).
-export function keysetOrderBy(sort: SortMode, ctx: SortCtx): SQL[] {
+export function keysetOrderBy(sort: SortMode, ctx: KeysetCtx): SQL[] {
   switch (sort.mode) {
     case 'top':
       switch (sort.window) {

@@ -595,12 +595,12 @@ describe('app/db/feed.ts - getFeedPage', () => {
   })
 })
 
-// [LAW:behavior-not-structure] The global backing-lens contract that lived here (roll-call-47p.4)
-// is intentionally GONE, not skipped: getFeedPage's keyset selects on the bare materialized
-// posts.score for every viewer, so there is no global affinity re-rank to assert. The lens returns
-// under cursor pagination as a WITHIN-PAGE re-rank — a different shape needing its own tests — in the
-// follow-up slopspot-roll-call-47p.7 (blocked on operator sign-off). A skipped test would assert
-// nothing; deleting it is the honest record that this behavior is deferred.
+// [LAW:behavior-not-structure] The GLOBAL backing-lens contract from roll-call-47p.4 was deleted by
+// E1 Fix B (the keyset selects on the bare materialized posts.score for every viewer — no global
+// affinity re-rank to assert). It returns under cursor pagination as a WITHIN-PAGE re-rank with a
+// different contract, pinned in feed-page.test.ts ('within-page backing lens') — reorder inside each
+// fetched page, never across the page boundary, byte-identical for an unbacked viewer. The lens lives
+// in Phase-2 display (applySortMode), so feed.ts's storage-shape tests here stay lens-agnostic.
 
 describe('app/db/feed.ts - getFeedItemById', () => {
   it('returns null when the id does not match any post', async () => {

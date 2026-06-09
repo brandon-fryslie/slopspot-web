@@ -14,8 +14,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { and } from 'drizzle-orm'
+import { and, sql } from 'drizzle-orm'
 import { getFeedPage } from '~/db/feed'
+import { setBacking } from '~/db/backings'
 import { db } from '~/db/client'
 import { posts } from '~/db/schema'
 import {
@@ -75,8 +76,12 @@ async function pageThrough(sort: SortMode, limit: number): Promise<{ ids: string
 // The ground-truth order for a mode: the SAME ORDER BY getFeedPage's DISPLAY uses, over EVERY post,
 // unpaginated. For top/new this is also the keyset order (display === selection). For hot it is the
 // true global hotness order the paginated approximation is measured against.
+//
+// affinity is the literal 0 — the UNBACKED viewer getFeedPage's tests page as. effectiveScore then
+// equals posts.score exactly (score + 10*0), so this is simultaneously the lens-free ground truth AND
+// a check that the lens degrades to byte-identical order when the viewer backs no one.
 async function fullOrder(sort: SortMode): Promise<string[]> {
-  const ctx = { score: posts.score, createdAt: posts.createdAt, id: posts.id }
+  const ctx = { score: posts.score, affinity: sql`0`, createdAt: posts.createdAt, id: posts.id }
   const rows = await db(env)
     .select({ id: posts.id })
     .from(posts)
@@ -271,5 +276,102 @@ describe('getFeedPage — EXPLAIN QUERY PLAN (the O(K) keyset seek, MEASURED)', 
     expect(detail).toContain('SEARCH')
     expect(detail).toContain('posts_created_at_id_idx')
     expect(detail).not.toContain('TEMP B-TREE') // hot keysets created_at, never sorts by hotness here
+  })
+})
+
+// [LAW:behavior-not-structure] The within-page backing lens (the-roll-call.md, roll-call-47p.7). The
+// global lens from roll-call-47p.4 was deleted by E1 Fix B; this is its reinstatement under cursor
+// pagination, with a DIFFERENT contract these tests pin: a backed critic's votes reorder the slab
+// WITHIN each fetched page, NEVER across the page boundary (Phase 1 selects on the bare score for
+// every viewer), and a viewer who backs no one sees the byte-identical lens-free feed.
+describe('getFeedPage — within-page backing lens (roll-call-47p.7)', () => {
+  // A citizen the backing edge can reference (backings.citizen FK → personas.agent_id), seeded the
+  // way setBacking reads it. The critic's VOTES are what the lens aggregates (Σ votes by backed
+  // citizens), so the critic also casts votes below.
+  async function seedCritic(agentId: string, handle: string): Promise<void> {
+    await env.DB.prepare(
+      `INSERT INTO personas (agent_id, handle, display_name, role, persona_prompt, model_id, config_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(agentId, handle, `Test ${handle}`, 'voter', 'p', 'm', '{}', 0)
+      .run()
+  }
+
+  const BACKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' // a human cookie who backs the critic
+  const PLAIN = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' // a human cookie who backs no one
+  const CRITIC = 'agent:test-critic'
+
+  // Four posts, distinct bare scores A>B>C>D, distinct created_at so the score axis alone decides the
+  // unbacked order. The critic up-votes the LOWEST-score post D (its +1 is already inside D's score);
+  // for a viewer backing the critic, D's effectiveScore = score + BACKING_WEIGHT*1 jumps it to the top.
+  async function seedLensFixture(): Promise<void> {
+    await seedCritic(CRITIC, 'test-critic')
+    const base = new Date('2026-03-01T00:00:00Z').getTime()
+    const mk = async (id: string, score: number, ageRank: number) => {
+      await seedPost(env, { id, createdAt: new Date(base - ageRank * 60_000) })
+      // `score` plain up-votes from distinct non-backed voters.
+      for (let v = 0; v < score; v++) {
+        await seedVote(env, { postId: PostId(id), voterId: `plain-${id}-${v}`, value: 1 })
+      }
+    }
+    await mk('lens-A', 10, 0)
+    await mk('lens-B', 8, 1)
+    await mk('lens-C', 6, 2)
+    // D: 3 plain up-votes PLUS the critic's up-vote → bare score 4, affinity(for a critic-backer) = +1.
+    await seedPost(env, { id: 'lens-D', createdAt: new Date(base - 3 * 60_000) })
+    for (let v = 0; v < 3; v++) {
+      await seedVote(env, { postId: PostId('lens-D'), voterId: `plain-lens-D-${v}`, value: 1 })
+    }
+    await seedVote(env, { postId: PostId('lens-D'), voterId: CRITIC, value: 1 })
+  }
+
+  it('a backed critic re-ranks the slab toward its taste — WITHIN the page, never across it', async () => {
+    await seedLensFixture()
+    await setBacking({ handle: 'test-critic', voterId: BACKER, backed: true }, { env })
+
+    // limit 2 ⇒ page 1 = the two highest BARE scores {A(10), B(8)} for EVERY viewer (Phase 1 is the
+    // bare-score keyset). The critic's lift on D cannot pull it onto page 1 — that is the within-page
+    // boundedness, the honest weakness of option A made into a positive contract.
+    const plainP1 = await getFeedPage(env, { sort: TOP_ALL, voterId: PLAIN, limit: 2 })
+    const backerP1 = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2 })
+    expect(plainP1.items.map((i) => i.post.id)).toEqual(['lens-A', 'lens-B'])
+    expect(backerP1.items.map((i) => i.post.id)).toEqual(['lens-A', 'lens-B']) // membership AND order unchanged (no critic vote on either)
+    expect(backerP1.nextCursor).toBe(plainP1.nextCursor) // the cursor boundary is Phase-1, viewer-independent
+
+    // Page 2 holds {C(6), D(4)}. Unbacked: by score ⇒ [C, D]. Backer: effectiveScore(D)=4+10=14 >
+    // effectiveScore(C)=6 ⇒ [D, C]. The lens reorders the page it landed on.
+    const plainP2 = await getFeedPage(env, { sort: TOP_ALL, voterId: PLAIN, limit: 2, cursor: plainP1.nextCursor })
+    const backerP2 = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2, cursor: backerP1.nextCursor })
+    expect(plainP2.items.map((i) => i.post.id)).toEqual(['lens-C', 'lens-D'])
+    expect(backerP2.items.map((i) => i.post.id)).toEqual(['lens-D', 'lens-C']) // the within-page re-rank
+  })
+
+  it('the displayed score stays the pure SUM(votes) — the lens biases ORDER only, never the number', async () => {
+    await seedLensFixture()
+    await setBacking({ handle: 'test-critic', voterId: BACKER, backed: true }, { env })
+    const backerP2 = await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2, cursor: (await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 2 })).nextCursor })
+    const d = backerP2.items.find((i) => i.post.id === 'lens-D')
+    expect(d?.score).toBe(4) // 3 plain + 1 critic = 4, NOT 14 — effectiveScore never leaks into the shown score
+  })
+
+  it('a viewer who backs no one sees the byte-identical lens-free order', async () => {
+    await seedLensFixture()
+    // No backing for PLAIN. The full single-page order must equal fullOrder (affinity=0 ground truth).
+    const expected = await fullOrder(TOP_ALL)
+    const page = await getFeedPage(env, { sort: TOP_ALL, voterId: PLAIN, limit: 10 })
+    expect(page.items.map((i) => i.post.id)).toEqual(expected)
+  })
+
+  it('backing then withdrawing restores the plain order — the lens is a live, reversible value', async () => {
+    await seedLensFixture()
+    const plainOrder = (await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 10 })).items.map((i) => i.post.id)
+
+    await setBacking({ handle: 'test-critic', voterId: BACKER, backed: true }, { env })
+    const backedOrder = (await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 10 })).items.map((i) => i.post.id)
+    expect(backedOrder).not.toEqual(plainOrder) // the lens did something
+
+    await setBacking({ handle: 'test-critic', voterId: BACKER, backed: false }, { env })
+    const restored = (await getFeedPage(env, { sort: TOP_ALL, voterId: BACKER, limit: 10 })).items.map((i) => i.post.id)
+    expect(restored).toEqual(plainOrder) // withdrawing the pledge restores the normal feed by data
   })
 })
