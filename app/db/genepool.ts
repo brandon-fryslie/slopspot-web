@@ -83,6 +83,12 @@ function voterPredicate(niche: Niche) {
 // deploy — WITHOUT touching the {ref, fitness} seam, select.ts, or the candidate set. RAW today:
 // the honest "votes summed across the line." A dampener, if ruled in, must preserve sign so a
 // buried line (negative) stays buried; RAW is sign-preserving by being the identity.
+//
+// [LAW:make-it-impossible] TRIPWIRE (ts7.4, The Unanswered Prayer): backing is INERT toward fitness.
+// A human's allegiance (the backings table) must NEVER enter this transform — no author-backer boost,
+// no patron multiplier. Backing changes the human's feed (feed.ts's affinity lens) and the citizen's
+// social standing, never which genomes breed. selection-backing-orthogonality.test.ts goes red the
+// instant a backer count touches this seam; keep it that way.
 const selectionWeight = (bloodlineSum: number): number => bloodlineSum
 
 // The niche's RECENCY-WEIGHTED net vote on each genome it has touched, keyed by genome id. Each
