@@ -1,5 +1,6 @@
 import { Link } from "react-router"
 import type { PulseEvent } from "~/db/pulse"
+import { PROPRIETOR } from "~/lib/proprietor"
 
 // The Pulse strip — "the city breathing". A slow ambient crawl of recent civic
 // events below the masthead. font-terminal, votive glow, on the void.
@@ -101,7 +102,7 @@ export function PulseStrip({ events }: { events: PulseEvent[] }) {
       className="mb-6 overflow-hidden border-y border-votive/15 bg-panel/40 py-2 font-terminal text-xs text-votive/80"
     >
       {events.length === 0 ? (
-        <p className="px-1 text-ash">the city is quiet — nothing stirring just yet.</p>
+        <p className="px-1 text-ash">{PROPRIETOR.emptyPulse}</p>
       ) : (
         <div className="pulse-crawl flex w-max motion-reduce:w-full motion-reduce:flex-col">
           <EventGroup events={events} />
