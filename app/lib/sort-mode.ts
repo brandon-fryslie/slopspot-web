@@ -14,6 +14,7 @@
 // .orderBy(). No branch that skips .orderBy() exists.
 
 import { desc, sql, type SQL, type SQLWrapper } from 'drizzle-orm'
+import { assertNever } from '~/lib/assert-never'
 import type { CursorPayload } from '~/lib/feed-cursor'
 
 export type SortMode = { mode: 'top'; window: 'day' | 'week' | 'all' } | { mode: 'new' } | { mode: 'hot' }
@@ -64,10 +65,6 @@ const LOG10_E = 0.4342944819032518
 // sign-off). It is deliberately NOT in this core: that expression is not index-seekable, so it
 // cannot serve the keyset the same way the bare column does.
 type SortCtx = { score: SQLWrapper; createdAt: SQLWrapper; id: SQLWrapper }
-
-function assertNever(discriminant: never): never {
-  throw new Error(`sort-mode: unhandled discriminant ${String(discriminant)}`)
-}
 
 // [LAW:dataflow-not-control-flow] Returns the ORDER BY SQL expressions for the given
 // mode. The caller spreads these into .orderBy(). Both the CTE inner query (which
