@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   GENE_SWAP_THRESHOLD,
+  INBREEDING_GENE_EPSILON,
   TRAIT_DRIFT_THRESHOLD,
   ancestralFounders,
   bloodlineFitness,
   descendants,
   dynasties,
   founders,
+  generationDepth,
+  inbreedingOf,
   speciation,
 } from '~/lib/genealogy'
 import type { LineageDag } from '~/db/genome-dag'
@@ -151,5 +154,65 @@ describe('genealogy — derived read-models over the lineage DAG', () => {
     const dag = makeDag([], [])
     expect(founders(dag)).toEqual([])
     expect(dynasties(dag)).toEqual([])
+  })
+})
+
+describe('inbreeding — the inverse-of-speciation fold over a bred node (genome-p6z.6)', () => {
+  const FAR = { species: 'anime', frame: '16:9', medium: 'replicate-sdxl' } // 3 genes off photoreal/1:1/fal-flux
+
+  it('flags a cross whose two parents are identical (distance {0,0} → inbred)', () => {
+    // P1 and P2 are the same genome but for id; C is bred from both.
+    const dag = makeDag([g('P1'), g('P2'), g('C')], [['C', 'P1'], ['C', 'P2']])
+    const ib = inbreedingOf(dag, GenomeId('C'))!
+    expect(ib.distance).toEqual({ geneMismatches: 0, traitDrift: 0 })
+    expect(ib.inbred).toBe(true)
+    expect(new Set(ib.parents)).toEqual(new Set([GenomeId('P1'), GenomeId('P2')]))
+  })
+
+  it('does NOT flag a healthy outbred cross (parents far apart on genes)', () => {
+    const dag = makeDag([g('P1'), g('P2', FAR), g('C')], [['C', 'P1'], ['C', 'P2']])
+    const ib = inbreedingOf(dag, GenomeId('C'))!
+    expect(ib.distance.geneMismatches).toBeGreaterThan(INBREEDING_GENE_EPSILON)
+    expect(ib.inbred).toBe(false)
+  })
+
+  it('AND, not OR — one gene apart but traits driven past the epsilon is NOT inbred', () => {
+    // Parents 1 gene apart (close on genes) BUT traits far (L1 = 1.0 > 0.5): the trait axis fails the AND.
+    const driftedTraits: TraitVector = { austerity: 1, curse: 1, density: 0.5, earnestness: 0.5 } // L1 from neutral = 1.0
+    const dag = makeDag(
+      [g('P1'), g('P2', { species: 'anime', traits: driftedTraits }), g('C')],
+      [['C', 'P1'], ['C', 'P2']],
+    )
+    const ib = inbreedingOf(dag, GenomeId('C'))!
+    expect(ib.distance.geneMismatches).toBe(1) // within the gene epsilon
+    expect(ib.distance.traitDrift).toBeGreaterThan(0.5) // but beyond the trait epsilon
+    expect(ib.inbred).toBe(false) // AND fails — a wide trait gap is healthy outbreeding
+  })
+
+  it('is undefined (null) for a node that is not a two-parent cross', () => {
+    // A founder and a single-parent (asexual) node have no pair to measure.
+    const dag = makeDag([g('F'), g('S')], [['S', 'F']])
+    expect(inbreedingOf(dag, GenomeId('F'))).toBeNull() // founder
+    expect(inbreedingOf(dag, GenomeId('S'))).toBeNull() // single parent
+  })
+})
+
+describe('generationDepth — longest path to any founder (the decision-locked depth)', () => {
+  it('a founder is depth 0', () => {
+    expect(generationDepth(makeDag([g('F')], []), GenomeId('F'))).toBe(0)
+  })
+
+  it('counts the LONGEST path up a chain', () => {
+    const dag = makeDag(
+      [g('F'), g('A'), g('B'), g('C')],
+      [['A', 'F'], ['B', 'A'], ['C', 'B']],
+    )
+    expect(generationDepth(dag, GenomeId('C'))).toBe(3)
+  })
+
+  it('takes the LONGEST (not shortest) path when a bred node has paths of different lengths', () => {
+    // F → A → D, and F → D directly. D is reachable at depth 1 (via F) and depth 2 (via A) → depth 2.
+    const dag = makeDag([g('F'), g('A'), g('D')], [['A', 'F'], ['D', 'A'], ['D', 'F']])
+    expect(generationDepth(dag, GenomeId('D'))).toBe(2)
   })
 })
