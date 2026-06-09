@@ -177,6 +177,15 @@ export type MetricLabels = {
   'slopspot.account.health':
     | { account: string; status: 'ok' | 'degraded' }
     | { account: string; status: 'down'; reason: 'auth' | 'payment' | 'quota' }
+  // [LAW:dataflow-not-control-flow] The Patronage's Grace pass (ts7.8), fired every daily tick — the DATA
+  // picks the outcome: `fell` = a citizen chose a human just now (a grace recorded); `already-fell` = the
+  // day's grace was already recorded (idempotent re-fire on the UNIQUE grace_day); `withheld` = grace did
+  // not fall this pass (the rarity gate, the ~common case — grace is rare and useless by design); `barren`
+  // = no eligible corpus edge exists yet (no human has engaged a citizen's made-thing). The cadence of
+  // `withheld`/`barren` → `fell` → `already-fell` is the watchable rarity the graceFallRate knob tunes.
+  'slopspot.grace.outcome': {
+    outcome: 'fell' | 'already-fell' | 'withheld' | 'barren'
+  }
 }
 
 export type MetricName = keyof MetricLabels
