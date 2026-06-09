@@ -35,8 +35,11 @@ export type PulseEvent =
   // venerated slop whose canonisation anniversary falls today. It links to /p/:id (the saint
   // returns to view) and carries its lens so the strip can wear the crown's own mark tone.
   // Stamped with the loader's nowMs (a feast is today's standing event, not a fresh act), so
-  // it sorts to the head of the stream the whole feast day.
-  | { kind: 'feast'; ts: number; persona: string; postId: PostId; lens: RiteLens }
+  // it sorts to the head of the stream the whole feast day. [LAW:no-silent-failure] riteDay
+  // (the crown's globally-unique day) rides along as the stable key discriminator: a slop with
+  // two same-DOM venerated crowns feasts twice today, and ts (constant at nowMs) cannot tell
+  // them apart — riteDay can, so neither is silently dropped on render.
+  | { kind: 'feast'; ts: number; persona: string; postId: PostId; lens: RiteLens; riteDay: string }
 
 const PULSE_LIMIT = 12
 
@@ -184,6 +187,7 @@ export async function getPulse(env: Env, nowMs: number): Promise<PulseEvent[]> {
     persona: f.presiding.displayName,
     postId: f.postId,
     lens: f.lens,
+    riteDay: f.riteDay,
   }))
 
   const agentIds = new Set<string>()

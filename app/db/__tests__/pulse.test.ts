@@ -168,7 +168,7 @@ describe("app/db/pulse.ts - getPulse", () => {
 
     const feasts = (await getPulse(env, NOW)).filter((e) => e.kind === "feast")
     expect(feasts).toEqual([
-      { kind: "feast", ts: NOW, persona: "St. Vivian", postId: "p_saint", lens: "saint" },
+      { kind: "feast", ts: NOW, persona: "St. Vivian", postId: "p_saint", lens: "saint", riteDay: "2025-11-15" },
     ])
   })
 

@@ -23,8 +23,12 @@ export function FeastProclamation({ feasts }: { feasts: Feast[] }) {
       <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 font-terminal text-[11px]">
         {feasts.map((f) => {
           const tone = MARK_TONE[markFor(f.lens)]
+          // [LAW:no-silent-failure] Key on rite_day (globally unique), not postId: a slop can
+          // carry more than one venerated crown (crowns is UNIQUE on rite_day, not post+lens),
+          // so two crownings of the same post on same-DOM days both feast today — a postId key
+          // would collide and React would silently drop one (the city forgetting a saint).
           return (
-            <li key={f.postId} className="flex items-center gap-1.5">
+            <li key={`${f.postId}:${f.riteDay}`} className="flex items-center gap-1.5">
               <span aria-hidden className="text-gilt/50">
                 ✦
               </span>

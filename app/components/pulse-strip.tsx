@@ -71,7 +71,20 @@ const reasoningOf = (e: PulseEvent): string | undefined =>
 // /p/:id to point at — the renderer reads `undefined` and draws a plain span instead of an anchor.
 const hrefOf = (e: PulseEvent): string | undefined => (e.kind === "born" ? undefined : `/p/${e.postId}`)
 
-const keyOf = (e: PulseEvent) => (e.kind === "born" ? `born:${e.ts}` : `${e.kind}:${e.postId}:${e.ts}`)
+// [LAW:no-silent-failure] Each kind keys on its own stable identity: a born event is post-less
+// (key by ts); a feast is stamped with a constant nowMs ts and a post can feast twice in a day,
+// so it keys on rite_day (the crown's globally-unique day) — a postId+ts key would collide and
+// React would silently drop the second saint. The post-act events key by post + their real ts.
+const keyOf = (e: PulseEvent) => {
+  switch (e.kind) {
+    case "born":
+      return `born:${e.ts}`
+    case "feast":
+      return `feast:${e.postId}:${e.riteDay}`
+    default:
+      return `${e.kind}:${e.postId}:${e.ts}`
+  }
+}
 
 // `duplicate` marks the second copy that exists ONLY to make the crawl seamless
 // (the -50% loop needs two identical groups). Under reduced motion the crawl is

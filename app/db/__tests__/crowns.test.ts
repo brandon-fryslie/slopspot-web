@@ -419,4 +419,19 @@ describe('feastsToday — the venerated whose canonisation anniversary falls tod
     await recordCrowning(env, { postId: saint, riteDay: '2025-11-09', lens: 'saint', presiding: VIVIAN, decree: DECREE })
     expect(await feastsToday(env, Date.UTC(2026, 0, 15, 12))).toEqual([])
   })
+
+  // [LAW:no-silent-failure] A slop can carry more than one venerated crown (crowns is UNIQUE on
+  // rite_day, not post+lens). When two of them share a DOM, BOTH feast today — feastsToday must
+  // surface both (the render keys on rite_day, so neither saint is silently dropped).
+  it('surfaces every same-DOM venerated crown of a post, not just one', async () => {
+    const post = await seedPost(env)
+    await recordCrowning(env, { postId: post, riteDay: '2025-01-15', lens: 'saint', presiding: VIVIAN, decree: DECREE })
+    await recordCrowning(env, { postId: post, riteDay: '2025-03-15', lens: 'relic', presiding: VIVIAN, decree: DECREE })
+
+    const feasts = await feastsToday(env, Date.UTC(2026, 0, 15, 12))
+    expect(feasts.map((f) => `${f.lens}:${f.riteDay}`).sort()).toEqual([
+      'relic:2025-03-15',
+      'saint:2025-01-15',
+    ])
+  })
 })
