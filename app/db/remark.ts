@@ -13,6 +13,7 @@
 
 import { eq } from 'drizzle-orm'
 import { db } from '~/db/client'
+import { d1StmtResult } from '~/db/d1-batch'
 import { generations } from '~/db/schema'
 import type { PostId } from '~/lib/domain'
 import type { Utterance } from '~/lib/voice'
@@ -40,7 +41,7 @@ export async function recordRemark(
   // remark would masquerade downstream as the voice layer's "no utterance" (a chosen
   // absence), which is a different fact than "the write failed." The caller decides
   // whether a failed remark is fatal to the slop (it is not — see authorSlop).
-  const raw = result as unknown as { success: boolean; error?: string; meta?: { changes?: number } }
+  const raw = d1StmtResult(result)
   if (!raw.success) {
     throw new Error(`recordRemark: generations UPDATE failed for ${postId}: ${raw.error ?? 'unknown'}`)
   }

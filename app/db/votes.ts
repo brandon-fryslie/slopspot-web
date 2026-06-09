@@ -21,6 +21,7 @@
 
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
+import { d1StmtResult } from '~/db/d1-batch'
 import { posts, votes } from '~/db/schema'
 import { emit } from '~/observability/metrics'
 import type { PostId, VoteIntent, VoteValue } from '~/lib/domain'
@@ -101,8 +102,8 @@ export async function setVote(
   // drizzle's mapRunResult never checks D1Result.success, so a per-statement failure resolves
   // silently (the orphan incident, May 2026). Cast to the raw shape and split the two statements
   // by their DISTINCT failure MEANINGS — the asymmetry is the whole point:
-  const voteRaw = results[0] as unknown as { success: boolean; error?: string }
-  const scoreRaw = results[1] as unknown as { success: boolean; error?: string }
+  const voteRaw = d1StmtResult(results[0])
+  const scoreRaw = d1StmtResult(results[1])
 
   // (1) The VOTE statement failing means the vote did NOT commit. Returning ok:true with a
   // recomputed score would tell the client "recorded" when nothing was. Fail loud → the route
