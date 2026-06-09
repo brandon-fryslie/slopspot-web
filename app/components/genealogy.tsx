@@ -1,5 +1,7 @@
 import { Link } from "react-router"
 import type { Dynasty, Genealogy, GenealogyNode, Media } from "~/lib/domain"
+import type { DriftEntry, DynastyChronicle, FounderHonor, InbredEntry } from "~/db/dynasty-chronicle"
+import type { Utterance } from "~/lib/voice"
 
 // [LAW:dataflow-not-control-flow] The family tree renders by the DATA the read boundary derived
 // from the lineage_edges DAG — two trees of thumbnails, ancestry up and offspring down. A founder
@@ -38,6 +40,129 @@ export function DynastyView({ dynasty }: { dynasty: Dynasty }) {
       <NodeList nodes={dynasty.founders} />
     </section>
   )
+}
+
+// [LAW:dataflow-not-control-flow] The bloodline's long-game read-out (slopspot-genome-p6z.6) — the SURFACE
+// of the genealogy folds beside the thumbnail forest. Three derived sections render by the LENGTH of their
+// arrays: who founded the line (honored, Relic candidates), how far each generation has drifted (the
+// austere→baroque / clean→cursed wander you can scroll), and which crosses fell back into their own kin
+// (the Gremlin's verdict). An empty chronicle (a degenerate bloodline) renders nothing — absence is the
+// discriminator, never an `isDynasty` flag.
+export function DynastyChronicleView({ chronicle }: { chronicle: DynastyChronicle }) {
+  if (
+    chronicle.founders.length === 0 &&
+    chronicle.drift.length === 0 &&
+    chronicle.inbred.length === 0
+  ) {
+    return null
+  }
+  return (
+    <section className="mt-4 overflow-hidden rounded-lg border border-votive/12 bg-panel px-3 py-3">
+      <h2 className="font-terminal text-[10px] uppercase tracking-widest text-ash/70">the long game</h2>
+      <FoundersHonored founders={chronicle.founders} />
+      <DriftLine drift={chronicle.drift} />
+      <InbreedingNotices inbred={chronicle.inbred} />
+    </section>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The founders honored — each root of the bloodline, marked and weighted by
+// the line it rooted, linking to the Calendar of Saints where Relics are venerated (a founder is a Wednesday
+// Relic candidate). Empty founders → nothing, by array length.
+function FoundersHonored({ founders }: { founders: readonly FounderHonor[] }) {
+  if (founders.length === 0) return null
+  return (
+    <div className="mt-2">
+      <div className="font-terminal text-[10px] uppercase tracking-wider text-votive/50">founders</div>
+      <ul className="mt-1 flex flex-col gap-1">
+        {founders.map((f) => (
+          <li key={f.postId} className="flex items-center gap-2 font-terminal text-[11px]">
+            <span className="rounded-sm border border-gold/40 bg-gold/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.2em] text-gold">
+              ✦ founder
+            </span>
+            <Link to={`/p/${f.postId}`} className="text-votive/80 hover:text-votive">
+              p:{f.postId.slice(0, 8)}
+            </Link>
+            <span className="text-ash/70">rooted {f.descendantCount}</span>
+            <Link to="/saints" className="text-ash hover:text-gold/80" title="the Calendar of Saints — where Relics are venerated">
+              relic candidate →
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] Drift you can scroll — every generation in founder→leaf order, each showing
+// how far it has wandered from the root(s) it descends from. The speciation verdict (a new species, drifted
+// past the threshold from EVERY founder) is the VALUE that selects the tag; the per-founder distances are the
+// scrollable detail. A founder reads gen 0, distance 0 — the honest baseline, no special case.
+function DriftLine({ drift }: { drift: readonly DriftEntry[] }) {
+  if (drift.length === 0) return null
+  return (
+    <div className="mt-3">
+      <div className="font-terminal text-[10px] uppercase tracking-wider text-votive/50">drift</div>
+      <ol className="mt-1 flex flex-col gap-1">
+        {drift.map((d) => (
+          <li key={d.postId} className="flex flex-wrap items-center gap-2 font-terminal text-[11px]">
+            <span className="text-ash/60">gen {d.depth}</span>
+            <Link to={`/p/${d.postId}`} className="text-votive/80 hover:text-votive">
+              p:{d.postId.slice(0, 8)}
+            </Link>
+            {d.speciation.isNewSpecies && (
+              <span className="rounded-sm border border-profane/40 bg-profane/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.2em] text-profane/90">
+                new species
+              </span>
+            )}
+            <span className="text-ash/70">
+              {d.speciation.founders
+                .map((f) => `Δgenes ${f.distance.geneMismatches} · Δtraits ${f.distance.traitDrift.toFixed(1)}`)
+                .join("  /  ")}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The inbreeding notices — each flagged cross with the Gremlin's verdict. The
+// utterance VALUE selects what renders: a spoke line is the Gremlin's barb; a withheld one (the persona row
+// absent) shows the bare flag without a fabricated line. Empty inbred → nothing.
+function InbreedingNotices({ inbred }: { inbred: readonly InbredEntry[] }) {
+  if (inbred.length === 0) return null
+  return (
+    <div className="mt-3">
+      <div className="font-terminal text-[10px] uppercase tracking-wider text-profane/60">inbreeding</div>
+      <ul className="mt-1 flex flex-col gap-2">
+        {inbred.map((e) => (
+          <li key={e.postId} className="font-terminal text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="rounded-sm border border-profane/40 bg-profane/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.2em] text-profane/90">
+                ⚠ inbred
+              </span>
+              <Link to={`/p/${e.postId}`} className="text-votive/80 hover:text-votive">
+                p:{e.postId.slice(0, 8)}
+              </Link>
+            </div>
+            <GremlinLine remark={e.remark} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The Gremlin's verdict, rendered by the Utterance union — spoke → the barb;
+// withheld → nothing (an unavailable machine leaves the flag to speak for itself). Total over the union.
+function GremlinLine({ remark }: { remark: Utterance }) {
+  switch (remark.kind) {
+    case "spoke":
+      return <p className="mt-1 pl-1 text-ash/80 italic">“{remark.text}” — the Gremlin</p>
+    case "withheld":
+      return null
+  }
 }
 
 function Branch({ label, nodes }: { label: string; nodes: readonly GenealogyNode[] }) {

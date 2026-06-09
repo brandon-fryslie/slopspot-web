@@ -45,6 +45,68 @@ export const DYNASTY_THRESHOLD = 5
 const speciatedFrom = (d: GeneticDistance): boolean =>
   d.geneMismatches >= GENE_SWAP_THRESHOLD || d.traitDrift >= TRAIT_DRIFT_THRESHOLD
 
+// [LAW:variability-at-edges] INBREEDING is the INVERSE of speciation, read at the SAME edge: a bred child
+// whose two parents have barely drifted apart was crossed back into its own near-kin. Two INDEPENDENT
+// epsilons combined by AND — the mirror of speciation's OR. Inbreeding needs the parents close on BOTH
+// axes (few genes swapped AND traits barely moved); a wide gap on EITHER axis already makes the cross
+// healthy outbreeding, so AND is the honest combinator (OR would brand a three-genes-apart pair "inbred"
+// for happening to share a trait — a false theorem). Conservative; tune once the rendered rate is
+// measurable, the same set-after-you-can-measure discipline as DYNASTY_THRESHOLD.
+export const INBREEDING_GENE_EPSILON = 1 // ≤1 of the 4 genes differ — all but one allele shared
+export const INBREEDING_TRAIT_EPSILON = 0.5 // L1 trait drift within half a unit across the four axes
+
+// [LAW:types-are-the-program] Inbreeding is a property of a BRED (two-parent) node ONLY — a founder or a
+// single-parent node has no pair to compare, so the question is undefined for it (null), never "false".
+// The record carries the two parents measured + their distance + the verdict, so a surface can show WHY
+// (how close the parents were), never a bare boolean stripped of its evidence.
+export type Inbreeding = {
+  parents: readonly [GenomeId, GenomeId]
+  distance: GeneticDistance
+  inbred: boolean
+}
+
+const tooClose = (d: GeneticDistance): boolean =>
+  d.geneMismatches <= INBREEDING_GENE_EPSILON && d.traitDrift <= INBREEDING_TRAIT_EPSILON
+
+// [LAW:one-source-of-truth] Inbreeding as a fold of geneticDistance over a bred node's TWO parents. The
+// parent ARITY is read from the adjacency (dag.parents), the same source every other fold here uses —
+// exactly two parents is a bred cross; anything else has no pair to measure and yields null (the
+// discriminated "not applicable", not a defensive guard). A parent named by an edge but missing from the
+// node set is storage corruption — it throws, never laundered into a skipped measurement. [LAW:no-silent-failure]
+export function inbreedingOf(dag: LineageDag, id: GenomeId): Inbreeding | null {
+  const node = dag.nodes.get(id)
+  if (node === undefined) throw new Error(`genealogy: unknown genome ${id}`)
+  const ps = dag.parents.get(id) ?? []
+  if (ps.length !== 2) return null
+  const [pa, pb] = ps as [GenomeId, GenomeId]
+  const a = dag.nodes.get(pa)
+  const b = dag.nodes.get(pb)
+  if (a === undefined || b === undefined) {
+    throw new Error(`genealogy: bred node ${id} references a parent missing from the DAG`)
+  }
+  const distance = geneticDistance(a, b)
+  return { parents: [pa, pb], distance, inbred: tooClose(distance) }
+}
+
+// [LAW:one-source-of-truth] Generation depth — the DECISION-LOCKED definition (RenderablePost.generationDepth):
+// the LONGEST path UP to any founder ("deepest bloodline"), not the shortest. A founder is depth 0. The feed
+// derives this via a bounded frontier walk on the HOT path; over a whole-DAG snapshot (a page read, not hot)
+// the SAME definition is a memoized longest-path fold — one definition, two access patterns, never a second.
+// `memo` caches each node's depth and, because a finite acyclic DAG cannot cycle, also guarantees termination —
+// no visited-guard beyond it. [LAW:no-ambient-temporal-coupling] pure over the snapshot, no clock.
+export function generationDepth(dag: LineageDag, id: GenomeId): number {
+  const memo = new Map<GenomeId, number>()
+  const depthOf = (cur: GenomeId): number => {
+    const cached = memo.get(cur)
+    if (cached !== undefined) return cached
+    const ps = dag.parents.get(cur) ?? []
+    const d = ps.length === 0 ? 0 : 1 + Math.max(...ps.map(depthOf))
+    memo.set(cur, d)
+    return d
+  }
+  return depthOf(id)
+}
+
 // [LAW:types-are-the-program] The set of ancestral founders — every 0-parent node reachable by
 // walking UP the parent edges. A bred node yields multiple; a founder yields itself. `seen` dedups
 // the diamonds a breeding DAG creates (a node reached via two parent paths), so the walk terminates
