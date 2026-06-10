@@ -116,7 +116,7 @@ KERNEL: A citizen is a taste with consequences, not a personality with a font. T
 cover the byline — if you cannot tell whose verdict you are reading, there is no citizen
 there. Consistency of taste over time is the whole organism; the prose style is just its
 skin.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-citizens.md
 
 **6. On Voice** — *utterance, register, and the rendered silence.*
 KERNEL: Voice narrates acts; it never performs them — the deed and the telling of the
