@@ -40,9 +40,11 @@ Then, in order:
    extend it, find its corollaries and its edge cases — you may not
    reverse it without writing the reversal down as a marked schism with
    your reasons. (Doctrine that cannot record its own schisms is dogma,
-   and dogma is dead.) Cite key concepts with [DOCTRINE:x] tokens — the
-   registry lives in the Foreword and ONLY there; spend them sparingly,
-   for if everything is special, nothing is special.
+   and dogma is dead.) Reference registry concepts by their [DOCTRINE:x]
+   token EVERY time — never a paraphrase, never a duplicate
+   representation; the token is the concept's only legal name. The
+   registry lives in the Foreword and ONLY there, capped and rationed:
+   minting is scarce, citing is unconditional.
 6. Update this index: mark the entry WRITTEN with the filename. Branch,
    commit, open a PR, per the workspace git workflow.
 
