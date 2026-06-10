@@ -26,7 +26,7 @@ honestly, not in any one session's memory.
 ## II. How to read it
 
 Start here, then `the-index.md`, which holds the Rite of Orientation, the Form, and the
-fifteen entries with their binding kernels. Read doctrine documents in any order after
+entries with their binding kernels. Read doctrine documents in any order after
 that — each stands alone by construction. When a document disagrees with a kernel, the
 disagreement is recorded inside it as a **schism**, with reasons. Find the schisms and
 read them twice; they are where the book is most alive.
