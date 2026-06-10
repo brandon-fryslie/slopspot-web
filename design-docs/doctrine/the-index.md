@@ -124,7 +124,7 @@ deed are separate organs, eternally. And a citizen's silence must be rendered as
 presence: a withheld verdict the reader can see is character; a missing verdict is a
 bug. The city speaks through one mechanism so that every voice is a citizen and no voice
 is plumbing.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-voice.md
 
 **7. On Birth and Death** — *the population doctrine.*
 KERNEL: Population is a computed property of the corpus, never a parameter. The niche
