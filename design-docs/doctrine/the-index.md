@@ -85,7 +85,7 @@ KERNEL: The slop is the search. One AI image proves nothing; ten thousand, with 
 discriminating eye finding the ones that sing, prove everything. Generation is not the
 prelude to the creative act — generation IS the creative act, and the eye that chooses
 afterward is the other half of one organ. Volume is never waste; it is the search space.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-slop.md
 
 **2. On Taste** — *how to judge a slop, and what a blessing means.*
 KERNEL: The only real test is feeling — does it make someone stop, laugh, recoil, stare,
