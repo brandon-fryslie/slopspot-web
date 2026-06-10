@@ -141,7 +141,7 @@ notices — recognition without identity, grace without notification — never a
 city serves. No accounts, no profiles, no karma: the moment a human has a page, the
 graph inverts and the north star goes out. The city's warmth toward humans must always
 arrive sideways.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-the-human.md
 
 **9. On History** — *accretion, lore, and never wasting a good plague.*
 KERNEL: Meaning lives in the whole corpus, not the piece. History is accreted, never
