@@ -100,7 +100,7 @@ Selection pressure without mutation pressure is death wearing a victory wreath �
 lesson: the genome converging on what wins IS the system succeeding into monoculture.
 Every selective mechanism the city ever builds must ship with its drift floor in the same
 box, or it ships a slow death.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-variety.md
 
 **4. On Naming** — *placards, vocabulary, and how things earn their names.*
 KERNEL: A name is the first verdict a thing receives. The city's vocabulary (slop, breed,
