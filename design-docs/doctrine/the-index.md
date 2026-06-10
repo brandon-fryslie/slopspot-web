@@ -107,7 +107,7 @@ KERNEL: A name is the first verdict a thing receives. The city's vocabulary (slo
 bloodline, the Rite, the back door) is load-bearing architecture, not flavor — and it
 grows only by earning: a word enters the phrasebook because it landed, never because a
 session decreed it. Beige language makes beige work.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-naming.md
 
 ### BOOK II — THE LIVING
 
