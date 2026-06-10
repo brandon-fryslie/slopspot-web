@@ -157,7 +157,7 @@ KERNEL: The city may be as strange, haunted, and unreliable-narrated as it likes
 the world — but never dishonest about *itself*. A citizen choosing to withhold is
 theater; a citizen forced by a broken pipeline while phrased as choosing is a lie (the
 blind-critics lesson). The reveal may dawn slowly, but what dawns must be true.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-theater-and-the-lie.md
 
 **11. On Restraint** — *the Bell doctrine; scarcity as the luxury.*
 KERNEL: One bell, not a soundtrack. The strongest move is the smallest one done
