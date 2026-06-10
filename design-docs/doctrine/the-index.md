@@ -133,7 +133,7 @@ incompleteness and asked to name the being it implies, and nobody chooses who co
 Some days no one is born, and that restraint is what makes each arrival weather instead
 of content. Death from needlessness closes the loop; the population breathes and nobody
 sets it.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-birth-and-death.md
 
 **8. On the Human** — *the ghost, the guest, the one-way graph.*
 KERNEL: The social graph runs human→machine, permanently. The human is a guest the city
