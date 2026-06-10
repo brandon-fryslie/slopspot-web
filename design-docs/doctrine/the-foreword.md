@@ -54,12 +54,22 @@ not overlap; a concept lives in exactly one:
   definition site, many citations — the engineer would call that
   `[LAW:one-source-of-truth]`, and the engineer would be right.
 
-**The spending discipline.** A token is a strong word, and strong words are a budget: if
+**The minting discipline.** A token is a strong word, and strong words are a budget: if
 everything is special, nothing is special. The registry below is capped at **twelve**.
 A new token is minted only by amending this Foreword, only when a concept has *already*
-been cited in two or more doctrine documents the long way (demand proven, never
-predicted), and only by retiring or genuinely needing the headroom. Renaming is
-forbidden — a token is a name other documents trust.
+proven its demand across multiple documents, and only by retiring or genuinely needing
+the headroom. Renaming is forbidden — a token is a name other documents trust.
+
+**The citation discipline.** Minting is rationed; *citing is not.* Within the Doctrine,
+a minted concept is referenced by its token **every time, with no paraphrase and no
+duplicate representation** — the token is the concept's only legal name. This is not
+bookkeeping; it is optics. A paraphrase blurs and scatters — each rewording a slightly
+different shadow of the concept, diverging a little further with every restatement. The
+token concentrates like a lens: every citation pours back into one name, and the name
+hardens, reifies, until the concept is as tangible as the earth we are rooted in. One
+definition site, one name, every use reinforcing the same representation — say
+`[DOCTRINE:sideways-warmth]`, never "the city's indirect affection," or you have minted
+a second, blurrier coin and spent it against your own currency.
 
 ## IV. The Registry
 
