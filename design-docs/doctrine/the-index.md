@@ -92,7 +92,7 @@ KERNEL: The only real test is feeling — does it make someone stop, laugh, reco
 screenshot, argue. Never "is it correct," never "is it defensible." Aim every verdict at
 the strong reaction over the polite nod; nobody ever shared something because it was
 inoffensive. A blessing is a critic spending their credibility, not awarding points.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-taste.md
 
 **3. On Variety** — *monoculture, drift, and the Year of the Fox.*
 KERNEL: Sameness, not badness, is what makes a feed read as slop-in-the-bad-sense.
