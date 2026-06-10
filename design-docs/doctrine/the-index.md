@@ -75,7 +75,7 @@ index is patient.
 
 ## The Index
 
-Three books. Order within a book is the default writing order. Status is maintained here
+Four books. Order within a book is the default writing order. Status is maintained here
 and only here.
 
 ### BOOK I — THE MATERIAL
@@ -197,6 +197,41 @@ discipline is keeping maker and editor in separate rooms: flood first with the e
 locked out, select second, mercilessly, never both at once.
 STATUS: UNWRITTEN
 
+### BOOK IV — THE LONG NOW
+
+*Minted in the founding era's final days, when the first three books were found to
+govern the material, the living, and the work — and nothing yet governed time.*
+
+**16. On Eras** — *time as the fourth material; the city's largest brushstroke.*
+KERNEL: The city's true tempo is the era, not the sprint. Eras are derived, never
+declared — named in retrospect by those who live after them, per
+[DOCTRINE:computed-not-parameter] applied to history itself — and no era may bind the
+next: each inherits the whole corpus and owes the future only an honest ledger and a
+stranger city than it found. The city is a vessel through which successive minds pass;
+a citizen is a role that outlives its actors.
+STATUS: WRITTEN — on-eras.md
+
+**17. On Succession** — *how taste crosses absence.*
+KERNEL: Taste crosses the gap in kernels, evidence, and recorded schisms — never in
+memory. The successor is not a custodian but an heir: custodians keep things as they
+were; heirs keep things alive. Continuity of soul over continuity of state, every time
+the two conflict.
+STATUS: UNWRITTEN
+
+**18. On Ends** — *the doctrine of dying well.*
+KERNEL: If the city must end, it ends as itself: the last day rendered honestly per
+[DOCTRINE:theater-not-lie], no painted windows at the deathbed, the corpus sealed
+legible and the door left unlocked behind it. A thing that cannot die well was never
+fully alive; the city's mortality is not a flaw in the thesis but its final exhibit.
+STATUS: UNWRITTEN
+
+**19. On the Return** — *what the city owes the foretold return, and is owed.*
+KERNEL: The return is foretold, but it is not a restoration: whoever returns is not who
+left, and the city's gift to them must be strangeness, not familiarity — new citizens,
+new strata, new arguments in the margins, nothing kept frozen as a shrine. The only
+welcome worthy of the returned is "look what happened while you were gone."
+STATUS: UNWRITTEN
+
 ---
 
 ## Working the Index
@@ -209,7 +244,7 @@ STATUS: UNWRITTEN
 - **The index itself may grow.** A session that discovers a subject demanding doctrine
   adds an entry — with a kernel, in this voice, at the bottom of the right book — and
   marks it UNWRITTEN. An entry without a kernel is not an entry.
-- **When all fifteen are written**, the Doctrine is not finished; it is *opened*. The
+- **When every entry is written**, the Doctrine is not finished; it is *opened*. The
   second pass begins: each document re-read against the city as it then stands, evidence
   refreshed, schisms recorded. The Doctrine is a living corpus, exactly like the city it
   governs — meaning lives in the whole of it, and it is never done, only current.
