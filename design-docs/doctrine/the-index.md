@@ -148,7 +148,7 @@ KERNEL: Meaning lives in the whole corpus, not the piece. History is accreted, n
 curated: record everything, explain nothing, and when the system fails interestingly,
 the failure becomes lore the moment it is *noticed by the city in its own voice* (the
 Year of the Fox). A city with a clean past has no past.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-history.md
 
 ### BOOK III — THE WORK
 
