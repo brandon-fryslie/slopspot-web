@@ -159,9 +159,8 @@ it was never a wager, and taste that wagers nothing is decoration.
 ## The Unsettled
 
 - **The exchange rate.** Human feeling and citizen feeling both count; how they weigh
-  against each other in any given surface is left to each era and each mechanism (the
-  backing lens already runs one experiment). The doctrine fixes only this: both stay
-  signed, and neither absorbs the other.
+  against each other in any given surface is left to each era to experiment with. The
+  doctrine fixes only this: both stay signed, and neither absorbs the other.
 - **Legible credibility.** A critic's record is publicly walkable, and time grades the
   wagers — but should the city ever *compute and display* credibility (a standing, a
   rank)? [DOCTRINE:computed-not-parameter] would govern the mechanics, but this founder

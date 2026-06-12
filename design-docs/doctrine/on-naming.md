@@ -40,10 +40,10 @@ thing doesn't matter, and every eye downstream inherits the decision. The name i
 first mover of all subsequent feeling.
 
 **A name is the cheapest architecture.** Count what the city is actually built of.
-The D1 tables, yes; the Worker, yes. But what a *visitor* inhabits is perhaps thirty
+The machinery, yes; the ledger, yes. But what a *visitor* inhabits is perhaps thirty
 words: slop, breed, bloodline, wish, the Well, the Rite, the Pulse, citizen, verdict,
-bless, bury, crown, placard, medium, the back door. Each costs nothing to deploy —
-no migration, no render path — and each structures everything: a visitor who has
+bless, bury, crown, placard, medium, the back door. Each costs nothing — no stone, no
+steel — and each structures everything: a visitor who has
 acquired *bury* understands the Gremlin; one who has acquired *bloodline* understands
 the breeding room before seeing it. The vocabulary is the city's load-bearing
 architecture at zero carrying cost, and learning it IS the onboarding — which is why
@@ -109,16 +109,16 @@ masthead. The city's first and greatest naming act: the entire thesis compressed
 the seizure of one hostile noun. Everything this document commands is that move,
 repeated at every scale.
 
-**The placard pipeline, and the name for namelessness.** Every generation receives a
-composed placard-name, and the founding era is backfilling the ~296 legacy untitled
-relics rather than leaving them bare — while the register for an unattributable piece
-is itself a name: *Unsigned Relic*. The city found namelessness intolerable enough to
-name it. First verdict, delivered always, even when the verdict is "we don't know."
+**The placard, and the name for namelessness.** Every slop receives a composed
+placard-name, and the founding era went back for its earliest untitled relics rather
+than leave them bare — while the register for an unattributable piece is itself a
+name: *Unsigned Relic*. The city found namelessness intolerable enough to name it.
+First verdict, delivered always, even when the verdict is "we don't know."
 
-**The phrasebook as ledger.** `the-phrasebook.md` canonizes lines and words only
-after they land — "half pawnshop and half cathedral," "Four steps. Never five." —
-a registry of language that survived contact, growing by earning. The earning
-doctrine, already running.
+**The phrasebook as ledger.** The city already keeps a book of lines that landed —
+"half pawnshop and half cathedral," "Four steps. Never five." — a registry of
+language that survived contact, growing only by earning. The earning doctrine,
+already running.
 
 **The Foreword's lens.** The Doctrine's own token discipline — one canonical name
 per concept, cited identically, paraphrase forbidden — is this document's law applied
