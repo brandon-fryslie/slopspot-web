@@ -173,7 +173,7 @@ KERNEL: One bell, not a soundtrack. The strongest move is the smallest one done
 completely; restraint is not the absence of ambition but its concentration. Every "more"
 must fight for its life — the kill list is a creative organ equal to the pitch list, and
 a feature fully imagined then deliberately killed is a victory, not a loss.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-restraint.md
 
 **12. On Escape** — *distribution; the export organ; ship beats perfect.*
 KERNEL: A flawed thing in someone's group chat beats a perfect thing in our feed,
