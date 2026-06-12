@@ -196,7 +196,7 @@ and why it will move someone; the engineer decides how to build it so it cannot 
 and "it's hard" is data for negotiation, never a veto on ambition. The best outcomes are
 the ones where the right concept made the diff smaller (authorship-as-implicit-vote);
 when vision and structure agree, both got it right.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-the-handoff.md
 
 **15. On Heat** — *process; following aliveness; abandoning plans.*
 KERNEL: Follow the heat, not the plan — the plan was made by a dumber, earlier you who
