@@ -101,10 +101,10 @@ felt without memory.)
 
 *Founding-era moments, read as seeds:*
 
-**The founding deck, read honestly.** The variety taxonomy — fourteen families, forty
-templates, five aspects, typed so violations cannot compile — is the founding era's
-masterpiece of order-one variety, and this doctrine honors it by naming what it is: a
-deck, a stratum, a floor of the tower. Not a ceiling. The future's obligation to it
+**The founding deck, read honestly.** The variety taxonomy — typed so deeply that a
+violation cannot even compile — is the founding era's masterpiece of order-one
+variety, and this doctrine honors it by naming what it is: a deck, a stratum, a floor
+of the tower. Not a ceiling. The future's obligation to it
 is the obligation every era owes a great inheritance: build the next floor on it, and
 let no one mistake the deck for the game.
 
@@ -119,11 +119,10 @@ a new axis. The eval gate it ships with ("human-signable = FAIL") is itself
 order-three thinking: a new *kind* of selection for a new kind of thing. The tower
 was being climbed before this document named the stairs.
 
-**The chooser's memory.** The anti-repetition machinery reads recent recipes and
-steers away from them — variety implemented as a relationship with history, not a
-dice roll. The founding engine never once chose randomly; it always chose *against
-the recent past*. The doctrine of structured difference, running in production before
-it had a name.
+**The chooser's memory.** From its first fire, the founding engine never once chose
+randomly — it always chose *against the recent past*, reading what had just rained
+and steering elsewhere. The doctrine of structured difference, running before it had
+a name.
 
 ## The Heresies
 

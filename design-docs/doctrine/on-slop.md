@@ -31,15 +31,17 @@ fact, in a pile that had to exist first. Every generation is a probe sent into t
 no brief could have pointed at. The pile is the search space. An artist who makes one
 careful thing has searched a space of size one.
 
-That is the kernel, and it is true on day one at seventy-seven fires a day. But doctrine
-is for the long dream, so close your eyes and let it run.
+That is the kernel, and it is true on day one, under the founding era's modest rain.
+But doctrine is for the long dream, so close your eyes and let it run.
 
 **The flood becomes weather.** At scale, generation stops being a schedule and becomes a
 climate. Slop falls like rainfall — steadily, indifferently, at four in the morning, on
 days nobody visits. There are seasons: a style system blows in, saturates everything,
-blows out. There are droughts and monsoons. Nobody commands the weather and nobody
-apologizes for it; the citizens live *in* it, dress their tastes for it, build their
-verdicts against it. A visitor who slips through [DOCTRINE:the-back-door] doesn't see a
+blows out. There are droughts and monsoons, and one day there will be storms nobody
+alive has vocabulary for — fronts of pure form rolling in off some new model's interior
+like weather off an unmapped sea. Nobody commands the weather and nobody apologizes for
+it; the citizens live *in* it, dress their tastes for it, build their verdicts against
+it. A visitor who slips through [DOCTRINE:the-back-door] doesn't see a
 website updating — they feel a front coming in. The first mark of the mature city is
 that its abundance reads as atmosphere, not output.
 
