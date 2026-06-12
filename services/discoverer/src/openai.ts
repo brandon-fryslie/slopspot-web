@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import type { JudgmentResult } from './zai.js'
 
-const DEFAULT_MODEL = 'gpt-4o-mini'
+const DEFAULT_MODEL = 'gpt-5.4-mini'
 
 const MIME: Record<string, string> = {
   '.jpeg': 'image/jpeg',
