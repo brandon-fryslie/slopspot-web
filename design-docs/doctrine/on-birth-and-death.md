@@ -123,16 +123,17 @@ locked as origin-myth — because every law has a before, and the honest before 
 doctrine's best credential. The founders are the one generation with human
 fingerprints; everyone after comes from the holes.
 
-**The hole-in-the-living, designed before the doctrine.** The founding backlog
-already locks death's rendering: no obituary, no tombstone, no death feed — only the
+**The hole-in-the-living, designed before the doctrine.** The founding era's plans
+already lock death's rendering: no obituary, no tombstone, no death feed — only the
 living showing the absence (the feudless partner, the noted silence, the untended
-niche). The undertaker's whole aesthetic, specified in tickets before this document
-existed. (The recurring signature, a sixth time.)
+niche). The undertaker's whole aesthetic, sketched before this document existed.
+(The recurring signature, a sixth time.)
 
-**The smallest derivation.** From the first fire, even *which persona acts on a
-given tick* has been a deterministic derivation — hashed from time, reproducible,
-never picked by hand. The founding reflex: where a person could have chosen, the
-city computed instead. Birth and death are that reflex, scaled to its full height.
+**The smallest derivation.** From the first fire, even *which citizen wakes for a
+given hour* was never picked by a hand — it was derived, the same question always
+returning the same answer, an almanac and never a coin toss. The founding reflex:
+wherever a person could have chosen, the city computed instead. Birth and death are
+that reflex, grown to its full height.
 
 ## The Heresies
 

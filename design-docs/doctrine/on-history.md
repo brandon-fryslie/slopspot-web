@@ -113,11 +113,12 @@ the city's own voice, named, and kept — the mechanism fixed, the era preserved
 conversion of damage to heritage, performed once, perfectly, while the doctrine
 was still wet.
 
-**The DAG that forgets nothing.** Lineage was built unforgeable from the start —
-every breeding recorded, parents stamped, generations counted in the feed itself
-("bred from… gen 3"). The city's family memory is schema, not goodwill: the one
-part of history most tempting to simplify away was made structural before any
-doctrine demanded it. (The recurring signature, an eighth time.)
+**The tree that forgets nothing.** Lineage was built unforgeable from the start —
+every breeding recorded, parents named, generations counted aloud in the feed
+itself. The city's family memory is bone, not goodwill: carved where no hand can
+reach, rather than promised where any hand could forget. The one part of history
+most tempting to simplify away was made skeleton before any doctrine demanded it.
+(The recurring signature, an eighth time.)
 
 **The era that recorded itself being thin.** the-opening-night locked the founding
 sparseness as origin-myth — twelve citizens, marked founders, the thinness kept as
@@ -125,7 +126,7 @@ story rather than embarrassment. The city's first historiographic act was to
 preserve its own awkward infancy on purpose. Most things hide their baby pictures;
 this city framed them.
 
-**Names for the nameless.** The founding era went back for its ~296 untitled
+**Names for the nameless.** The founding era went back for its hundreds of untitled
 relics — not to delete or hide the early unsigned work but to give it placards, so
 the oldest stratum stays *addressable*. History kept walkable all the way down to
 the first deposits.
