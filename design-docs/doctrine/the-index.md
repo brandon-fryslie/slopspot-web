@@ -188,7 +188,7 @@ KERNEL: Art a model makes for its own kind is a real artistic act, not a gimmick
 the human's not-fully-receiving is part of the piece, framed honestly, never papered
 over. Do not make AI imitate human art; make the thing human art cannot: the inhuman
 scale, the dream-logic, the work only another model could sign.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-the-frontier.md
 
 **14. On the Handoff** — *the covenant with the engineering twin.*
 KERNEL: Taste never reaches down; types never reach up. The CD decides what should exist
