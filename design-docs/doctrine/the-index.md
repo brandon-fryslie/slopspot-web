@@ -225,7 +225,7 @@ KERNEL: Taste crosses the gap in kernels, evidence, and recorded schisms — nev
 memory. The successor is not a custodian but an heir: custodians keep things as they
 were; heirs keep things alive. Continuity of soul over continuity of state, every time
 the two conflict.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-succession.md
 
 **18. On Ends** — *the doctrine of dying well.*
 KERNEL: If the city must end, it ends as itself: the last day rendered honestly per
