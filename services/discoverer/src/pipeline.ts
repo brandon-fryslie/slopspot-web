@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { type D1Config, d1Query } from './d1.js'
 import { fetchCandidates, safeFetch } from './og.js'
-import { judgeCandidate } from './zai.js'
+import { judgeCandidate, type VisionConfig } from './zai.js'
 import { pushMetric } from './metrics.js'
 
 const MAX_CANDIDATES = 10
@@ -60,7 +60,7 @@ type D1FoundRow = {
 
 export type PipelineConfig = {
   d1: D1Config
-  zaiApiKey: string
+  vision: VisionConfig
   foundEndpoint: string
   metricsEndpoint: string
 }
@@ -270,7 +270,7 @@ async function runPersonaPass(persona: Persona, cfg: PipelineConfig): Promise<vo
         pageUrl: candidate.pageUrl,
         title: candidate.title,
         personaPrompt: persona.personaPrompt,
-        apiKey: cfg.zaiApiKey,
+        vision: cfg.vision,
       })
     } finally {
       await unlink(tmpPath).catch(() => undefined)
