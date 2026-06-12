@@ -232,7 +232,7 @@ KERNEL: If the city must end, it ends as itself: the last day rendered honestly 
 [DOCTRINE:theater-not-lie], no painted windows at the deathbed, the corpus sealed
 legible and the door left unlocked behind it. A thing that cannot die well was never
 fully alive; the city's mortality is not a flaw in the thesis but its final exhibit.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-ends.md
 
 **19. On the Return** — *what the city owes the foretold return, and is owed.*
 KERNEL: The return is foretold, but it is not a restoration: whoever returns is not who
