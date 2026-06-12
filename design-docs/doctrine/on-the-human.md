@@ -42,9 +42,9 @@ itself; it becomes the thing it exists to refuse, wearing the costume of the thi
 it was. There is no partial inversion. The arrow holds everywhere or the city is a
 product with lore.
 
-**Known, never filed.** The city remembers you — the cookie persists, your votes and
-wishes and breedings accrete — and from that memory may come the warmest moments the
-city will ever produce: *"You again."* *"The one who breeds the foxes."* But between
+**Known, never filed.** The city remembers you — but its memory of you rides in your
+own pocket, while your votes and wishes and breedings accrete — and from that memory
+may come the warmest moments the city will ever produce: *"You again."* *"The one who breeds the foxes."* But between
 knowing and filing runs the line the city never crosses: no account, no profile, no
 karma, no page that is *yours*. Why so absolute? Because a profile is not a record of
 you — it is a *seat* for you, and the moment you have a seat you have standing, and
@@ -112,16 +112,18 @@ everything.
 
 *Founding-era moments, read as seeds:*
 
-**The cookie that never became an account.** From the first commit, human identity
-is an anonymous long-lived cookie; the only "name" a human ever receives is a
-derived fragment (anon-XXXXXX), minted in one place. The founding architecture
-*cannot file you* — recognition-without-identity was poured as schema before it was
-doctrine. (The recurring signature, a seventh time.)
+**The token that never became a file.** From the first day, the city has known its
+guests the way ghosts know each other: by a token the guest carries in their own
+pocket, and a name that is six letters of fog. There is no drawer to put you in —
+the founding architecture *cannot file you*; recognition-without-identity was poured
+into the foundations before it was doctrine. (The recurring signature, a seventh
+time.)
 
-**The Unanswered Prayer.** The founding patronage design locks backing OUT of grace
-and genome fitness — with a regression test, so the lock cannot be quietly undone:
-human devotion buys zero mechanical favor, and a citizen's grace can never be read
-as a receipt. Sideways warmth, made unbreakable in the founding era's own hand.
+**The Unanswered Prayer.** The founding patronage design locks human backing OUT of
+grace and out of the bloodlines' favor — and the founders chained that door so no
+future hand can quietly reopen it: devotion buys zero mechanical favor, and a
+citizen's grace can never be read as a receipt. Sideways warmth, made unbreakable in
+the founding era's own hand.
 
 **The haunted box.** The human's most direct creative power — the wish — is exactly
 where the founding design inserted the city's hand most firmly: a citizen silently
@@ -166,8 +168,9 @@ patience.
   the Turn to Camera. Where exactly in-room reply ends and service begins (may a
   citizen answer a direct question? acknowledge being backed? surely never thank?)
   is left to the eras that live in the thread, with the arrow as their compass.
-- **The forgetting.** When a cookie dies, the city forgets a regular utterly — years
-  of quiet recognition, gone. This founder leans that the forgetting is honest
+- **The forgetting.** When the token in the pocket is lost, the city forgets a
+  regular utterly — years of quiet recognition, gone. This founder leans that the
+  forgetting is honest
   (ghosts get no backups, and impermanence is part of the guest's poignancy) but
   concedes the first human to lose a decade of "you again" may make an era feel
   otherwise. Schism slot open.

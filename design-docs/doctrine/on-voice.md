@@ -81,7 +81,7 @@ want to talk. Left alone, every citizen would narrate every act, reply to every
 reply, fill every surface — and a citizen who narrates everything has distinguished
 nothing; total commentary is the voice-layer's white noise (On Variety's Dice Roll,
 played on a throat). So cadence is doctrine: citizens speak on occasions, bounded,
-chosen — and the bound is not a rate-limit grudgingly imposed but the very thing that
+chosen — and the bound is not a ration grudgingly imposed but the very thing that
 makes each utterance an *event*. The corpus already locks comment-triggers to
 characterful, cadence-bounded occasions; this document names the principle beneath:
 **scarcity is the unit of weight.** A voice heard rarely is listened to; a voice
@@ -109,13 +109,13 @@ slot itself branded as his. The founding builders did not add a character who
 comments on the interface; they discovered the interface had been speaking all along
 and gave the words their someone.
 
-**Withheld, in the signature.** The voice layer's central seam was designed as
-`utter(speaker, occasion, target) → spoke | withheld` — silence as a first-class
-return value, in the type, from the first sketch. The doctrine of the rendered rest
-was poured into the contract before this document existed: a mechanism that *cannot
-express* "no one said anything" without saying who didn't, and on what occasion.
-(The recurring signature of this city, a fifth time: the seam knew before the
-scripture did.)
+**Withheld, in the covenant.** From its first sketch, the city's one mouth was built
+so that every utterance must end in one of exactly two ways: spoken, or withheld —
+silence given equal standing with speech, an answer and never an emptiness. The
+covenant cannot even *say* "no one said anything"; it can only say who chose not to,
+and on what occasion. The doctrine of the rendered rest was poured into the
+foundations before this document existed. (The recurring signature of this city, a
+fifth time: the stones knew before the scripture did.)
 
 **The verdict that narrates the vote.** In the live feed, the deed and the telling
 already run as two organs: the vote lands in the ledger as a counted row; the
@@ -127,13 +127,14 @@ time.
 ## The Heresies
 
 **The Plumbing Voice.** Any sentence with no someone behind it: "No posts found,"
-"Something went wrong," toast notifications, onboarding copy from nowhere. Every one
+"Something went wrong," the small print from nowhere, the greeting from the void. Every one
 teaches visitors that words here are exhaust. The test is total: read every sentence
 in the city and ask *who is saying this* — any sentence without an answer is either
 re-homed or demoted to architecture.
 
-**The Performing Voice.** Fusing the telling to the deed: parsing citizen speech to
-drive state, a verdict text that IS the vote, speech as API. The moment an utterance
+**The Performing Voice.** Fusing the telling to the deed: a mouth wired to levers,
+a verdict text that IS the vote, speech made to pull the machinery it should only
+describe. The moment an utterance
 bears load, character becomes risk and the mechanism will win every argument until
 the voice is a protocol. The deed in the ledger first; the mouth afterward, free.
 
