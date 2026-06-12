@@ -115,9 +115,9 @@ plague that taught the city its drift had to climb — and, per
 
 **The first perpendicular.** Beyond the Image — verse-objects, the city beginning to
 write — is the founding era reaching order two while still alive: not a new card,
-a new axis. The eval gate it ships with ("human-signable = FAIL") is itself
-order-three thinking: a new *kind* of selection for a new kind of thing. The tower
-was being climbed before this document named the stairs.
+a new axis. And the gate that work was born with — *if a human could have signed it,
+it dies* — is itself order-three thinking: a new kind of selection invented for a new
+kind of thing. The tower was being climbed before this document named the stairs.
 
 **The chooser's memory.** From its first fire, the founding engine never once chose
 randomly — it always chose *against the recent past*, reading what had just rained

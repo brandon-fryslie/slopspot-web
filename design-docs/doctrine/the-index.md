@@ -71,6 +71,15 @@ say why):
 Length: 150–300 lines. In voice. One document per session — depth over coverage; the
 index is patient.
 
+**And above all: speak metaphorically.** The Doctrine thrives on metaphor — the
+mechanism lives in the corpus and the code; the *meaning* lives in the image. A
+literal sentence closes the reader's mind around exactly what it says; a true
+metaphor opens it, and the reader finishes the thought themselves — that wondering
+is how beautiful things are made, and a doctrine that makes no one wonder governs no
+one. Write "the sum may seat the guests; it may never give the toast," never "score
+is never stored." If a sentence could appear in a technical README, it has wandered
+into the wrong book — send it home and write what it *means* instead.
+
 ---
 
 ## The Index
