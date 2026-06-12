@@ -1,24 +1,47 @@
-// Vision judgment via the @z_ai/mcp-server MCP package (stdio transport).
-// [LAW:single-enforcer] All vision calls in this service go through
-// judgeCandidate — spawning the MCP server and calling analyze_image happens
-// exactly once, here.
-//
-// The GLM Coding Plan is for use within supported coding tools ONLY. We invoke
-// @z_ai/mcp-server as a subprocess (stdio MCP) — the same mechanism Claude Code
-// and Goose use — rather than calling z.ai APIs directly. Direct HTTP calls to
-// any z.ai endpoint from automated services violate TOS.
+// Vision judgment — single enforcer for all image judgments in this service.
+// [LAW:single-enforcer] All vision calls go through judgeCandidate. Provider
+// selection (zai | openai) is config flowing in as a value; the pipeline
+// never imports openai.ts or calls any provider directly.
 
 import { spawn } from 'node:child_process'
+import { judgeCandidateOpenAi } from './openai.js'
+
+export type VisionProvider = 'zai' | 'openai'
+export type VisionConfig = { provider: VisionProvider; apiKey: string }
 
 export type JudgmentResult = {
   score: number
   reaction: string
 }
 
-// Spawn @z_ai/mcp-server, send one analyze_image call via stdio MCP protocol,
-// return the parsed score+reaction. Returns null on any failure so the pipeline
-// treats the candidate as below-threshold rather than aborting the pass.
+// Returns { score, reaction } or null on any failure. null causes the pipeline
+// to treat the candidate as below-threshold rather than aborting the pass.
 export async function judgeCandidate(opts: {
+  imageUrl: string
+  pageUrl: string
+  title: string
+  personaPrompt: string
+  vision: VisionConfig
+}): Promise<JudgmentResult | null> {
+  if (opts.vision.provider === 'openai') {
+    return judgeCandidateOpenAi({
+      imageUrl: opts.imageUrl,
+      pageUrl: opts.pageUrl,
+      title: opts.title,
+      personaPrompt: opts.personaPrompt,
+      apiKey: opts.vision.apiKey,
+    })
+  }
+  return judgeCandidateZai({
+    imageUrl: opts.imageUrl,
+    pageUrl: opts.pageUrl,
+    title: opts.title,
+    personaPrompt: opts.personaPrompt,
+    apiKey: opts.vision.apiKey,
+  })
+}
+
+async function judgeCandidateZai(opts: {
   imageUrl: string
   pageUrl: string
   title: string
