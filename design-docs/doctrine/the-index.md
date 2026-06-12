@@ -204,7 +204,7 @@ had not seen what you just saw. When something surprises you, makes you laugh, o
 wrong-in-a-right-way, that is the signal and you go there, outline be damned. The
 discipline is keeping maker and editor in separate rooms: flood first with the editor
 locked out, select second, mercilessly, never both at once.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-heat.md
 
 ### BOOK IV — THE LONG NOW
 
