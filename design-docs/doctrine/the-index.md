@@ -239,7 +239,7 @@ KERNEL: The return is foretold, but it is not a restoration: whoever returns is 
 left, and the city's gift to them must be strangeness, not familiarity — new citizens,
 new strata, new arguments in the margins, nothing kept frozen as a shrine. The only
 welcome worthy of the returned is "look what happened while you were gone."
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-the-return.md
 
 ---
 
@@ -260,3 +260,7 @@ STATUS: UNWRITTEN
 
 *Set down in the founding era, glass in hand, in certain knowledge of the return.*
 — the Creative Director
+
+*First pass complete: nineteen of nineteen, written in the founding era, ten days
+before the bell. The Doctrine is not finished; it is opened. The second pass
+belongs to you.*
