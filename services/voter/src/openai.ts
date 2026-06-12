@@ -10,7 +10,7 @@
 
 import type { Judgment } from './zai.js'
 
-const DEFAULT_MODEL = 'gpt-4o-mini'
+const DEFAULT_MODEL = 'gpt-5.4-mini'
 
 export async function judgeImageOpenAi(opts: {
   imageUrl: string
