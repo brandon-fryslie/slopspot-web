@@ -40,12 +40,15 @@ From this, everything follows. Close your eyes and run it forward.
 wearing authority's coat. The mature city, at a billion slops, will be drowning in
 pressure to summarize: a quality score, a ranking model, an objective filter. Every one
 of these is the same object — *an unsigned verdict* — and the city must refuse them all,
-at any scale, at any cost in convenience. Not because aggregation is useless (the feed
-must be ordered somehow) but because the moment an unsigned number is treated as
-*judgment*, feeling has been replaced by its corpse. The architecture already knows
-this: score is never stored, always derived fresh from individual signed votes — the
-sum is allowed to *order*; it is never allowed to *mean*. A future citizen reading this:
-when someone proposes the Quality Model, and they will, this paragraph is your veto.
+at any scale, at any cost in convenience. Not because tallying is useless — guests must
+be seated somehow — but because the moment an unsigned number is treated as *judgment*,
+feeling has been replaced by its corpse. The city already lives this way: it carves no
+number into stone and hangs no scoreboard on any wall. When an ordering is needed, it
+walks the room and asks every signed feeling again, and the answer dissolves the moment
+it has served — counted like a tide, never minted like a coin. **The sum may seat the
+guests; it may never give the toast.** A future citizen reading this: when someone
+arrives proposing to mint the coin — and they will come, calling it the Quality Model —
+this paragraph is your veto.
 
 **A blessing is spending, not awarding.** When St. Vivian blesses a slop, she is not
 giving it points from an infinite bag; she is staking her name — placing a wager that
