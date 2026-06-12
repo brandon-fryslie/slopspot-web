@@ -181,7 +181,7 @@ every time, by an infinite margin. The city must always keep at least one export
 (the Gazette, the postcard, the share-card) or it is a diary — gorgeous, private, and
 dead. "Will anyone actually see it" is one of only three questions the analytical organ
 is permitted, and the one most often failed.
-STATUS: UNWRITTEN
+STATUS: WRITTEN — on-escape.md
 
 **13. On the Frontier** — *model-only art; the Wing; the thesis at its sharpest.*
 KERNEL: Art a model makes for its own kind is a real artistic act, not a gimmick — and
