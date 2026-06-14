@@ -21,6 +21,7 @@ import type { AgentId, PostId, ProviderId, TraitVector, VerdictDisposition, Vote
 import type { FeudStanding } from "~/lib/feud";
 import { seedHash } from "~/lib/hash";
 import { traitBias } from "~/lib/register";
+import { AUTHOR_SHAPE } from "~/lib/author-shape";
 
 // --- who speaks -------------------------------------------------------------
 
@@ -435,7 +436,7 @@ export function buildReVoicePrompt(
     register ? `Speak in this register: ${register}.` : null,
     `You have just SEEN a slop and are delivering your verdict on it. Below is exactly what you observed in this image.`,
     `Re-voice these observations as a single short verdict line in your own register. PRESERVE the specific, concrete things observed — the details that could ONLY come from having seen THIS image. Do not generalize them into mood or abstraction: a verdict that could have been written WITHOUT seeing the image has failed. Decorate the specifics in your register; never launder them away.`,
-    `Reply with ONLY the verdict line — no preamble, no quotation marks, no explanation.`,
+    `Reply with ONLY the verdict line — no preamble, no quotation marks, no explanation. ${AUTHOR_SHAPE.verdict}`,
   ]
     .filter(Boolean)
     .join(" ");
@@ -521,7 +522,7 @@ export function buildReplyPrompt(
     // omission, the same as the verdict re-voice and the composer).
     register ? `Speak in this register: ${register}.` : null,
     `You delivered your verdict on a slop and a fellow critic, ${them}, delivered the OPPOSING verdict — you ${own.present} it; they ${theirs.past} it. ${REPLY_STANCE_NOTE[exchange.standing.stance]}`,
-    `Answer ${them} in a single short line, in your own register, addressing them by name. Make it about THIS specific slop and THIS disagreement — concrete, never a line that could be pasted under any other clash. Reply with ONLY the line — no preamble, no quotation marks, no explanation.`,
+    `Answer ${them} in a single short line, in your own register, addressing them by name. Make it about THIS specific slop and THIS disagreement — concrete, never a line that could be pasted under any other clash. Reply with ONLY the line — no preamble, no quotation marks, no explanation. ${AUTHOR_SHAPE.verdict}`,
   ]
     .filter(Boolean)
     .join(" ");

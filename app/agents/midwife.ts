@@ -23,17 +23,17 @@ import { proprietorRef } from '~/agents/rite'
 import { getLineageDag } from '~/db/genome-dag'
 import { recordUtterance } from '~/db/utterances'
 import { extractFirstJsonObject } from '~/firehose/composer'
+import { AUTHOR_SHAPE } from '~/lib/author-shape'
+import { getAuthor } from '~/lib/haiku'
 import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
 import { traitVectorSchema } from '~/lib/traits'
 import { utter, type Newcomer } from '~/lib/voice'
 import { emit } from '~/observability/metrics'
 import { realProviders } from '~/providers'
 
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
-// The model a newborn generator's own actions run on (composer/voice). Same family as the
-// midwife that authored it — the city speaks in one register.
-const MIDWIFE_PERSONA_MODEL = HAIKU_MODEL
-const REQUEST_TIMEOUT_MS = 20_000
+// The model a newborn generator's own actions run on (composer/voice). Same Haiku family as the
+// midwife transport that authored it (callHaiku in haiku.ts) — the city speaks in one register.
+const MIDWIFE_PERSONA_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 800
 
 // [LAW:variability-at-edges] Tuned HIGH so a skip is rare: each re-roll feeds the prior collision
@@ -264,15 +264,20 @@ export function buildMidwifePrompt(
       ? `You are BORN TO FILL A GAP. The city's art has been radiating toward a corner of taste that no citizen yet lives in: near austerity ${gap.austerity.toFixed(2)}, curse ${gap.curse.toFixed(2)}, density ${gap.density.toFixed(2)}, earnestness ${gap.earnestness.toFixed(2)}. Aim the newborn's trait vector NEAR there — you may vary, but lean hard into this under-watched region so the cast spreads across taste-space rather than clumping.`
       : null,
     priorReason ? `Your previous attempt was rejected: ${priorReason}. Author a MORE distinct citizen this time.` : null,
-    `Respond with ONLY minified JSON, no markdown fences, no preamble: {"displayName": "...", "handle": "lowercase-slug", "personaPrompt": "the citizen's private character bible — who they are, what they love, how they see — one rich paragraph", "creed": "one short punchy public line, a few words", "promptPrefix": "the citizen's authoring voice/tone, a short directive the composer steers by", "medium": "one of the provider ids above", "traits": {"austerity": 0.0, "curse": 0.0, "density": 0.0, "earnestness": 0.0}}`,
+    `Respond with ONLY minified JSON, no markdown fences, no preamble: {"displayName": "...", "handle": "lowercase-slug", "personaPrompt": "the citizen's private character bible — who they are, what they love, how they see — one rich paragraph", "creed": "one short punchy public line, a few words", "promptPrefix": "the citizen's authoring voice/tone, a short directive the composer steers by", "medium": "one of the provider ids above", "traits": {"austerity": 0.0, "curse": 0.0, "density": 0.0, "earnestness": 0.0}} ${AUTHOR_SHAPE.persona}`,
   ]
     .filter(Boolean)
     .join('\n\n')
 }
 
-// The LLM author call — the one I/O seam (the composer's call shape). Returns the raw response
-// text, or null on a missing key / HTTP error / timeout / empty body, so the orchestrator re-rolls
-// or skips. Like the composer's Haiku call, this seam is exercised live, not unit-mocked.
+// [LAW:single-enforcer] The LLM author call now goes through the ONE Anthropic seam (getAuthor →
+// callHaiku), not a second inline fetch — so the midwife shares the transport leaf's timeout, error
+// types, and account-health classification instead of forking them. [LAW:effects-at-boundaries] In
+// dev/staging + the test isolate getAuthor returns the deterministic fake, so the SUCCESS path (a
+// distinct citizen authored, parsed, gated, written) is reachable under test, not only the skip path.
+// Returns the raw response text, or null on any failure (missing key / HTTP error / timeout / empty
+// body all surface as a thrown value here), so the orchestrator re-rolls or skips — the contract the
+// re-roll loop reads is unchanged.
 async function authorPersona(
   env: Env,
   cast: readonly Persona[],
@@ -280,46 +285,14 @@ async function authorPersona(
   gap: TraitVector | null,
   priorReason: string | undefined,
 ): Promise<string | null> {
-  const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
-  if (!apiKey) {
-    console.warn('[birth] SLOPSPOT_ANTHROPIC_API_KEY not set — no citizen can be authored')
-    return null
-  }
-  const prompt = buildMidwifePrompt(cast, media, gap, priorReason)
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: HAIKU_MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: controller.signal,
+    return await getAuthor(env)({
+      user: buildMidwifePrompt(cast, media, gap, priorReason),
+      maxTokens: MAX_TOKENS,
     })
-    if (!resp.ok) {
-      console.error('[birth] Anthropic author call failed', { status: resp.status })
-      return null
-    }
-    type AnthropicMessage = { content: Array<{ type: string; text?: string }> }
-    const data = (await resp.json()) as AnthropicMessage
-    const text = data.content
-      .filter((b) => b.type === 'text' && b.text)
-      .map((b) => b.text!)
-      .join('')
-      .trim()
-    return text || null
   } catch (err) {
-    console.error('[birth] author call threw', { err })
+    console.error('[birth] author call failed — no citizen authored this attempt', { err })
     return null
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
 

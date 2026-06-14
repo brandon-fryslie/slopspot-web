@@ -9,7 +9,8 @@
 
 import { z } from 'zod'
 import type { TraitVector } from '~/lib/domain'
-import { AnthropicHttpError, MissingApiKeyError, callHaiku, classifyAnthropicHealth } from '~/lib/haiku'
+import { AnthropicHttpError, MissingApiKeyError, classifyAnthropicHealth, getAuthor } from '~/lib/haiku'
+import { AUTHOR_SHAPE } from '~/lib/author-shape'
 import { traitBias } from '~/lib/register'
 import { emit, emitAccountHealth } from '~/observability/metrics'
 import {
@@ -240,12 +241,12 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
         // name for the poem, the name the city would whisper about it. Never a description,
         // never the first line, never "Untitled".
         `Also give the piece a "title": a short, evocative name of a few words — the name the city would whisper about this poem. Not a description, not the first line, never "Untitled".`,
-        `Respond with ONLY minified JSON: {"title": "...", "prompt": "..."}. The "prompt" field holds the full poem text. No markdown fences, no preamble, no explanation.`,
+        `Respond with ONLY minified JSON: {"title": "...", "prompt": "..."}. The "prompt" field holds the full poem text. No markdown fences, no preamble, no explanation. ${AUTHOR_SHAPE.composed}`,
       ]
     : [
         maxLength ? `Keep the prompt under ${maxLength} characters.` : null,
         `Also give the piece a "title": a short, evocative placard NAME of a few words — the name a museum would nail over this thing if the museum worshipped garbage. Not a description, not the prompt restated, never "Untitled".`,
-        `Respond with ONLY minified JSON: {"title": "...", "prompt": "..."}. No markdown fences, no preamble, no explanation.`,
+        `Respond with ONLY minified JSON: {"title": "...", "prompt": "..."}. No markdown fences, no preamble, no explanation. ${AUTHOR_SHAPE.composed}`,
       ]
 
   const metaPrompt = [
@@ -282,7 +283,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     .join(' ')
 
   try {
-    const text = await callHaiku(env, { user: metaPrompt, maxTokens: tokens })
+    const text = await getAuthor(env)({ user: metaPrompt, maxTokens: tokens })
 
     // [LAW:types-are-the-program] Parse the LLM JSON at the trust boundary. Haiku
     // routinely wraps the object in a ```json … ``` markdown fence despite the

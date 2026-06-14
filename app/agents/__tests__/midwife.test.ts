@@ -286,6 +286,22 @@ describe('runBirth — daily, deterministic, observable', () => {
     // The cadence miss wrote NO citizen for the day.
     expect(await getPersona(env, bornAgentId(birthDayKey(ms)))).toBeNull()
   })
+
+  // [LAW:effects-at-boundaries] The SUCCESS path, reachable at last: SLOPSPOT_ENV='dev' selects the
+  // deterministic fake author (the -mock-provider move for the LLM), so runBirth → author → parse →
+  // distinctness → createPersona → debut all run for REAL against this D1 isolate; only the Anthropic
+  // call is faked. Before the seam existed, only the skip path above was reachable in CI.
+  it('births a DISTINCT citizen through the dev fake author (the wired success path)', async () => {
+    const devEnv = { ...env, SLOPSPOT_ENV: 'dev' } as Env
+    // A fresh UTC day no migration seeds, so the settled-check falls through to a real authoring pass.
+    const ms = Date.UTC(2027, 5, 15, 3, 0)
+    const result = await runBirth(devEnv, ms)
+    expect(result.kind).toBe('born')
+    // The citizen actually landed in D1 — a generator row on the day's deterministic id.
+    const born = await getPersona(env, bornAgentId(birthDayKey(ms)))
+    expect(born).not.toBeNull()
+    expect(born?.role).toBe('generator')
+  })
 })
 
 // [LAW:behavior-not-structure] The Birth Rite's contract against a real D1 isolate: the Proprietor (seeded
