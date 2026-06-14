@@ -5,7 +5,7 @@ import { z } from "zod"
 import { getBreedablePool, getFeedItemById } from "~/db/feed"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostId, type RenderablePost } from "~/lib/domain"
-import { breedPauseHeadline, forkPause } from "~/lib/breed-failure"
+import { forkPause, type BreedPause } from "~/lib/breed-failure"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The submit-side action lives
 // at /api/breed/:id (a resource route), mirroring fork's page/resource split (RR7's document-route
@@ -18,6 +18,18 @@ import { breedPauseHeadline, forkPause } from "~/lib/breed-failure"
 // image to show and a genome to cross). The loader projects each candidate to exactly what the
 // room renders — no nullable image, no "incomplete" payload reaching the component.
 type Slop = { id: string; shortId: string; title: string; imageUrl: string }
+
+// [LAW:decomposition] Voice copy lives with the surface that speaks it.
+// [LAW:types-are-the-program] Exhaustive over BreedPause; `tsc -b` enforces completeness.
+function breedPauseVoice(pause: BreedPause): string {
+  switch (pause.reason) {
+    case 'muse-unreachable': return 'breed paused — the spirit that re-authors the cross has gone quiet; try again shortly'
+    case 'muse-empty':       return 'breed paused — the muse came back empty-handed; try again'
+    case 'out-of-budget':    return 'breed paused — the city has spent all it has tonight; the breeding room reopens by morning'
+    case 'unknown':          return 'breed paused — something went wrong; try again shortly'
+    default: { const _: never = pause; return _ }
+  }
+}
 
 // Project a renderable post to a breedable Slop, or null if it carries no crossable phenotype.
 // Takes the RenderablePost base so both the permalink read (parent A) and the feed (mates) feed it.
@@ -91,7 +103,7 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
         // room's honest voice (the same pause vocabulary fork uses) and keep the raw status loud
         // in the console for diagnosis.
         console.error("breed failed", resp.status, await resp.text())
-        setPauseHeadline(breedPauseHeadline(forkPause(resp.status)))
+        setPauseHeadline(breedPauseVoice(forkPause(resp.status)))
         setPending(false)
         return
       }
@@ -99,7 +111,7 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
       navigate(`/p/${id}`)
     } catch (e) {
       console.error("breed failed", e)
-      setPauseHeadline(breedPauseHeadline(forkPause(0)))
+      setPauseHeadline(breedPauseVoice(forkPause(0)))
       setPending(false)
     }
   }
