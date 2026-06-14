@@ -44,28 +44,6 @@ export type BreedPause =
   // never to the visitor — this arm carries no detail field precisely so it cannot.
   | { readonly reason: 'unknown' }
 
-// [LAW:single-enforcer] The one place a breed failure becomes a USER-FACING line.
-// Every failure branch in the fork page funnels through here, so the breeding room's
-// voice can't drift per-callsite. [LAW:types-are-the-program] Exhaustive over
-// BreedPause — adding a reason without copy makes the `never` default reachable and
-// breaks `tsc -b`, so the copy table can never fall behind the reason set.
-export function breedPauseHeadline(pause: BreedPause): string {
-  switch (pause.reason) {
-    case 'muse-unreachable':
-      return 'fork paused — the spirit that re-authors your wish has gone quiet; try again shortly'
-    case 'muse-empty':
-      return 'fork paused — the muse came back empty-handed; try again'
-    case 'out-of-budget':
-      return 'fork paused — the city has spent all it has tonight; the forge reopens by morning'
-    case 'unknown':
-      return 'fork paused — something went wrong; try again shortly'
-    default: {
-      const _exhaustive: never = pause
-      return _exhaustive
-    }
-  }
-}
-
 // [LAW:dataflow-not-control-flow] The fork phase's HTTP status SELECTS a pause reason
 // from a data table — the same idiom as the well's status-keyed voice table. A new
 // status→reason pairing is one entry here, never a new branch at the call site; any

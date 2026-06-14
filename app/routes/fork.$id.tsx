@@ -14,7 +14,7 @@ import {
 } from "~/lib/domain"
 import { ASPECT_RATIOS, STYLE_FAMILIES, STYLE_FAMILY_PROMPT_SEEDS, renderTemplate } from "~/lib/variety"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
-import { breedPauseHeadline, forkPause, type BreedPause } from "~/lib/breed-failure"
+import { forkPause, type BreedPause } from "~/lib/breed-failure"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
 // submit-side action lives at /api/fork/:id (a resource route), matching the
@@ -51,13 +51,27 @@ const forkResponseSchema = z.object({ id: z.string().min(1) })
 // emits the token on its own line, so the stream always contains DELIMITER + \n.
 const REWRITE_DELIM = REWRITE_DELIMITER + "\n"
 
+// [LAW:decomposition] Voice copy lives with the surface that speaks it. Fork and breed
+// are separate pages with separate flows; their pause headlines are local to each.
+// [LAW:types-are-the-program] Exhaustive over BreedPause — a missing arm makes the
+// `never` default reachable and breaks `tsc -b`.
+function pauseHeadline(pause: BreedPause): string {
+  switch (pause.reason) {
+    case 'muse-unreachable': return 'fork paused — the spirit that re-authors your wish has gone quiet; try again shortly'
+    case 'muse-empty':       return 'fork paused — the muse came back empty-handed; try again'
+    case 'out-of-budget':    return 'fork paused — the city has spent all it has tonight; the forge reopens by morning'
+    case 'unknown':          return 'fork paused — something went wrong; try again shortly'
+    default: { const _: never = pause; return _ }
+  }
+}
+
 // [LAW:types-are-the-program] Carries a BreedPause through the throw so the single
 // catch sets the visitor-facing pause from DATA, never by string-matching an error
 // message. A throw that is NOT this — an unexpected JS error — is the `unknown` pause,
 // and its detail goes to the console; the visitor only ever sees the honest headline.
 // [LAW:no-silent-fallbacks] every failure that constructs one of these also logs the
 // raw status/detail to the console before throwing, so the failure stays loud for
-// diagnosis while the human hears the breeding room's voice.
+// diagnosis while the human hears the fork page's voice.
 class BreedPauseError extends Error {
   constructor(readonly pause: BreedPause) {
     super(pause.reason)
@@ -554,7 +568,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
 
         {pause !== null && (
           <p className="rounded border border-rose-400/30 bg-rose-400/5 px-3 py-2 font-mono text-[11px] text-rose-300/90">
-            {breedPauseHeadline(pause)}
+            {pauseHeadline(pause)}
           </p>
         )}
       </form>
