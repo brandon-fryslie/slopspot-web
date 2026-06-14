@@ -254,6 +254,20 @@ describe('createPersona — the single writer, idempotent on the agentId PK', ()
 })
 
 describe('runBirth — daily, deterministic, observable', () => {
+  it('a successful birth: the fake author creates a real citizen row (SLOPSPOT_ENV=dev)', async () => {
+    const ms = Date.UTC(2026, 0, 15, 3, 0)
+    const devEnv = { ...env, SLOPSPOT_ENV: 'dev' } as Env
+    const result = await runBirth(devEnv, ms)
+    // The fake author returns valid persona JSON → a new citizen row is written.
+    expect(result.kind).toBe('born')
+    if (result.kind !== 'born') return
+    // The born citizen exists in D1.
+    const citizen = await getPersona(devEnv, result.agentId)
+    expect(citizen).not.toBeNull()
+    expect(citizen?.agentId).toBe(result.agentId)
+    expect(citizen?.role).toBe('generator')
+  })
+
   it('a settled day short-circuits: an already-born day re-fires to no new citizen, no LLM call', async () => {
     const ms = Date.UTC(2026, 0, 2, 3, 0)
     const id = bornAgentId(birthDayKey(ms))
@@ -280,7 +294,8 @@ describe('runBirth — daily, deterministic, observable', () => {
 
   it('skips loudly (no fallback citizen) when no author is available', async () => {
     const ms = Date.UTC(2026, 0, 3, 3, 0)
-    // No Anthropic key → every authoring attempt yields null → an honest, observable skip.
+    // SLOPSPOT_ENV absent (not 'dev') → real transport selected; empty key → MissingApiKeyError
+    // thrown → authorPersona catches it and returns null → honest, observable skip.
     const noKeyEnv = { ...env, SLOPSPOT_ANTHROPIC_API_KEY: '' } as Env
     expect(await runBirth(noKeyEnv, ms)).toEqual({ kind: 'skipped', reason: 'llm' })
     // The cadence miss wrote NO citizen for the day.

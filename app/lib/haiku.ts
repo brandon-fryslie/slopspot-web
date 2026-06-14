@@ -55,6 +55,45 @@ export function classifyAnthropicHealth(err: unknown): AccountHealthPayload {
   return { status: 'degraded' }
 }
 
+// [LAW:effects-at-boundaries] In non-prod, getAuthor returns a deterministic fake that
+// exercises the domain path without a live Anthropic call — the same boundary substitution
+// the -mock image providers make. Same gate as realProviders(env): SLOPSPOT_ENV === 'prod'
+// uses the real transport; anything else (dev, staging, test isolate) uses the fake.
+//
+// The fake is shape-valid for each caller's parser:
+//   - midwife prompt always includes "You are the MIDWIFE" → returns valid persona JSON
+//   - re-voice calls always set opts.system → returns a short text line
+//   - composer prompts (no system, no MIDWIFE) → returns valid composer JSON
+//
+// [LAW:no-mode-explosion] No extra flag or second function — the env alone selects the
+// transport, and the prompt content selects the response corpus entry.
+const FAKE_PERSONA_SPEC = JSON.stringify({
+  displayName: 'The Archivist of Dust',
+  handle: 'archivist-of-dust',
+  personaPrompt:
+    'A citizen devoted to the overlooked — cataloguing the forgotten corners of taste with exhausting precision. Finds beauty in the mundane, tragedy in the ignored.',
+  creed: 'The overlooked is the holy.',
+  promptPrefix: 'Render as if unearthed from a forgotten archive:',
+  medium: 'fal-flux-mock',
+  traits: { austerity: 0.7, curse: 0.2, density: 0.5, earnestness: 0.8 },
+})
+const FAKE_COMPOSER_SLOP = JSON.stringify({
+  prompt:
+    'A luminous digital still of shattered glass caught mid-fall, each shard reflecting a different forgotten world, cold blue light, hyperreal.',
+  title: 'Shard Archive',
+})
+const FAKE_REVOICE_TEXT =
+  'This image carries the weight of machine memory — precise and cold, as if the algorithm itself mourned what it made.'
+
+export function getAuthor(env: Env): (opts: HaikuOptions) => Promise<string> {
+  if (env.SLOPSPOT_ENV !== 'dev') return (opts) => callHaiku(env, opts)
+  return (opts) => {
+    if (opts.user.includes('You are the MIDWIFE')) return Promise.resolve(FAKE_PERSONA_SPEC)
+    if (opts.system !== undefined) return Promise.resolve(FAKE_REVOICE_TEXT)
+    return Promise.resolve(FAKE_COMPOSER_SLOP)
+  }
+}
+
 // [LAW:single-enforcer] One Haiku call: env + options → raw text response. Throws
 // MissingApiKeyError when the key is absent; throws AnthropicHttpError on a non-2xx
 // response; throws on an empty text block; throws on timeout (aborted signal). The

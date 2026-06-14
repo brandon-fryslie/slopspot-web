@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 import type { TraitVector } from '~/lib/domain'
-import { AnthropicHttpError, MissingApiKeyError, callHaiku, classifyAnthropicHealth } from '~/lib/haiku'
+import { AnthropicHttpError, MissingApiKeyError, getAuthor, classifyAnthropicHealth } from '~/lib/haiku'
 import { traitBias } from '~/lib/register'
 import { emit, emitAccountHealth } from '~/observability/metrics'
 import {
@@ -282,7 +282,7 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     .join(' ')
 
   try {
-    const text = await callHaiku(env, { user: metaPrompt, maxTokens: tokens })
+    const text = await getAuthor(env)({ user: metaPrompt, maxTokens: tokens })
 
     // [LAW:types-are-the-program] Parse the LLM JSON at the trust boundary. Haiku
     // routinely wraps the object in a ```json … ``` markdown fence despite the
