@@ -1,22 +1,39 @@
-// Vision scoring via the @z_ai/mcp-server MCP package (stdio transport).
-// [LAW:single-enforcer] All vision calls in this service go through
-// judgeImage — spawning the MCP server and calling analyze_image happens
-// exactly once, here.
-//
-// The GLM Coding Plan is for use within supported coding tools ONLY. We invoke
-// @z_ai/mcp-server as a subprocess (stdio MCP) — the same mechanism Claude Code
-// and Goose use — rather than calling z.ai APIs directly. Direct HTTP calls to
-// any z.ai endpoint from automated services violate TOS.
+// Vision scoring — single enforcer for all image judgments in this service.
+// [LAW:single-enforcer] All vision calls go through judgeImage. Provider
+// selection (zai | openai) is config flowing in as a value; the pipeline
+// never imports openai.ts or calls any provider directly.
 
 import { spawn } from 'node:child_process'
+import { judgeImageOpenAi } from './openai.js'
+
+export type VisionProvider = 'zai' | 'openai'
+export type VisionConfig = { provider: VisionProvider; apiKey: string }
 
 export type Judgment = { score: number; reasoning: string }
 
-// Returns { score, reasoning } or null if the MCP call fails or returns an
-// unparseable response. null causes the pipeline to skip this candidate.
-// Both fields are always present together — the type forbids "score without
-// reasoning" at the call site. [LAW:types-are-the-program]
+// Returns { score, reasoning } or null on any failure. null causes the
+// pipeline to skip this candidate. [LAW:types-are-the-program] — both fields
+// are always present together; the type forbids "score without reasoning."
 export async function judgeImage(opts: {
+  imageUrl: string
+  personaPrompt: string
+  vision: VisionConfig
+}): Promise<Judgment | null> {
+  if (opts.vision.provider === 'openai') {
+    return judgeImageOpenAi({
+      imageUrl: opts.imageUrl,
+      personaPrompt: opts.personaPrompt,
+      apiKey: opts.vision.apiKey,
+    })
+  }
+  return judgeImageZai({
+    imageUrl: opts.imageUrl,
+    personaPrompt: opts.personaPrompt,
+    apiKey: opts.vision.apiKey,
+  })
+}
+
+async function judgeImageZai(opts: {
   imageUrl: string
   personaPrompt: string
   apiKey: string
@@ -45,10 +62,8 @@ export async function judgeImage(opts: {
   const reasoningLine = lines[1] ?? ''
 
   // [LAW:types-are-the-program] Strict parse: score and reasoning must both
-  // be present — a missing reasoning line is treated as an unparseable response
-  // rather than fabricated. The return type pairs them atomically; returning
-  // null forces the pipeline to skip this candidate rather than log or persist
-  // synthetic text.
+  // be present — a missing reasoning line is treated as unparseable rather
+  // than fabricated.
   const parsed = /^\d{1,3}$/.test(scoreLine) ? parseInt(scoreLine, 10) : NaN
   if (isNaN(parsed) || parsed < 0 || parsed > 100 || !reasoningLine) {
     console.warn('voter: unparseable response from MCP', { reply: reply.slice(0, 200) })
