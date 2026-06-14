@@ -6,9 +6,9 @@ import { emitAccountHealth, type AccountHealthPayload } from "~/observability/me
 import type { GenerationProvider } from "./types"
 
 // [LAW:single-enforcer] Classification for fal.ai call outcomes → account-health axis.
-// ApiError carries a typed .status so the mapping is purely data-driven. No second
-// classifier exists for fal outside this file.
-function classifyFalHealth(err: unknown): AccountHealthPayload {
+// ApiError carries a typed .status so the mapping is purely data-driven. Exported
+// so fal-based providers (flux/dev, etc.) share one classifier without a second copy.
+export function classifyFalHealth(err: unknown): AccountHealthPayload {
   if (err instanceof ApiError) {
     if (err.status === 401 || err.status === 403) return { status: 'down', reason: 'auth' }
     if (err.status === 402) return { status: 'down', reason: 'payment' }

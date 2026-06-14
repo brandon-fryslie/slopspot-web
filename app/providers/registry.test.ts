@@ -69,7 +69,10 @@ describe('provider registry', () => {
       // Real providers from the global registration in ~/providers.
       expect(ids).toEqual([
         'fal-flux',
+        'fal-flux-dev',
+        'openai-dalle',
         'replicate-ideogram',
+        'replicate-recraft',
         'replicate-sdxl',
         'verse',
       ])
@@ -78,7 +81,7 @@ describe('provider registry', () => {
     it("includes mocks when SLOPSPOT_ENV !== 'prod' (dev mode)", () => {
       const env = { SLOPSPOT_ENV: 'dev' } as unknown as Env
       const ids = realProviders(env).map((p) => String(p.id))
-      // All 6 providers (3 real + 3 mock) are eligible in dev.
+      // All real+mock providers are eligible in dev.
       expect(ids).toContain('fal-flux-mock')
       expect(ids).toContain('replicate-sdxl-mock')
       expect(ids).toContain('replicate-ideogram-mock')
