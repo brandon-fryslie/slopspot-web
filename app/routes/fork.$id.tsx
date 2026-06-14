@@ -219,7 +219,14 @@ export async function loader({
     supportedAspectRatiosPerProvider,
     prompt: genome.utterance,
     styleFamily: genome.genes.species,
-    aspectRatio: genome.genes.frame,
+    // [LAW:types-are-the-program] Clamp to the initial provider's supported set so
+    // the component's initial state is always valid — the parent's ratio may not be
+    // in the set if the parent's provider was deregistered and a different real
+    // provider is now selected as the default.
+    aspectRatio: (supportedAspectRatiosPerProvider[genome.genes.medium] ?? ASPECT_RATIOS)
+      .includes(genome.genes.frame)
+      ? genome.genes.frame
+      : (supportedAspectRatiosPerProvider[genome.genes.medium]?.[0] ?? ASPECT_RATIOS[0]),
     subject: genome.genes.form,
     // [LAW:one-source-of-truth] renderTemplate is the shared filler that
     // resolves `{slot}` placeholders into vocab values and normalizes a/an
