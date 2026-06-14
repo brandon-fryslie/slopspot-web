@@ -1,4 +1,4 @@
-name: AI Code Review with Z.ai
+name: Code Review
 
 on:
   pull_request:
