@@ -2,11 +2,7 @@ import { createRequestHandler } from "react-router"
 import { runBankGen } from "./bank-gen"
 import { runScheduled } from "~/firehose/scheduled"
 import { runGenJobs, type GenJob } from "~/firehose/gen-queue"
-import { runPortraitPass } from "~/agents/portrait"
-import { runRite } from "~/agents/rite"
-import { runBirth } from "~/agents/midwife"
-import { maybeDecreeFirstPoet } from "~/agents/firstPoet"
-import { runGrace } from "~/agents/grace"
+import { CEREMONIES } from "~/agents/ceremonies"
 import { emit } from "~/observability/metrics"
 import { normalizeRoute } from "~/observability/route-normalizer"
 
@@ -67,48 +63,16 @@ export default {
       return
     }
     if (event.cron === '0 3 * * *') {
-      // [LAW:dataflow-not-control-flow] The daily ceremonies run as INDEPENDENT jobs,
-      // each in its own catch so one's failure cannot abort the others or kill the
-      // worker. They share only the trigger, not state — the portrait pass drifts the
-      // Cast faces (roll-call-47p.6); the Rite crowns the city's own (the-daily-rite.md);
-      // the midwife births a citizen; the First-Poet rite decrees the first poet. All
-      // are LIGHT (tens of subrequests total), so they share one invocation's budget —
-      // the bulk bank-gen that once starved them now runs in its own invocation (02:00).
-      try {
-        await runPortraitPass(env, event.scheduledTime)
-      } catch (err) {
-        console.error('portrait.pass: unhandled error', { cron: event.cron }, err)
-      }
-      try {
-        await runRite(env, event.scheduledTime)
-      } catch (err) {
-        console.error('rite: unhandled error', { cron: event.cron }, err)
-      }
-      try {
-        // The Growing Cast: the midwife births one new citizen a day (the-growing-cast,
-        // slopspot-growing-cast-7ni.1) — folded onto the same daily tick, its own catch so a
-        // failed birth cannot abort the rite/portrait/bank-gen beside it.
-        await runBirth(env, event.scheduledTime)
-      } catch (err) {
-        console.error('birth: unhandled error', { cron: event.cron }, err)
-      }
-      try {
-        // [LAW:dataflow-not-control-flow] The First-Poet Rite — runs UNCONDITIONALLY, AFTER the birth and
-        // in its own catch, never inside the birth event. It reads STATE (is there a verse-citizen, has the
-        // honor been recorded) and the data decides whether to decree — so a poet born THIS tick is marked
-        // now (reading the row the birth just wrote) and a poet born before this ceremony existed is caught
-        // on the next tick. Its failure cannot abort the birth/rite beside it (slopspot-beyond-image-poj.4).
-        await maybeDecreeFirstPoet(env)
-      } catch (err) {
-        console.error('first-poet: unhandled error', { cron: event.cron }, err)
-      }
-      try {
-        // The Patronage's Grace pass — a citizen may, rarely, choose a human (slopspot-patronage-ts7.8).
-        // Folded onto the same daily tick in its OWN catch so a grace failure cannot abort the
-        // rite/birth/first-poet beside it. Backings-blind by construction (lib/grace's corpus type).
-        await runGrace(env, event.scheduledTime)
-      } catch (err) {
-        console.error('grace: unhandled error', { cron: event.cron }, err)
+      // [LAW:dataflow-not-control-flow][LAW:one-source-of-truth] Ceremonies are INDEPENDENT
+      // jobs — each in its own catch so one's failure cannot abort the others or kill the
+      // worker. The ordered list lives in ~/agents/ceremonies; dispatch, tests, and the
+      // staging actuator all loop the same registry.
+      for (const ceremony of CEREMONIES) {
+        try {
+          await ceremony.run(env, event.scheduledTime)
+        } catch (err) {
+          console.error(`${ceremony.name}: unhandled error`, { cron: event.cron }, err)
+        }
       }
       return
     }
