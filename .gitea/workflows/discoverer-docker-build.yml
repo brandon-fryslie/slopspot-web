@@ -1,0 +1,28 @@
+# Builds and pushes the slopspot-discoverer Docker image to the homelab registry.
+# Triggers on any change under services/discoverer/. The Nomad periodic job pulls
+# :latest on each alloc start — no tag management needed for a batch job.
+
+name: discoverer-docker-build
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'services/discoverer/**'
+      - '.gitea/workflows/discoverer-docker-build.yml'
+  workflow_dispatch:
+
+env:
+  IMAGE: registry.sanctuary.gdn/slopspot-discoverer
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and push
+        run: |
+          docker build -t "${{ env.IMAGE }}:latest" services/discoverer/
+          docker push "${{ env.IMAGE }}:latest"

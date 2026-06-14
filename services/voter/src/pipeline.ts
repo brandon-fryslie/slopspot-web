@@ -10,7 +10,7 @@
 
 import { z } from 'zod'
 import { type D1Config, d1Query } from './d1.js'
-import { judgeImage, type Judgment } from './zai.js'
+import { judgeImage, type Judgment, type VisionConfig } from './zai.js'
 import { pushMetric } from './metrics.js'
 import { shouldFireNow } from './scheduler.js'
 
@@ -106,7 +106,7 @@ type D1PersonaRow = {
 
 export type PipelineConfig = {
   d1: D1Config
-  zaiApiKey: string
+  vision: VisionConfig
   siteUrl: string
   metricsEndpoint: string
 }
@@ -235,7 +235,7 @@ async function judgeAndVote(
 
   let judgment: Judgment | null
   try {
-    judgment = await judgeImage({ imageUrl: url, personaPrompt: persona.personaPrompt, apiKey: cfg.zaiApiKey })
+    judgment = await judgeImage({ imageUrl: url, personaPrompt: persona.personaPrompt, vision: cfg.vision })
   } catch (err) {
     console.error('voter: vision failed; skipping', { agentId: persona.agentId, postId, error: String(err) })
     return
