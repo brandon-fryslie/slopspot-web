@@ -268,6 +268,14 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   // The non-null assertion surfaces that assumption loudly. [LAW:no-defensive-null-guards]
   const allowedAspectRatios: AspectRatio[] =
     loaderData.supportedAspectRatiosPerProvider[providerId]!
+  // [LAW:types-are-the-program] Derive the submit-safe ratio at render time so the POST
+  // body and select value are ALWAYS in allowedAspectRatios regardless of how aspectRatio
+  // state was set. aspectRatio state is the user's preference; safeAspectRatio is what
+  // actually submits — the illegal state (submitting a ratio the provider rejects) is
+  // unrepresentable by construction, not guarded at submit time.
+  const safeAspectRatio: AspectRatio = allowedAspectRatios.includes(aspectRatio)
+    ? aspectRatio
+    : allowedAspectRatios[0]
 
   function handleProviderChange(newProviderId: string) {
     setProviderId(newProviderId)
@@ -321,7 +329,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       const rewriteRes = await fetch("/api/rewrite-prompt", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: seed, styleFamily, aspectRatio }),
+        body: JSON.stringify({ prompt: seed, styleFamily, aspectRatio: safeAspectRatio }),
         signal: abort.signal,
       })
 
@@ -407,7 +415,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         body: JSON.stringify({
           prompt: submittablePrompt,
           styleFamily,
-          aspectRatio,
+          aspectRatio: safeAspectRatio,
           providerId,
         }),
         signal: abort.signal,
@@ -548,7 +556,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
 
         <Field label="aspect ratio">
           <select
-            value={aspectRatio}
+            value={safeAspectRatio}
             onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
             disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
