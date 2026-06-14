@@ -36,6 +36,36 @@ const cases: ProviderCase[] = [
     overLongPromptLength: 501,
   },
   {
+    id: 'fal-flux-dev',
+    minimalValid: { prompt: 'hello', steps: 1 },
+    overLongPromptLength: 501,
+  },
+  {
+    id: 'fal-flux-dev-mock',
+    minimalValid: { prompt: 'hello', steps: 1 },
+    overLongPromptLength: 501,
+  },
+  {
+    id: 'replicate-recraft',
+    minimalValid: { prompt: 'hello' },
+    overLongPromptLength: 1001,
+  },
+  {
+    id: 'replicate-recraft-mock',
+    minimalValid: { prompt: 'hello' },
+    overLongPromptLength: 1001,
+  },
+  {
+    id: 'openai-dalle',
+    minimalValid: { prompt: 'hello' },
+    overLongPromptLength: 4001,
+  },
+  {
+    id: 'openai-dalle-mock',
+    minimalValid: { prompt: 'hello' },
+    overLongPromptLength: 4001,
+  },
+  {
     id: 'replicate-sdxl',
     minimalValid: { prompt: 'hello', guidanceScale: 7.5 },
     overLongPromptLength: 1001,
