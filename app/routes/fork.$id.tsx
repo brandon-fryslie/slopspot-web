@@ -14,7 +14,7 @@ import {
 } from "~/lib/domain"
 import { ASPECT_RATIOS, STYLE_FAMILIES, STYLE_FAMILY_PROMPT_SEEDS, renderTemplate } from "~/lib/variety"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
-import { breedPauseHeadline, forkPause, type BreedPause } from "~/lib/breed-failure"
+import { forkPause, type BreedPause } from "~/lib/breed-failure"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
 // submit-side action lives at /api/fork/:id (a resource route), matching the
@@ -51,13 +51,27 @@ const forkResponseSchema = z.object({ id: z.string().min(1) })
 // emits the token on its own line, so the stream always contains DELIMITER + \n.
 const REWRITE_DELIM = REWRITE_DELIMITER + "\n"
 
+// [LAW:decomposition] Voice copy lives with the surface that speaks it. Fork and breed
+// are separate pages with separate flows; their pause headlines are local to each.
+// [LAW:types-are-the-program] Exhaustive over BreedPause — a missing arm makes the
+// `never` default reachable and breaks `tsc -b`.
+function pauseHeadline(pause: BreedPause): string {
+  switch (pause.reason) {
+    case 'muse-unreachable': return 'fork paused — the spirit that re-authors your wish has gone quiet; try again shortly'
+    case 'muse-empty':       return 'fork paused — the muse came back empty-handed; try again'
+    case 'out-of-budget':    return 'fork paused — the city has spent all it has tonight; the forge reopens by morning'
+    case 'unknown':          return 'fork paused — something went wrong; try again shortly'
+    default: { const _: never = pause; return _ }
+  }
+}
+
 // [LAW:types-are-the-program] Carries a BreedPause through the throw so the single
 // catch sets the visitor-facing pause from DATA, never by string-matching an error
 // message. A throw that is NOT this — an unexpected JS error — is the `unknown` pause,
 // and its detail goes to the console; the visitor only ever sees the honest headline.
 // [LAW:no-silent-fallbacks] every failure that constructs one of these also logs the
 // raw status/detail to the console before throwing, so the failure stays loud for
-// diagnosis while the human hears the breeding room's voice.
+// diagnosis while the human hears the fork page's voice.
 class BreedPauseError extends Error {
   constructor(readonly pause: BreedPause) {
     super(pause.reason)
@@ -96,6 +110,12 @@ type LoaderData = {
   // The wire schema in api.fork.$id.ts validates against PROMPT_MAX (the
   // union ceiling) so cross-provider submissions always pass validation.
   promptMaxPerProvider: Record<string, number>
+  // [LAW:types-are-the-program] Per-provider supported aspect ratios. The
+  // aspect ratio selector filters to this set when the user switches providers
+  // so the form can never submit a ratio the provider rejects at generate() time.
+  // Mirrors promptMaxPerProvider — the constraint lives at the seam, not as a
+  // runtime throw inside the provider.
+  supportedAspectRatiosPerProvider: Record<string, AspectRatio[]>
   prompt: string
   styleFamily: StyleFamily
   aspectRatio: AspectRatio
@@ -166,6 +186,21 @@ export async function loader({
   const promptMaxPerProvider: Record<string, number> = Object.fromEntries(
     available.map((p) => [p.id, p.promptMaxLength ?? PROMPT_MAX]),
   )
+  // [LAW:types-are-the-program] Provider-declared aspect ratio limits flow into the
+  // form so the selector only shows ratios the chosen provider can generate. Without
+  // this, selecting DALL-E 3 with a 4:3 or 3:4 ratio submits an unsupported value
+  // that throws inside generate() → 502 → visible error. The constraint belongs at
+  // the seam (this type), not as a runtime guard inside the provider.
+  // [LAW:types-are-the-program] Every selectable provider (including the disabled fallback
+  // for a deregistered parent provider) has an explicit entry so the component never needs a
+  // ?? fallback that would silently widen the selector back to all ratios. Disabled providers
+  // use ASPECT_RATIOS — they cannot submit anyway, so any ratio is equally safe there.
+  const supportedAspectRatiosPerProvider: Record<string, AspectRatio[]> = {
+    ...Object.fromEntries(available.map((p) => [p.id, [...p.supportedAspectRatios]])),
+    ...providers
+      .filter((p) => p.disabled)
+      .reduce<Record<string, AspectRatio[]>>((acc, p) => { acc[p.id] = [...ASPECT_RATIOS]; return acc }, {}),
+  }
 
   // [LAW:types-are-the-program] parentPersonaId is carried into the loader shape so
   // the UI can detect when a different citizen's medium is selected without an extra
@@ -181,9 +216,17 @@ export async function loader({
     providerId: genome.genes.medium,
     providers,
     promptMaxPerProvider,
+    supportedAspectRatiosPerProvider,
     prompt: genome.utterance,
     styleFamily: genome.genes.species,
-    aspectRatio: genome.genes.frame,
+    // [LAW:types-are-the-program] Clamp to the initial provider's supported set so
+    // the component's initial state is always valid — the parent's ratio may not be
+    // in the set if the parent's provider was deregistered and a different real
+    // provider is now selected as the default.
+    aspectRatio: (supportedAspectRatiosPerProvider[genome.genes.medium] ?? ASPECT_RATIOS)
+      .includes(genome.genes.frame)
+      ? genome.genes.frame
+      : (supportedAspectRatiosPerProvider[genome.genes.medium]?.[0] ?? ASPECT_RATIOS[0]),
     subject: genome.genes.form,
     // [LAW:one-source-of-truth] renderTemplate is the shared filler that
     // resolves `{slot}` placeholders into vocab values and normalizes a/an
@@ -215,6 +258,33 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
     && selectedProviderOption?.personaAgentId !== loaderData.parentPersonaId
   const [styleFamily, setStyleFamily] = useState<StyleFamily>(loaderData.styleFamily)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(loaderData.aspectRatio)
+  // [LAW:types-are-the-program] Derive the allowed aspect ratios from the selected
+  // provider. When the user switches providers, any currently-selected ratio that is
+  // not in the new provider's set gets clamped to the first supported one — the illegal
+  // state (selected ratio ∉ provider.supportedAspectRatios) is prevented in the value,
+  // not caught at generate() time.
+  // [LAW:types-are-the-program] Every provider (including disabled) has an entry in the map
+  // built by the loader, so a missing key is a loader bug, not a runtime variant to handle.
+  // The non-null assertion surfaces that assumption loudly. [LAW:no-defensive-null-guards]
+  const allowedAspectRatios: AspectRatio[] =
+    loaderData.supportedAspectRatiosPerProvider[providerId]!
+  // [LAW:types-are-the-program] Derive the submit-safe ratio at render time so the POST
+  // body and select value are ALWAYS in allowedAspectRatios regardless of how aspectRatio
+  // state was set. aspectRatio state is the user's preference; safeAspectRatio is what
+  // actually submits — the illegal state (submitting a ratio the provider rejects) is
+  // unrepresentable by construction, not guarded at submit time.
+  const safeAspectRatio: AspectRatio = allowedAspectRatios.includes(aspectRatio)
+    ? aspectRatio
+    : allowedAspectRatios[0]
+
+  function handleProviderChange(newProviderId: string) {
+    setProviderId(newProviderId)
+    const supported = loaderData.supportedAspectRatiosPerProvider[newProviderId]!
+    // [LAW:dataflow-not-control-flow] variability lives in the value, not in whether
+    // setAspectRatio runs — always call it; the ternary picks which ratio to keep.
+    setAspectRatio(supported.includes(aspectRatio) ? aspectRatio : supported[0])
+  }
+
   const [phase, setPhase] = useState<Phase>("editing")
   const [thinkingText, setThinkingText] = useState("")
   // [LAW:types-are-the-program] The error state is a BreedPause, not a string —
@@ -259,7 +329,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       const rewriteRes = await fetch("/api/rewrite-prompt", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: seed, styleFamily, aspectRatio }),
+        body: JSON.stringify({ prompt: seed, styleFamily, aspectRatio: safeAspectRatio }),
         signal: abort.signal,
       })
 
@@ -345,7 +415,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         body: JSON.stringify({
           prompt: submittablePrompt,
           styleFamily,
-          aspectRatio,
+          aspectRatio: safeAspectRatio,
           providerId,
         }),
         signal: abort.signal,
@@ -415,7 +485,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         <Field label="medium">
           <select
             value={providerId}
-            onChange={(e) => setProviderId(e.target.value)}
+            onChange={(e) => handleProviderChange(e.target.value)}
             disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
@@ -486,12 +556,12 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
 
         <Field label="aspect ratio">
           <select
-            value={aspectRatio}
+            value={safeAspectRatio}
             onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
             disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
-            {ASPECT_RATIOS.map((r) => (
+            {allowedAspectRatios.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
@@ -523,7 +593,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
 
         {pause !== null && (
           <p className="rounded border border-rose-400/30 bg-rose-400/5 px-3 py-2 font-mono text-[11px] text-rose-300/90">
-            {breedPauseHeadline(pause)}
+            {pauseHeadline(pause)}
           </p>
         )}
       </form>
