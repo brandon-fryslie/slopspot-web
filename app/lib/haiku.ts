@@ -17,10 +17,26 @@ const REQUEST_TIMEOUT_MS = 15_000
 export class AnthropicHttpError extends Error {
   constructor(
     readonly status: number,
-    body: string,
+    // [LAW:types-are-the-program] Carry the raw response body AS DATA, not only folded
+    // into the message string — the credit-exhaustion classifier reads it directly
+    // rather than re-parsing a reconstructed message.
+    readonly body: string,
   ) {
     super(`Anthropic ${status}: ${body}`)
   }
+}
+
+// [LAW:single-enforcer] Anthropic reports an exhausted credit balance as an HTTP 400
+// invalid_request_error (NOT 402) — the account-down signal is carried ONLY in the body
+// text, indistinguishable by status from a genuinely malformed request. Detect it at this
+// account trust boundary by its stable phrase (the per-account error knowledge the
+// account-health design calls for, like a provider's upstream-response parser). The
+// phrase is the one Anthropic returns for billing exhaustion; matched case-insensitively
+// against the raw body so a non-JSON or reshaped error envelope still classifies.
+const CREDIT_EXHAUSTED_PHRASE = 'credit balance is too low'
+
+function isCreditExhausted(body: string): boolean {
+  return body.toLowerCase().includes(CREDIT_EXHAUSTED_PHRASE)
 }
 
 // [LAW:types-are-the-program] Distinct from AnthropicHttpError: the key is absent
@@ -51,6 +67,10 @@ export function classifyAnthropicHealth(err: unknown): AccountHealthPayload {
     if (err.status === 401 || err.status === 403) return { status: 'down', reason: 'auth' }
     if (err.status === 402) return { status: 'down', reason: 'payment' }
     if (err.status === 429) return { status: 'down', reason: 'quota' }
+    // [LAW:no-silent-failure] Credit exhaustion arrives as a 400; left in the `degraded`
+    // bucket below it would be treated as a self-healing blip and NEVER page — the exact
+    // silent money-failure the account-health alert exists to catch. It does not self-heal.
+    if (isCreditExhausted(err.body)) return { status: 'down', reason: 'payment' }
   }
   return { status: 'degraded' }
 }

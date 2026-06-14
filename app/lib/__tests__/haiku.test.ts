@@ -3,7 +3,7 @@
 // by env alone — no caller flag, no second function. The fake discriminates by prompt content.
 
 import { describe, expect, it } from 'vitest'
-import { getAuthor } from '~/lib/haiku'
+import { AnthropicHttpError, MissingApiKeyError, classifyAnthropicHealth, getAuthor } from '~/lib/haiku'
 
 function prodEnv(overrides: Partial<Env> = {}): Env {
   return { SLOPSPOT_ENV: 'prod', ...overrides } as unknown as Env
@@ -70,5 +70,66 @@ describe('getAuthor — fake author (dev mode)', () => {
     const a = await author({ user: prompt, maxTokens: 800 })
     const b = await author({ user: prompt, maxTokens: 800 })
     expect(a).toBe(b)
+  })
+})
+
+// [LAW:behavior-not-structure] These assert the account-health CONTRACT — which Anthropic
+// failure maps to which alert axis — not the internals of how the mapping is computed.
+describe('classifyAnthropicHealth', () => {
+  it('maps a missing key to down{auth}', () => {
+    expect(classifyAnthropicHealth(new MissingApiKeyError())).toEqual({ status: 'down', reason: 'auth' })
+  })
+
+  it.each([401, 403])('maps HTTP %i to down{auth}', (status) => {
+    expect(classifyAnthropicHealth(new AnthropicHttpError(status, 'unauthorized'))).toEqual({
+      status: 'down',
+      reason: 'auth',
+    })
+  })
+
+  it('maps HTTP 402 to down{payment}', () => {
+    expect(classifyAnthropicHealth(new AnthropicHttpError(402, 'payment required'))).toEqual({
+      status: 'down',
+      reason: 'payment',
+    })
+  })
+
+  it('maps HTTP 429 to down{quota}', () => {
+    expect(classifyAnthropicHealth(new AnthropicHttpError(429, 'rate limited'))).toEqual({
+      status: 'down',
+      reason: 'quota',
+    })
+  })
+
+  // [LAW:no-silent-failure] The regression guard: Anthropic returns credit exhaustion as a
+  // 400 (NOT 402). This body is the verbatim envelope captured live the day the account ran
+  // dry; it MUST page as down{payment}, never be swallowed as a self-healing `degraded` blip.
+  it('maps a credit-exhaustion 400 to down{payment} (the live billing envelope)', () => {
+    const body =
+      '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}'
+    expect(classifyAnthropicHealth(new AnthropicHttpError(400, body))).toEqual({
+      status: 'down',
+      reason: 'payment',
+    })
+  })
+
+  it('matches the credit phrase case-insensitively and inside a reshaped body', () => {
+    expect(
+      classifyAnthropicHealth(new AnthropicHttpError(400, 'ERROR: Credit Balance Is Too Low — top up')),
+    ).toEqual({ status: 'down', reason: 'payment' })
+  })
+
+  it('leaves a genuinely-malformed 400 as degraded (does not over-broaden payment)', () => {
+    const body =
+      '{"type":"error","error":{"type":"invalid_request_error","message":"messages: roles must alternate"}}'
+    expect(classifyAnthropicHealth(new AnthropicHttpError(400, body))).toEqual({ status: 'degraded' })
+  })
+
+  it('maps a transient 5xx to degraded', () => {
+    expect(classifyAnthropicHealth(new AnthropicHttpError(529, 'overloaded'))).toEqual({ status: 'degraded' })
+  })
+
+  it('maps a non-HTTP throw (network/timeout) to degraded', () => {
+    expect(classifyAnthropicHealth(new Error('network error'))).toEqual({ status: 'degraded' })
   })
 })
