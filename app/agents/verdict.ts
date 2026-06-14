@@ -10,7 +10,7 @@ import { db } from '~/db/client'
 import { coPresentVerdicts, pruneRepliesExcept, recordUtterance } from '~/db/utterances'
 import { feudStandingBetween } from '~/db/feud'
 import { effectiveTraits } from '~/db/character'
-import { callHaiku } from '~/lib/haiku'
+import { getAuthor } from '~/lib/haiku'
 import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
 
 // [LAW:one-way-deps][capabilities-over-context] The agent layer binds the re-voice TRANSPORT over the
@@ -22,7 +22,7 @@ const REVOICE_MAX_TOKENS = 200
 function makeReVoice(env: Env): ReVoice {
   return async (prompt) => {
     try {
-      return await callHaiku(env, { system: prompt.system, user: prompt.user, maxTokens: REVOICE_MAX_TOKENS })
+      return await getAuthor(env)({ system: prompt.system, user: prompt.user, maxTokens: REVOICE_MAX_TOKENS })
     } catch (err) {
       console.error('verdict re-voice: Haiku call failed; falling back to verbatim reasoning', err)
       return null
