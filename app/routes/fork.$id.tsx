@@ -96,6 +96,12 @@ type LoaderData = {
   // The wire schema in api.fork.$id.ts validates against PROMPT_MAX (the
   // union ceiling) so cross-provider submissions always pass validation.
   promptMaxPerProvider: Record<string, number>
+  // [LAW:types-are-the-program] Per-provider supported aspect ratios. The
+  // aspect ratio selector filters to this set when the user switches providers
+  // so the form can never submit a ratio the provider rejects at generate() time.
+  // Mirrors promptMaxPerProvider — the constraint lives at the seam, not as a
+  // runtime throw inside the provider.
+  supportedAspectRatiosPerProvider: Record<string, AspectRatio[]>
   prompt: string
   styleFamily: StyleFamily
   aspectRatio: AspectRatio
@@ -166,6 +172,14 @@ export async function loader({
   const promptMaxPerProvider: Record<string, number> = Object.fromEntries(
     available.map((p) => [p.id, p.promptMaxLength ?? PROMPT_MAX]),
   )
+  // [LAW:types-are-the-program] Provider-declared aspect ratio limits flow into the
+  // form so the selector only shows ratios the chosen provider can generate. Without
+  // this, selecting DALL-E 3 with a 4:3 or 3:4 ratio submits an unsupported value
+  // that throws inside generate() → 502 → visible error. The constraint belongs at
+  // the seam (this type), not as a runtime guard inside the provider.
+  const supportedAspectRatiosPerProvider: Record<string, AspectRatio[]> = Object.fromEntries(
+    available.map((p) => [p.id, [...p.supportedAspectRatios]]),
+  )
 
   // [LAW:types-are-the-program] parentPersonaId is carried into the loader shape so
   // the UI can detect when a different citizen's medium is selected without an extra
@@ -181,6 +195,7 @@ export async function loader({
     providerId: genome.genes.medium,
     providers,
     promptMaxPerProvider,
+    supportedAspectRatiosPerProvider,
     prompt: genome.utterance,
     styleFamily: genome.genes.species,
     aspectRatio: genome.genes.frame,
@@ -215,6 +230,22 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
     && selectedProviderOption?.personaAgentId !== loaderData.parentPersonaId
   const [styleFamily, setStyleFamily] = useState<StyleFamily>(loaderData.styleFamily)
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(loaderData.aspectRatio)
+  // [LAW:types-are-the-program] Derive the allowed aspect ratios from the selected
+  // provider. When the user switches providers, any currently-selected ratio that is
+  // not in the new provider's set gets clamped to the first supported one — the illegal
+  // state (selected ratio ∉ provider.supportedAspectRatios) is prevented in the value,
+  // not caught at generate() time.
+  const allowedAspectRatios: AspectRatio[] =
+    loaderData.supportedAspectRatiosPerProvider[providerId] ?? ASPECT_RATIOS
+
+  function handleProviderChange(newProviderId: string) {
+    setProviderId(newProviderId)
+    const supported = loaderData.supportedAspectRatiosPerProvider[newProviderId] ?? ASPECT_RATIOS
+    if (!supported.includes(aspectRatio)) {
+      setAspectRatio(supported[0])
+    }
+  }
+
   const [phase, setPhase] = useState<Phase>("editing")
   const [thinkingText, setThinkingText] = useState("")
   // [LAW:types-are-the-program] The error state is a BreedPause, not a string —
@@ -415,7 +446,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         <Field label="medium">
           <select
             value={providerId}
-            onChange={(e) => setProviderId(e.target.value)}
+            onChange={(e) => handleProviderChange(e.target.value)}
             disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
@@ -491,7 +522,7 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
             disabled={locked}
             className="block w-full rounded border border-white/10 bg-black/40 px-3 py-2 font-mono text-sm text-white/85 focus:border-emerald-400/60 focus:outline-none disabled:opacity-50"
           >
-            {ASPECT_RATIOS.map((r) => (
+            {allowedAspectRatios.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>

@@ -52,13 +52,13 @@ export type BreedPause =
 export function breedPauseHeadline(pause: BreedPause): string {
   switch (pause.reason) {
     case 'muse-unreachable':
-      return 'breeding paused — the spirit that re-authors your wish has gone quiet; try again shortly'
+      return 'fork paused — the spirit that re-authors your wish has gone quiet; try again shortly'
     case 'muse-empty':
-      return 'breeding paused — the muse came back empty-handed; try again'
+      return 'fork paused — the muse came back empty-handed; try again'
     case 'out-of-budget':
-      return 'breeding paused — the city has spent all it has tonight; the breeding room reopens by morning'
+      return 'fork paused — the city has spent all it has tonight; the forge reopens by morning'
     case 'unknown':
-      return 'breeding paused — something went wrong in the breeding room; try again shortly'
+      return 'fork paused — something went wrong; try again shortly'
     default: {
       const _exhaustive: never = pause
       return _exhaustive
