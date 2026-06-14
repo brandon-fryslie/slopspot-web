@@ -191,9 +191,16 @@ export async function loader({
   // this, selecting DALL-E 3 with a 4:3 or 3:4 ratio submits an unsupported value
   // that throws inside generate() → 502 → visible error. The constraint belongs at
   // the seam (this type), not as a runtime guard inside the provider.
-  const supportedAspectRatiosPerProvider: Record<string, AspectRatio[]> = Object.fromEntries(
-    available.map((p) => [p.id, [...p.supportedAspectRatios]]),
-  )
+  // [LAW:types-are-the-program] Every selectable provider (including the disabled fallback
+  // for a deregistered parent provider) has an explicit entry so the component never needs a
+  // ?? fallback that would silently widen the selector back to all ratios. Disabled providers
+  // use ASPECT_RATIOS — they cannot submit anyway, so any ratio is equally safe there.
+  const supportedAspectRatiosPerProvider: Record<string, AspectRatio[]> = {
+    ...Object.fromEntries(available.map((p) => [p.id, [...p.supportedAspectRatios]])),
+    ...providers
+      .filter((p) => p.disabled)
+      .reduce<Record<string, AspectRatio[]>>((acc, p) => { acc[p.id] = [...ASPECT_RATIOS]; return acc }, {}),
+  }
 
   // [LAW:types-are-the-program] parentPersonaId is carried into the loader shape so
   // the UI can detect when a different citizen's medium is selected without an extra
@@ -249,15 +256,18 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
   // not in the new provider's set gets clamped to the first supported one — the illegal
   // state (selected ratio ∉ provider.supportedAspectRatios) is prevented in the value,
   // not caught at generate() time.
+  // [LAW:types-are-the-program] Every provider (including disabled) has an entry in the map
+  // built by the loader, so a missing key is a loader bug, not a runtime variant to handle.
+  // The non-null assertion surfaces that assumption loudly. [LAW:no-defensive-null-guards]
   const allowedAspectRatios: AspectRatio[] =
-    loaderData.supportedAspectRatiosPerProvider[providerId] ?? ASPECT_RATIOS
+    loaderData.supportedAspectRatiosPerProvider[providerId]!
 
   function handleProviderChange(newProviderId: string) {
     setProviderId(newProviderId)
-    const supported = loaderData.supportedAspectRatiosPerProvider[newProviderId] ?? ASPECT_RATIOS
-    if (!supported.includes(aspectRatio)) {
-      setAspectRatio(supported[0])
-    }
+    const supported = loaderData.supportedAspectRatiosPerProvider[newProviderId]!
+    // [LAW:dataflow-not-control-flow] variability lives in the value, not in whether
+    // setAspectRatio runs — always call it; the ternary picks which ratio to keep.
+    setAspectRatio(supported.includes(aspectRatio) ? aspectRatio : supported[0])
   }
 
   const [phase, setPhase] = useState<Phase>("editing")
