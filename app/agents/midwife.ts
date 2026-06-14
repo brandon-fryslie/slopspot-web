@@ -24,7 +24,7 @@ import { getLineageDag } from '~/db/genome-dag'
 import { recordUtterance } from '~/db/utterances'
 import { extractFirstJsonObject } from '~/firehose/composer'
 import { AUTHOR_SHAPE } from '~/lib/author-shape'
-import { getAuthor } from '~/lib/haiku'
+import { AuthorShapeError, getAuthor } from '~/lib/haiku'
 import { AgentId, ProviderId, type TraitVector } from '~/lib/domain'
 import { traitVectorSchema } from '~/lib/traits'
 import { utter, type Newcomer } from '~/lib/voice'
@@ -291,6 +291,10 @@ async function authorPersona(
       maxTokens: MAX_TOKENS,
     })
   } catch (err) {
+    // [LAW:no-silent-failure] A misconfigured seam (missing/duplicated shape token) is a dev-only
+    // programming defect — let it ESCAPE rather than masquerade as an LLM outage skip. Only genuine
+    // transport failures (missing key / HTTP / timeout / empty body) degrade to a re-roll/skip.
+    if (err instanceof AuthorShapeError) throw err
     console.error('[birth] author call failed — no citizen authored this attempt', { err })
     return null
   }

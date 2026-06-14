@@ -9,7 +9,7 @@
 
 import { z } from 'zod'
 import type { TraitVector } from '~/lib/domain'
-import { AnthropicHttpError, MissingApiKeyError, classifyAnthropicHealth, getAuthor } from '~/lib/haiku'
+import { AnthropicHttpError, AuthorShapeError, MissingApiKeyError, classifyAnthropicHealth, getAuthor } from '~/lib/haiku'
 import { AUTHOR_SHAPE } from '~/lib/author-shape'
 import { traitBias } from '~/lib/register'
 import { emit, emitAccountHealth } from '~/observability/metrics'
@@ -308,6 +308,9 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
     emitAccountHealth('anthropic', { status: 'ok' })
     return { prompt: capPrompt(composed.prompt), title: capPlacard(composed.title) }
   } catch (err) {
+    // [LAW:no-silent-failure] A misconfigured author seam (missing/duplicated shape token) is a
+    // dev-only programming defect — let it ESCAPE rather than launder it into a recipe fallback.
+    if (err instanceof AuthorShapeError) throw err
     // [LAW:no-silent-fallbacks][LAW:dataflow-not-control-flow] The status carried on
     // the thrown value selects the reason — a dead/expired key (401/403) is the loud,
     // operator-actionable `auth_error`; everything else (transient 5xx, timeout,

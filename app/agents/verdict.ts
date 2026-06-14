@@ -10,7 +10,7 @@ import { db } from '~/db/client'
 import { coPresentVerdicts, pruneRepliesExcept, recordUtterance } from '~/db/utterances'
 import { feudStandingBetween } from '~/db/feud'
 import { effectiveTraits } from '~/db/character'
-import { getAuthor } from '~/lib/haiku'
+import { AuthorShapeError, getAuthor } from '~/lib/haiku'
 import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
 
 // [LAW:one-way-deps][capabilities-over-context] The agent layer binds the re-voice TRANSPORT over the
@@ -25,6 +25,9 @@ function makeReVoice(env: Env): ReVoice {
     try {
       return await author({ system: prompt.system, user: prompt.user, maxTokens: REVOICE_MAX_TOKENS })
     } catch (err) {
+      // [LAW:no-silent-failure] A misconfigured author seam (missing/duplicated shape token) is a
+      // dev-only programming defect — let it ESCAPE rather than masquerade as a re-voice failure.
+      if (err instanceof AuthorShapeError) throw err
       console.error('verdict re-voice: Haiku call failed; falling back to verbatim reasoning', err)
       return null
     }

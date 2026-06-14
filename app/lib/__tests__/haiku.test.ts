@@ -6,7 +6,7 @@
 // the LLM-touching ceremonies' SUCCESS path reachable under test (slopspot-ceremony-test-0zy.1).
 
 import { describe, expect, it } from 'vitest'
-import { getAuthor, MissingApiKeyError, type HaikuOptions } from '~/lib/haiku'
+import { AuthorShapeError, getAuthor, MissingApiKeyError, type HaikuOptions } from '~/lib/haiku'
 import { AUTHOR_SHAPE } from '~/lib/author-shape'
 
 const envWith = (over: Partial<Env>): Env =>
@@ -47,9 +47,11 @@ describe('getAuthor — the injectable author seam', () => {
     expect(() => JSON.parse(verdict)).toThrow()
   })
 
-  it('FAILS LOUD when a prompt carries no shape token — the fake never guesses', async () => {
+  it('FAILS LOUD with a distinct AuthorShapeError when a prompt carries no shape token — never laundered as an LLM outage', async () => {
+    // [LAW:no-silent-failure] A dev-only programming defect (a builder missing its token) must be a
+    // typed error the callers' transport catches re-raise, not a generic failure they swallow to null.
     await expect(
       getAuthor(envWith({ SLOPSPOT_ENV: 'dev' }))({ user: 'no token here', maxTokens: 100 }),
-    ).rejects.toThrow(/exactly one AUTHOR_SHAPE token/)
+    ).rejects.toBeInstanceOf(AuthorShapeError)
   })
 })

@@ -125,6 +125,13 @@ export function getAuthor(env: Env): (opts: HaikuOptions) => Promise<string> {
   return (opts) => callHaiku(env, opts)
 }
 
+// [LAW:no-silent-failure][LAW:types-are-the-program] Zero or many shape tokens is a PROGRAMMING DEFECT
+// in a prompt builder (and dev-only, since the fake is dev-only), categorically distinct from an LLM
+// outage. A distinct type so every caller's transport-failure catch can let it ESCAPE loudly rather
+// than launder it into a skip/fallback that hides the bug. It can never occur in prod (the fake never
+// runs there); when it fires in dev/CI, crashing is exactly the right, loud outcome.
+export class AuthorShapeError extends Error {}
+
 // [LAW:types-are-the-program] The fake's discrimination is EXHAUSTIVE over the closed 3-shape set and
 // FAILS LOUD on a miss: it reads the one AUTHOR_SHAPE token each caller embeds and throws on zero or
 // many tokens, so it can never return a wrong shape that parses by luck. The corpus index is the city's
@@ -135,7 +142,7 @@ function classifyShape(opts: HaikuOptions): AuthorShape {
   const hay = `${opts.system ?? ''}\n${opts.user}`
   const hits = (Object.keys(AUTHOR_SHAPE) as AuthorShape[]).filter((k) => hay.includes(AUTHOR_SHAPE[k]))
   if (hits.length !== 1) {
-    throw new Error(`fake author: expected exactly one AUTHOR_SHAPE token, found ${hits.length}`)
+    throw new AuthorShapeError(`fake author: expected exactly one AUTHOR_SHAPE token, found ${hits.length}`)
   }
   return hits[0]!
 }
