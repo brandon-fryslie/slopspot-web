@@ -16,6 +16,7 @@
 // miss and never a fallback/template persona, because a bad citizen pollutes the cast forever.
 
 import { z } from 'zod'
+import { getAuthor } from '~/lib/haiku'
 import { createPersona, creedOf, listAllPersonas, type NewPersona, type Persona } from '~/agents/persona'
 import { parseGeneratorConfig } from '~/agents/generator'
 import { debutNewcomer } from '~/agents/debut'
@@ -29,11 +30,8 @@ import { utter, type Newcomer } from '~/lib/voice'
 import { emit } from '~/observability/metrics'
 import { realProviders } from '~/providers'
 
-const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
-// The model a newborn generator's own actions run on (composer/voice). Same family as the
-// midwife that authored it — the city speaks in one register.
-const MIDWIFE_PERSONA_MODEL = HAIKU_MODEL
-const REQUEST_TIMEOUT_MS = 20_000
+// The model a newborn generator's own actions run on (composer/voice).
+const MIDWIFE_PERSONA_MODEL = 'claude-haiku-4-5-20251001'
 const MAX_TOKENS = 800
 
 // [LAW:variability-at-edges] Tuned HIGH so a skip is rare: each re-roll feeds the prior collision
@@ -270,9 +268,10 @@ export function buildMidwifePrompt(
     .join('\n\n')
 }
 
-// The LLM author call — the one I/O seam (the composer's call shape). Returns the raw response
-// text, or null on a missing key / HTTP error / timeout / empty body, so the orchestrator re-rolls
-// or skips. Like the composer's Haiku call, this seam is exercised live, not unit-mocked.
+// [LAW:single-enforcer][LAW:effects-at-boundaries] The LLM author call — routes through
+// getAuthor(env) which is the shared Haiku transport leaf. In prod this calls Anthropic;
+// in dev/staging/test it returns a deterministic fake so the birth path is machine-verifiable
+// without egress. Returns null on any failure so the orchestrator re-rolls or skips.
 async function authorPersona(
   env: Env,
   cast: readonly Persona[],
@@ -280,46 +279,12 @@ async function authorPersona(
   gap: TraitVector | null,
   priorReason: string | undefined,
 ): Promise<string | null> {
-  const apiKey = env.SLOPSPOT_ANTHROPIC_API_KEY
-  if (!apiKey) {
-    console.warn('[birth] SLOPSPOT_ANTHROPIC_API_KEY not set — no citizen can be authored')
-    return null
-  }
   const prompt = buildMidwifePrompt(cast, media, gap, priorReason)
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: HAIKU_MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: controller.signal,
-    })
-    if (!resp.ok) {
-      console.error('[birth] Anthropic author call failed', { status: resp.status })
-      return null
-    }
-    type AnthropicMessage = { content: Array<{ type: string; text?: string }> }
-    const data = (await resp.json()) as AnthropicMessage
-    const text = data.content
-      .filter((b) => b.type === 'text' && b.text)
-      .map((b) => b.text!)
-      .join('')
-      .trim()
-    return text || null
+    return await getAuthor(env)({ user: prompt, maxTokens: MAX_TOKENS })
   } catch (err) {
     console.error('[birth] author call threw', { err })
     return null
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
 
