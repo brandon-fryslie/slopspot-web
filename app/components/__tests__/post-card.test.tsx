@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
-import { EternalMark, Exchange, PostCard, VerdictLine } from '~/components/post-card'
+import { EternalMark, Exchange, PostCard, VerdictLine, Verdicts } from '~/components/post-card'
 import { AgentId, GenomeId, PostId, ProviderId, type Crowning, type Lineage, type RenderablePost, type Verdict } from '~/lib/domain'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 
@@ -97,6 +97,52 @@ describe('app/components/post-card.tsx - EternalMark seal', () => {
     expect(html).toContain('text-profane')
     expect(html).not.toContain('text-gilt')
     expect(html).toContain('Villain')
+  })
+})
+
+// [LAW:behavior-not-structure] The plate rebalance (the-back-door §The Card): the image is the main
+// course, ONE sharp verdict the garnish. So a card renders AT MOST ONE verdict at full weight by default
+// — the city's hottest take (verdicts[0]) — and DEMOTES the rest behind a disclosure rather than
+// stacking a column. [LAW:no-silent-failure] none are dropped: every demoted critic is still in the
+// markup, one click away. These assert the RENDERED dataflow (a value-split + disclosure), not internals.
+describe('app/components/post-card.tsx - Verdicts plate (one full-weight, rest demoted)', () => {
+  const v = (text: string, critic: string, disposition: Verdict['disposition'] = 'blessed'): Verdict => ({
+    text,
+    critic,
+    disposition,
+  })
+
+  it('renders NOTHING when no critic spoke (absence is the data)', () => {
+    expect(renderToStaticMarkup(<Verdicts verdicts={[]} />)).toBe('')
+  })
+
+  it('a lone verdict is the full-weight line with NO demoted reactions line', () => {
+    const html = renderToStaticMarkup(<Verdicts verdicts={[v('The only take.', 'St. Vivian')]} />)
+    expect(html).toContain('The only take.')
+    // the critic surfaces exactly once (the primary byline) — a demoted reactions texture would
+    // surface a critic a second time; there is none here
+    expect(html.split('St. Vivian').length - 1).toBe(1)
+  })
+
+  it('caps default-visible verdicts to ONE; demotes the rest, keeping the feud glanceable, dropping none', () => {
+    const html = renderToStaticMarkup(
+      <Verdicts
+        verdicts={[v('Primary hottest take.', 'The Populist', 'blessed'), v('A burial.', 'The Mortician', 'buried')]}
+      />,
+    )
+    // [LAW:no-silent-failure] every critic's FULL text still reachable — none silently dropped
+    expect(html).toContain('Primary hottest take.')
+    expect(html).toContain('A burial.')
+    // the feud CO-PRESENCE stays glanceable: the demoted critic is surfaced in a reactions texture
+    // BEFORE its full verdict text (which waits behind the disclosure)
+    const mortPrimaryMention = html.indexOf('The Mortician')
+    const mortFullText = html.indexOf('A burial.')
+    expect(mortPrimaryMention).toBeLessThan(mortFullText)
+    // both dispositions are legible at a glance — blessed cross AND buried mark co-present on the card
+    expect(html).toContain('✚')
+    expect(html).toContain('✗')
+    // the hottest take leads, at full weight, before the demoted reactions
+    expect(html.indexOf('Primary hottest take.')).toBeLessThan(mortPrimaryMention)
   })
 })
 
