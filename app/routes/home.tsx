@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { countSlops, getFeedPage, getFeedItemById } from "~/db/feed"
 import { contenderPostIds, feastsToday, latestCrownedPostId } from "~/db/crowns"
 import { getPulse } from "~/db/pulse"
+import { getChorus } from "~/db/chorus"
+import { db } from "~/db/client"
+import { CityChorus } from "~/components/city-chorus"
 import { Wall } from "~/components/wall"
 import {
   RiteHero,
@@ -76,12 +79,18 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // post depends on the crown id, so it follows in a second hop. The feed read is now a cursor
   // PAGE (getFeedPage) — page.items is page 1; the client appends the rest. feastsToday is the
   // masthead's independent read of the city's venerated dead due today (the Pulse reads its own).
-  const [page, pulse, slopCount, heroId, feasts] = await Promise.all([
+  // [LAW:one-source-of-truth] The chorus is the masthead's voice routed through the WHOLE ROSTER — the
+  // most-recently-active distinct citizens' already-spoken lines (db/chorus), read the same way the Pulse
+  // and the card's verdicts read the persisted utterances. limit 4 feeds two disjoint slots below (the
+  // masthead murmur + a single proclamation aside) with distinct speakers; the read never pads, so a
+  // sparse store yields a shorter chorus and the Proprietor floor speaks only at zero.
+  const [page, pulse, slopCount, heroId, feasts, chorus] = await Promise.all([
     getFeedPage(env, { sort, voterId }),
     getPulse(env, nowMs),
     countSlops(env),
     latestCrownedPostId(env),
     feastsToday(env, nowMs),
+    getChorus(db(env), 4),
   ])
   // [LAW:dataflow-not-control-flow] getFeedItemById takes the id | null and yields the post
   // | null — the null flows THROUGH (an absent crown is an empty candidate set, no rows), so
@@ -138,13 +147,19 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // The payload merges BOTH features: #109's phase/slopCount (the masthead drama) AND the cursor
   // page's wall items + nextCursor (the infinite scroll). page 1's wall items are banner-excluded above.
   return data(
-    { items: wallItems, nextCursor: page.nextCursor, pulse, sort, phase, slopCount, feasts },
+    { items: wallItems, nextCursor: page.nextCursor, pulse, sort, phase, slopCount, feasts, chorus },
     { headers },
   )
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { items: firstPage, nextCursor: firstCursor, pulse, sort, phase, slopCount, feasts } = loaderData
+  const { items: firstPage, nextCursor: firstCursor, pulse, sort, phase, slopCount, feasts, chorus } = loaderData
+  // [LAW:dataflow-not-control-flow] Two DISJOINT slices of the one chorus feed the two voiced slots, so a
+  // speaker never appears twice across the masthead and the proclamation — the slice boundaries do the
+  // de-duplication, not a guard. A sparse store simply yields shorter slices (a missing proclamation aside
+  // is an empty slice, the brand line standing alone exactly as before), never a padded or repeated voice.
+  const mastheadChorus = chorus.slice(0, 3)
+  const proclamationAside = chorus.slice(3, 4)
   // [LAW:one-source-of-truth] The same banner-exclusion the loader applied to page 1 — derived
   // once from the phase — extends to every appended page, so the gilt relic is never also a tile.
   const excludeId = bannerExcludeId(phase)
@@ -218,12 +233,21 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               <p className="mt-4 font-civic text-xs font-medium uppercase tracking-[0.35em] text-ash">
                 ·· the back door of the internet ··
               </p>
-              {/* [LAW:one-source-of-truth] His words come from proprietor.ts — the
-                  single home for the Proprietor's voice; only the "the proprietor:"
-                  attribution and the quotes are chrome structure owned by this surface. */}
-              <p className="mt-2 font-terminal text-[11px] text-votive/60">
-                the proprietor: &quot;{PROPRIETOR.mastheadAside}&quot;
-              </p>
+              {/* [LAW:one-source-of-truth][LAW:dataflow-not-control-flow] The masthead's voice, routed
+                  through the WHOLE ROSTER. It USED to be the single hardcoded PROPRIETOR.mastheadAside —
+                  one narrator under the sign, the "same-y quote" the director called out. Now the city is
+                  already talking when you come in the back door: the most-recently-active distinct
+                  citizens, each in the register the genome gave them (db/chorus exposes their persisted
+                  utterances; nothing is minted here). The Proprietor's signature aside is the FLOOR — it
+                  speaks only when the chorus is empty (opening night), the host's honest quiet. The slice
+                  decides which value renders, not a branch over whether to render. */}
+              {mastheadChorus.length > 0 ? (
+                <CityChorus lines={mastheadChorus} />
+              ) : (
+                <p className="mt-2 font-terminal text-[11px] text-votive/60">
+                  the proprietor: &quot;{PROPRIETOR.mastheadAside}&quot;
+                </p>
+              )}
               {/* [LAW:dataflow-not-control-flow] The feast proclamation renders from the feast
                   VALUE — nothing on an ordinary day (empty list), the named dead on a feast day.
                   Orthogonal to the RiteHero banner below: a feast day still has a standing crown. */}
@@ -260,6 +284,15 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             <span className="text-profane">Non-Stop</span>
             <span className="text-gilt"> Slop!</span>
           </p>
+          {/* [LAW:dataflow-not-control-flow] The proclamation routed through the cast too — a SINGLE
+              citizen's overheard reaction beneath the shout, drawn from the disjoint tail of the chorus so
+              it is a DIFFERENT being from every masthead voice. An empty slice (a sparse store) renders
+              nothing and the brand line stands alone exactly as before — no fabricated filler. */}
+          {proclamationAside.length > 0 ? (
+            <div className="mt-3 flex justify-center">
+              <CityChorus lines={proclamationAside} />
+            </div>
+          ) : null}
         </div>
       </div>
       {/* the city visibly peopled + the relentless productivity, made visible. */}

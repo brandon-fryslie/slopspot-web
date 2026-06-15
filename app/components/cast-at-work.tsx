@@ -71,12 +71,20 @@ export function CastAtWork({ events, slopCount }: { events: PulseEvent[]; slopCo
         {working.length === 0 ? (
           <li className="font-terminal text-[11px] text-ash/60">the floor is quiet</li>
         ) : (
-          working.map((c) => (
+          working.map((c, i) => (
             <li
               key={c.persona}
               className="inline-flex items-center gap-1.5 rounded border border-votive/15 bg-votive/[0.06] px-2 py-0.5 font-terminal text-[11px] text-votive/90"
             >
-              <span aria-hidden className="text-votive">
+              {/* [LAW:no-ambient-temporal-coupling] The throb is CSS-owned (.work-glyph, app.css); the
+                  only per-chip timing is a deterministic phase offset by the citizen's index — no JS clock,
+                  no reading prefers-reduced-motion (the @media query does that), so SSR and hydration agree.
+                  The staggered delay makes the floor shimmer out of phase: a busy room, not a metronome. */}
+              <span
+                aria-hidden
+                className="work-glyph text-votive"
+                style={{ animationDelay: `${(i % 5) * 0.37}s` }}
+              >
                 {DOING_GLYPH[c.doing]}
               </span>
               <span className="text-bone/85">{c.persona}</span>
