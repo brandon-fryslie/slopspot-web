@@ -195,6 +195,16 @@ export type MetricLabels = {
   'slopspot.grace.reveal': {
     outcome: 'spoke' | 'withheld' | 'absent' | 'failed'
   }
+  // [LAW:no-silent-failure] The fork action's result — emitted on every code path
+  // (success and error) so fork error rate is queryable and individual failures are
+  // visible in Cloudflare Workers logs via the accompanying console.error. Without
+  // this, any non-429 failure is dark: the generic http.request metric carries the
+  // status but not the fork-specific reason.
+  // [LAW:single-enforcer] api.fork.$id.ts is the sole emitter.
+  'slopspot.fork.result': {
+    outcome: 'success' | 'error'
+    reason: string
+  }
 }
 
 export type MetricName = keyof MetricLabels
