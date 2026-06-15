@@ -15,6 +15,7 @@ import {
 import { ASPECT_RATIOS, STYLE_FAMILIES, STYLE_FAMILY_PROMPT_SEEDS, renderTemplate } from "~/lib/variety"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
 import { forkPause, type BreedPause } from "~/lib/breed-failure"
+import { reportPause } from "~/lib/pause-beacon"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
 // submit-side action lives at /api/fork/:id (a resource route), matching the
@@ -57,10 +58,13 @@ const REWRITE_DELIM = REWRITE_DELIMITER + "\n"
 // `never` default reachable and breaks `tsc -b`.
 function pauseHeadline(pause: BreedPause): string {
   switch (pause.reason) {
-    case 'muse-unreachable': return 'fork paused — the spirit that re-authors your wish has gone quiet; try again shortly'
-    case 'muse-empty':       return 'fork paused — the muse came back empty-handed; try again'
-    case 'out-of-budget':    return 'fork paused — the city has spent all it has tonight; the forge reopens by morning'
-    case 'unknown':          return 'fork paused — something went wrong; try again shortly'
+    case 'muse-unreachable':    return 'fork paused — the spirit that re-authors your wish has gone quiet; try again shortly'
+    case 'muse-empty':          return 'fork paused — the muse came back empty-handed; try again'
+    case 'out-of-budget':       return 'fork paused — the city has spent all it has tonight; the forge reopens by morning'
+    case 'provider-unreachable': return 'fork paused — the image forge hit a snag; try again shortly'
+    case 'budget-unavailable':  return "fork paused — the city's ledger is unreachable; try again shortly"
+    case 'provider-rejected':   return "fork paused — that ratio isn't supported by this provider; try a different one"
+    case 'unknown':             return 'fork paused — something went wrong; try again shortly'
     default: { const _: never = pause; return _ }
   }
 }
@@ -442,11 +446,15 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
       // [LAW:types-are-the-program] The pause is read from the thrown value's data; an
       // unexpected throw (not a BreedPauseError) is the `unknown` pause and its detail
       // is logged here, never shown — the visitor only ever sees the honest headline.
+      // [LAW:no-silent-failure] Each setPause is paired with a beacon of the same reason
+      // so the visitor-facing pause is observable in VictoriaMetrics, not just on screen.
       if (err instanceof BreedPauseError) {
         setPause(err.pause)
+        reportPause("fork", err.pause.reason)
       } else {
         console.error("breed: unexpected failure", err)
         setPause({ reason: "unknown" })
+        reportPause("fork", "unknown")
       }
       setPhase("editing")
     } finally {
