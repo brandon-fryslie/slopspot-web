@@ -453,32 +453,27 @@ export function buildReVoicePrompt(
 // Publishing that as a verdict is the blind-critic LIE (slopspot-voice-7io): it misrepresents "couldn't see
 // it" as a delivered verdict, the prominent garnish on a framed card. This predicate is the ONE place that
 // recognises that class so the line can be made UNUSABLE — degraded to the grounded verbatim floor exactly
-// as a null transport is. Conservative by construction: it matches the critic talking ABOUT lacking/needing
-// the image (the meta-complaint), not a verdict that merely mentions an image, so a real grounded take that
-// says "the image glows" is never caught. [LAW:dataflow-not-control-flow] one rule, both re-voice occasions.
-// [LAW:one-source-of-truth] The ONE list of continuations that turn an access-verb phrase into a GROUNDED
-// verdict rather than a refusal — the idiom "see it AS a triumph" / "see the picture SURVIVING a glance"
-// (meaning "regard it as"). Every access-verb arm below ends with this negative lookahead so a real verdict
-// is never downgraded to the floor — the inverse [LAW:no-silent-failure] trap (CD guardrail). One definition,
-// applied uniformly, so the arms cannot drift apart.
+// as a null transport is. [LAW:dataflow-not-control-flow] one rule, both re-voice occasions.
+//
+// The recogniser is split by CERTAINTY, because a bare perception-inability ("I can't see the image") is
+// genuinely AMBIGUOUS — it is a refusal ("I can't see the image, so I can't judge") OR a grounded verdict
+// that pivots ("I can't see the image as anything but a triumph"; "I can't see the image, but the palette is
+// beautiful"). Forcing it to one class trips [LAW:no-silent-failure] in one direction or the other. So:
+//   • UNAMBIGUOUS_REFUSAL — meta-complaint shapes that are never a verdict (a request for access, a judgement
+//     gated on missing access, a demand to be sent the image, the "you gave me text not the image" tell).
+//     These fire ALONE. They caught every live-feed offender.
+//   • PERCEPTION_INABILITY ∧ META_TELL — a bare "can't see the image" counts ONLY when the same line also
+//     carries a verdict/description tell (it cannot judge / it was handed a description). A perception phrase
+//     that pivots to grounded praise has no such tell and passes through to the floor untouched.
+
+// A request for visual ACCESS — "need/want/have to see|view|look at|examine the image|picture|slop". Keyed to
+// the NOUN, not bare "it", so "I need to look at the image" is caught while "need to see it again — gorgeous"
+// is not. The trailing lookahead drops the idiom "see it AS …/SURVIVING …" (a grounded verdict).
 const NON_REFUSAL_TAIL = String.raw`(?!\s+(?:as|how|why|past|beyond|through|surviving|lasting|working|coming|going|being|happening|myself|that))`;
 
-const REFUSAL_PATTERNS: readonly RegExp[] = [
-  // A request for visual ACCESS — "need/want/have to see|view|look at|examine|observe the image|picture|slop".
-  // Keyed to the NOUN, NOT bare "it", so the meta-complaint ("I need to look at the image") is caught while
-  // grounded verdicts that say "it" ("can't look away from it", "need to see it again — gorgeous") are not.
+const UNAMBIGUOUS_REFUSAL: readonly RegExp[] = [
   new RegExp(
     String.raw`\b(?:need|needs?|want|wants?|have|has|require|requires?|must|unable|can(?:'|no)?t|cannot)\b[^.?!]*\bto\s+(?:see|view|look\s+at|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b${NON_REFUSAL_TAIL}`,
-    "i",
-  ),
-  // The inability without a "to" — "can't|cannot|unable to see|view|examine|observe the image".
-  new RegExp(
-    String.raw`\b(?:can(?:'|no)?t|cannot|unable to)\b[^.?!]*\b(?:see|view|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b${NON_REFUSAL_TAIL}`,
-    "i",
-  ),
-  // The bare-pronoun perception complaint — "can't|cannot|couldn't|unable to see|view|make out it|this|the image".
-  new RegExp(
-    String.raw`\b(?:can(?:'|no)?t|cannot|could\s?n['’]t|unable\s+to)\s+(?:even\s+)?(?:see|view|make\s+out)\s+(?:it|this|that|the\s+(?:image|picture|slop|thing))\b${NON_REFUSAL_TAIL}`,
     "i",
   ),
   // A judgement GATED on missing access — "without seeing|viewing|looking at|examining (the) image".
@@ -488,15 +483,25 @@ const REFUSAL_PATTERNS: readonly RegExp[] = [
   /(?:\b(?:not|never|no)\b|n['’]t)\s+(?:been\s+|yet\s+)?(?:shown|given|provided|sent|presented)\b[^.?!]*\b(?:image|picture|slop|it)\b/i,
   // "share|send|provide|show me|give me the (actual) image|picture|slop".
   /\b(?:share|send|provide|show me|give me)\b[^.?!]*\b(?:the\s+)?(?:actual\s+)?(?:image|picture|slop)\b/i,
-  // The explicit "you gave me text, not the image" complaint. (A bare "actual image" catch-all was removed:
-  // it over-matched grounded verdicts like "the actual image is sharper than the prompt promised", and the
-  // real refusals carrying that phrase are already caught by the access-verb and share/provide patterns.)
+  // The explicit "you gave me text, not the image" complaint.
   /\bnot\s+a\s+description\b/i,
   /\bdescription\s+of\s+(?:it|the\s+(?:image|slop))\b/i,
 ];
 
+// A bare perception-inability — "can't|cannot|couldn't|unable to see|view|examine|make out the image|it".
+const PERCEPTION_INABILITY =
+  /\b(?:can(?:'|no)?t|cannot|could\s?n['’]t|unable\s+to)\s+(?:even\s+|really\s+|quite\s+)?(?:see|view|examine|observe|make\s+out)\b[^.?!]*\b(?:image|picture|slop|it)\b/i;
+
+// The verdict/description tell that promotes an ambiguous perception-inability to a refusal: the line says it
+// cannot render a verdict, or that it was handed a description. Without one of these, "can't see the X" is
+// left alone — a grounded verdict ("can't see it as anything but a triumph") is never downgraded.
+const META_TELL = /\b(?:verdict|judg|assess|evaluat|critiqu|describ)\w*|\bbeen\s+shown\b/i;
+
 export function isRefusalClass(line: string): boolean {
-  return REFUSAL_PATTERNS.some((re) => re.test(line));
+  return (
+    UNAMBIGUOUS_REFUSAL.some((re) => re.test(line)) ||
+    (PERCEPTION_INABILITY.test(line) && META_TELL.test(line))
+  );
 }
 
 // [LAW:single-enforcer] A re-voice transport result reduced to a USABLE line, or null. Null/empty (no key,

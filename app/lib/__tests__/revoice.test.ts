@@ -141,10 +141,12 @@ describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => 
     "I need to look at the image to judge it.",
     "I can't tell without viewing it.",
     "I'd have to examine the picture before passing any verdict.",
-    // bare-pronoun perception complaint + the contraction the negator was missing
-    "I can't see it.",
+    // the contraction the negator was missing (unambiguous: 'been shown')
     "I haven't been shown the image.",
-    "Cannot make out the image at all.",
+    // COMPOUND: a perception-inability becomes a refusal only with a verdict/description meta-tell
+    "I can't see the image, so I can't give a verdict.",
+    "I can't make out the picture well enough to judge it.",
+    "Cannot see the slop — you only described it to me.",
   ];
   // Real grounded verdicts that merely MENTION an image/picture must NOT be caught — the recogniser is about
   // the meta-complaint, not art-talk.
@@ -165,6 +167,11 @@ describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => 
     // the 'cannot see the picture AS …' idiom on the NOUN form — a grounded verdict, never a refusal
     "I cannot see the picture as anything but a triumph.",
     "I can't see the image working as anything other than satire — buried.",
+    // bare perception-inability with NO verdict/description meta-tell — ambiguous, so left alone (a pivot to
+    // grounded praise, or a figurative 'I can't picture it'); the compound rule never downgrades these
+    "I can't see it.",
+    "Cannot make out the image at all.",
+    "I can't see the image, but the palette is beautiful.",
   ];
 
   it("flags every 'show me the image'-class refusal", () => {
