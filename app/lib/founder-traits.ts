@@ -33,11 +33,24 @@ import { seedFloat } from '~/lib/hash'
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
 
 // [LAW:no-mode-explosion] The half-width of the founder birth scatter — the single knob, surfaced and
-// tunable. WIDE on purpose: founders must SPREAD across the register space to break the 0.5-clustered
-// monoculture, where breed's DRIFT_MAX (0.1) only nudges a child off the segment between its parents.
-// Each axis samples uniform [center − SPREAD, center + SPREAD] then clamps, so a neutral center
-// births uniform [0.1, 0.9] — a genuine spread, never the pinned 0.5 that made the gene pool one voice.
-export const FOUNDER_TRAIT_SPREAD = 0.4
+// tunable. Each axis samples uniform [center − SPREAD, center + SPREAD] then clamps, so the scatter is
+// texture WITHIN a citizen's region, never enough to cross into a neighbor's. [LAW:dataflow-not-control-flow]
+//
+// RETUNED DOWN by slopspot-genome-3un. genome-fby set this WIDE (0.4) because the centers were all flat
+// NEUTRAL 0.5 — the only way to break the monoculture then was a wide jitter, but that gave every maker
+// the WHOLE map and so no recognizable region. genome-3un poured each creed into personas.traits_json
+// (migration 0036), so the RANGE now comes from the CENTERS being spread across the cube; the jitter's
+// job flips to staying SMALL so a founder reads as a member of its citizen's region, not a wanderer.
+//
+// THE CONSTRAINT (verified in-suite, not hoped): region separation is EUCLIDEAN in the 4-axis cube, not
+// per-axis. A box jitter of half-width SPREAD per axis displaces a birth by at most 2·SPREAD in 4-space
+// (the corner). For a birth to stay nearest its OWN center it must not cross the perpendicular bisector
+// to any other — i.e. 2·SPREAD < ½·(min inter-center distance). The closest center pair is
+// GutterMonk↔Idris ≈ 0.85, so ½ of that is ≈ 0.42, giving SPREAD < ≈ 0.21. 0.13 sits comfortably inside
+// that (max displacement ≈ 0.26 vs the 0.42 bisector) while still leaving rich within-region texture —
+// per-axis std ≈ 0.075. (A per-axis non-overlap rule would over-clamp: GutterMonk & Vesper share the
+// sincere pole by design, earnestness 0.80 vs 0.88, which a per-axis rule would crush to SPREAD < 0.04.)
+export const FOUNDER_TRAIT_SPREAD = 0.13
 
 // [LAW:dataflow-not-control-flow] ONE expression applied to each axis name — variation lives in the
 // sampled VALUE, never in a branch around an axis. The seed is dimension-tagged ('founder', axis) so
