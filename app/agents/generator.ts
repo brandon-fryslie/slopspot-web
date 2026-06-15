@@ -42,7 +42,7 @@ import { composePrompt, type ComposerOccasion } from '~/firehose/composer'
 import { pickNiche } from '~/firehose/niche'
 import { selectReproduction } from '~/firehose/select'
 import { seedHash } from '~/lib/hash'
-import { NEUTRAL_TRAITS } from '~/lib/traits'
+import { founderTraits } from '~/lib/founder-traits'
 import { utter } from '~/lib/voice'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import { getProvider, mediumOf, realProviders } from '~/providers'
@@ -190,6 +190,17 @@ export async function authorSlop(
 
   const recipe = chooseNextGeneration({ scheduledTimeMs: recipeSeedMs, recent, provider, bias })
 
+  // [LAW:single-enforcer] A FOUNDER is born with a VARIED trait vector, not flat neutral — the one
+  // place the firehose's spontaneous bloodline gets its register (slopspot-genome-fby). Sampled ONCE
+  // here and threaded into BOTH the composer (steer) and the genome (heritable code) below, so the
+  // composed slop and the stored genome can never disagree about who this founder is.
+  // [LAW:one-source-of-truth] The center is the author-citizen's OWN sensibility (persona.traits) —
+  // a tuned citizen pulls its region of trait-space, a neutral one scatters around neutral; either
+  // way the births SPREAD instead of clustering at the 0.5 mean that made the feed one voice.
+  // [LAW:no-ambient-temporal-coupling] Seeded off recipeSeedMs (the firehose's scheduledTime; the
+  // Well's request clock) — same fire, same founder. No ambient clock, no Math.random.
+  const traits = founderTraits(persona.traits, recipeSeedMs)
+
   // [LAW:single-enforcer] composePrompt is the one place a slop's authored text is
   // generated from a recipe — both the machine prompt AND the citizen's placard
   // NAME, in one Haiku call. promptPrefix (the persona's voice) steers both;
@@ -201,11 +212,11 @@ export async function authorSlop(
       styleFamily: recipe.styleFamily,
       subject: recipe.subject,
       aspectRatio: recipe.aspectRatio,
-      // [LAW:one-source-of-truth] The SAME traits written to the genome below steer the
-      // composition — a firehose fire seeds no drift, so its register is neutral and
-      // traitBias projects it to an empty steer (the no-op the firehose has always been).
+      // [LAW:one-source-of-truth] The SAME founder traits written to the genome below steer the
+      // composition — a founder is now born SCATTERED around its citizen's register (founderTraits),
+      // so traitBias projects a real steer instead of the empty one flat neutral used to produce.
       // Breeding (L2 surface) and selection (L3) pass recombined/drifted traits here.
-      traits: NEUTRAL_TRAITS,
+      traits,
       promptPrefix: config.promptPrefix,
       // The occasion (a wish, a self-portrait, or none) flows as one closed value —
       // the composer cannot receive both a wish and a self-portrait by construction.
@@ -242,8 +253,9 @@ export async function authorSlop(
       kind: 'generation',
       // [LAW:types-are-the-program] The chooser's recipe fields ARE the genome's genes; the
       // composed prompt is its utterance. A firehose fire SPONTANEOUSLY seeds a new bloodline,
-      // so its lineage is `founder`. Traits start neutral — the firehose seeds no drift; that
-      // arrives with breeding (L2) and selection (L3).
+      // so its lineage is `founder`. Traits are sampled VARIED around the citizen's register
+      // (founderTraits) — birth-spread breaking the monoculture; breeding (L2) and selection (L3)
+      // then recombine/drift from a gene pool that no longer starts pinned to the 0.5 mean.
       genes: {
         species: recipe.styleFamily,
         form: recipe.subject,
@@ -251,7 +263,7 @@ export async function authorSlop(
         medium: recipe.providerId,
       },
       utterance: prompt,
-      traits: NEUTRAL_TRAITS,
+      traits,
       lineage: { kind: 'founder' },
       params,
       title,
