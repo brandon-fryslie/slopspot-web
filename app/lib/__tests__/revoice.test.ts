@@ -13,7 +13,9 @@ import type { FeudStanding } from "~/lib/feud";
 import {
   buildReplyPrompt,
   buildReVoicePrompt,
+  isRefusalClass,
   replyFloor,
+  usableReVoice,
   utter,
   type JudgedSlop,
   type ReplyExchange,
@@ -57,6 +59,17 @@ describe("buildReVoicePrompt — the grounding seam (pure)", () => {
     expect(system).toMatch(/could ONLY come from having seen/i);
     expect(system).toMatch(/launder/i);
     expect(system).toMatch(/ONLY the verdict line/i);
+  });
+
+  // [LAW:no-silent-failure] slopspot-voice-7io: the prompt is HONEST about not holding the image and forbids
+  // the meta-refusal that was being published as a verdict. It must never claim present sight of an image.
+  it("is framed as an honest re-voice of an ALREADY-recorded observation, never as judging an image now", () => {
+    const { system } = buildReVoicePrompt(voiced(SINCERE).personaPrompt, SINCERE, REASONING);
+    expect(system).toMatch(/already (?:decided|recorded)|observation you recorded/i);
+    expect(system).toMatch(/not being shown an image|never reply that you need to see the image/i);
+    // the LIE that triggered the refusal must be gone — no present-tense claim of seeing THIS image
+    expect(system).not.toMatch(/you have just SEEN/i);
+    expect(system).not.toMatch(/exactly what you observed in this image/i);
   });
 
   it("a NEUTRAL genome projects to NO register line (a value-shaped omission, not a branch)", () => {
@@ -108,6 +121,63 @@ describe("composeVerdict via utter — the fallback wiring (deterministic)", () 
     };
     await utter(voiced(SINCERE), "verdict", judged(REASONING), { reVoice });
     expect(seen).toEqual(buildReVoicePrompt(voiced(SINCERE).personaPrompt, SINCERE, REASONING));
+  });
+});
+
+// [LAW:no-silent-failure][LAW:single-enforcer] The blind-critic gate (slopspot-voice-7io). Even with the
+// honest prompt, a transport could still emit a "show me the image"-class refusal; publishing it as a verdict
+// is the bug. isRefusalClass recognises that class, and the verdict path degrades it to the grounded verbatim
+// floor — so a hearsay-complaint can NEVER reach the feed. These prove that property with no live model.
+describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => {
+  // The exact live verdict copy from the ticket, plus the family of meta-complaints it stands for.
+  const REFUSALS = [
+    "I need to see the actual image to deliver a verdict, not a description of it. Please share the image itself.",
+    "I can't deliver a verdict without seeing the image.",
+    "Cannot judge this — I have not been shown the picture.",
+    "Please provide the actual image so I can give my verdict.",
+    "This is a description, not the image — send me the image and I will judge it.",
+    "I'm unable to see the image you're describing.",
+  ];
+  // Real grounded verdicts that merely MENTION an image/picture must NOT be caught — the recogniser is about
+  // the meta-complaint, not art-talk.
+  const VERDICTS = [
+    "Bury it. The sixth finger weeping into that halo — grotesque, and I adore it.",
+    "The image glows like a wet hubcab; the gold leaf cracks at the wrist. Blessed.",
+    "A picture this sincere about its own fog deserves the burial robe.",
+    "the neon haze swallows the figure, the palette sickly green — I bless the rot",
+  ];
+
+  it("flags every 'show me the image'-class refusal", () => {
+    for (const r of REFUSALS) expect(isRefusalClass(r), r).toBe(true);
+  });
+
+  it("never flags a real grounded verdict that merely mentions an image", () => {
+    for (const v of VERDICTS) expect(isRefusalClass(v), v).toBe(false);
+  });
+
+  it("usableReVoice nulls a refusal exactly as it nulls empty/failed transport output", () => {
+    expect(usableReVoice(null)).toBeNull();
+    expect(usableReVoice("   ")).toBeNull();
+    expect(usableReVoice(REFUSALS[0]!)).toBeNull();
+    expect(usableReVoice("  Bury it, gladly.  ")).toBe("Bury it, gladly."); // trims and keeps real lines
+  });
+});
+
+describe("composeVerdict — a refusal NEVER reaches the feed (the acceptance criterion)", () => {
+  it("degrades a 'show me the image'-class re-voice to the grounded verbatim floor", async () => {
+    const reVoice: ReVoice = async () =>
+      "I need to see the actual image to deliver a verdict, not a description of it. Please share the image itself.";
+    const result = await utter(voiced(SINCERE), "verdict", judged(REASONING), { reVoice });
+    // The refusal is treated as no-line; the published verdict is the grounded observation, never the complaint.
+    expect(result).toEqual({ kind: "spoke", text: REASONING });
+  });
+
+  it("the published verdict is never refusal-class, whatever the transport answers", async () => {
+    const reVoice: ReVoice = async () => "Cannot judge — please send me the image itself.";
+    const result = await utter(voiced(SINCERE), "verdict", judged(REASONING), { reVoice });
+    expect(result.kind).toBe("spoke");
+    const text = result.kind === "spoke" ? result.text : "";
+    expect(isRefusalClass(text)).toBe(false);
   });
 });
 
