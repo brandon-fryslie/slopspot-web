@@ -10,6 +10,7 @@ import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
+import { emit } from "~/observability/metrics"
 import { GenomeId, PostId, ProviderId, type AuthoredOrigin, type PersonaActor } from "~/lib/domain"
 import { aspectRatioSchema, fallbackTitle, styleFamilySchema } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
@@ -57,6 +58,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
   const parent = await getPostById(context.cloudflare.env, PostId(params.id))
   if (parent === null) {
+    console.error('fork.action: parent_not_found', { postId: params.id })
+    emit('slopspot.fork.result', { outcome: 'error', reason: 'parent_not_found' }, 1)
     return Response.json(
       { error: "parent post not found", postId: params.id },
       { status: 404 },
@@ -66,6 +69,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     // [LAW:types-are-the-program] Uploads carry no recipe. The PostCard Fork
     // button is gated on content.kind at compile time; this 400 defends
     // direct-URL access.
+    console.error('fork.action: not_forkable', { postId: params.id, contentKind: parent.content.kind })
+    emit('slopspot.fork.result', { outcome: 'error', reason: 'not_forkable' }, 1)
     return Response.json(
       { error: "only generation posts are forkable", postId: params.id },
       { status: 400 },
@@ -80,10 +85,13 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   let budget
   try {
     budget = await checkBudget(context.cloudflare.env)
-  } catch {
+  } catch (e) {
+    console.error('fork.action: budget_unavailable', { postId: params.id, detail: e instanceof Error ? e.message : String(e) })
+    emit('slopspot.fork.result', { outcome: 'error', reason: 'budget_unavailable' }, 1)
     return Response.json({ error: "budget check unavailable" }, { status: 503 })
   }
   if (!budget.withinBudget) {
+    emit('slopspot.fork.result', { outcome: 'error', reason: 'over_budget' }, 1)
     return Response.json(
       {
         error: "daily budget exhausted",
@@ -109,6 +117,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     provider = getProvider(chosenProviderId)
   } catch (e) {
     if (e instanceof UnknownProviderError) {
+      console.error('fork.action: provider_not_found', { providerId: parsed.providerId, postId: params.id })
+      emit('slopspot.fork.result', { outcome: 'error', reason: 'provider_not_found' }, 1)
       return Response.json(
         {
           error: "provider not registered",
@@ -125,6 +135,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // so crafted requests can't bypass the filter and use mock providers in prod.
   const available = realProviders(context.cloudflare.env)
   if (!available.some((p) => p.id === chosenProviderId)) {
+    console.error('fork.action: provider_unavailable', { providerId: parsed.providerId, postId: params.id })
+    emit('slopspot.fork.result', { outcome: 'error', reason: 'provider_unavailable' }, 1)
     return Response.json(
       { error: "provider not available in this environment", providerId: parsed.providerId },
       { status: 422 },
@@ -206,6 +218,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     if (voter.setCookieHeader !== null) {
       headers.set("set-cookie", voter.setCookieHeader)
     }
+    emit('slopspot.fork.result', { outcome: 'success', reason: 'ok' }, 1)
     return new Response(
       JSON.stringify({ id: post.id, parentId: parent.id }),
       { headers, status: 201 },
@@ -218,6 +231,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     // createPost. Map it to the same 404 the pre-lookup uses rather than
     // letting it fall to the generic 502.
     if (e instanceof UnknownProviderError) {
+      console.error('fork.action: provider_not_found (post-createPost)', { providerId: parsed.providerId, postId: params.id })
+      emit('slopspot.fork.result', { outcome: 'error', reason: 'provider_not_found' }, 1)
       return Response.json(
         {
           error: "provider not registered",
@@ -227,6 +242,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       )
     }
     if (e instanceof InvalidParamsError) {
+      console.error('fork.action: invalid_params', { providerId: parsed.providerId, postId: params.id, issues: e.issues })
+      emit('slopspot.fork.result', { outcome: 'error', reason: 'invalid_params' }, 1)
       return Response.json(
         {
           error: "invalid params for provider",
@@ -237,6 +254,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       )
     }
     if (e instanceof ApiError) {
+      console.error('fork.action: provider_failed', { providerId: parsed.providerId, postId: params.id, upstreamStatus: e.status, detail: e.body })
+      emit('slopspot.fork.result', { outcome: 'error', reason: 'provider_failed' }, 1)
       return Response.json(
         {
           error: "fork failed",
@@ -247,11 +266,14 @@ export async function action({ request, params, context }: Route.ActionArgs) {
         { status: 502 },
       )
     }
+    const detail = e instanceof Error ? e.message : String(e)
+    console.error('fork.action: unknown', { providerId: parsed.providerId, postId: params.id, detail })
+    emit('slopspot.fork.result', { outcome: 'error', reason: 'unknown' }, 1)
     return Response.json(
       {
         error: "fork failed",
         providerId: parsed.providerId,
-        detail: e instanceof Error ? e.message : String(e),
+        detail,
       },
       { status: 502 },
     )
