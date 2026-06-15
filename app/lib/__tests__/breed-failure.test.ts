@@ -16,7 +16,13 @@ describe('forkPause — the fork/breed phase HTTP status selects a pause reason 
     expect(forkPause(502)).toEqual({ reason: 'provider-unreachable' })
     expect(forkPause(503)).toEqual({ reason: 'budget-unavailable' })
     expect(forkPause(422)).toEqual({ reason: 'provider-rejected' })
-    expect(forkPause(404)).toEqual({ reason: 'provider-rejected' })
+  })
+
+  it('leaves 404 as unknown — both routes overload it (post/mate-not-found AND unknown provider)', () => {
+    // [LAW:dataflow-not-control-flow] 404 is too weak a discriminator: a stale/deleted
+    // parent (the dominant case) shares the status with an unregistered provider. The
+    // honest quiet line beats wrongly telling the visitor to pick a different provider.
+    expect(forkPause(404)).toEqual({ reason: 'unknown' })
   })
 
   it('maps every unlisted status to the quiet unknown', () => {

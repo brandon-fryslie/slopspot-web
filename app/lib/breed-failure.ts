@@ -47,8 +47,13 @@ export const BREED_PAUSE_REASONS = [
   // The fork phase could not consult the spend ledger at all (503) — the budget check
   // itself was unavailable, distinct from being over budget. Transient; try again.
   'budget-unavailable',
-  // The chosen provider rejected the request shape (422 unsupported params / aspect
-  // ratio, or 404 unknown provider) — actionable by the visitor: pick another provider.
+  // The chosen provider rejected the request shape (422 — unsupported params / aspect
+  // ratio, or the provider not being available in this environment) — actionable by the
+  // visitor: pick another provider. NOTE 404 is deliberately NOT mapped here: both routes
+  // overload 404 across "post/mate not found" (a stale or deleted parent — the dominant
+  // case) AND "provider not registered", so the status alone cannot mean provider-rejected
+  // without misleading the far more common not-found case; an unmapped 404 reads as the
+  // honest `unknown`. [LAW:dataflow-not-control-flow]
   'provider-rejected',
   // An unexpected failure. The technical detail goes to the console (for diagnosis),
   // never to the visitor — this reason carries no detail precisely so it cannot.
@@ -75,7 +80,6 @@ export type BreedPause = {
 // status→reason pairing is one entry here, never a new branch at the call site; any
 // status without an entry is the quiet `unknown`.
 const FORK_PAUSE_BY_STATUS: Record<number, BreedPauseReason> = {
-  404: 'provider-rejected',
   422: 'provider-rejected',
   429: 'out-of-budget',
   502: 'provider-unreachable',
