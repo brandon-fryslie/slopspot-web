@@ -457,11 +457,19 @@ export function buildReVoicePrompt(
 // the image (the meta-complaint), not a verdict that merely mentions an image, so a real grounded take that
 // says "the image glows" is never caught. [LAW:dataflow-not-control-flow] one rule, both re-voice occasions.
 const REFUSAL_PATTERNS: readonly RegExp[] = [
-  /\b(?:need|needs?|have|want|unable|can(?:'|no)?t|cannot)\b[^.?!]*\bto\s+see\b[^.?!]*\b(?:image|picture|it|slop)\b/i,
-  /\b(?:can(?:'|no)?t|cannot|unable to)\b[^.?!]*\bsee\b[^.?!]*\b(?:image|picture|slop)\b/i,
-  /\bwithout\s+(?:actually\s+)?(?:seeing|being shown|the\s+(?:actual\s+)?(?:image|picture))\b/i,
+  // A request for visual ACCESS — "need/want/have to see|view|look at|examine|observe the image|picture|slop".
+  // Keyed to the NOUN, NOT bare "it", so the meta-complaint ("I need to look at the image") is caught while
+  // grounded verdicts that say "it" ("can't look away from it", "need to see it again — gorgeous") are not.
+  /\b(?:need|needs?|want|wants?|have|has|require|requires?|must|unable|can(?:'|no)?t|cannot)\b[^.?!]*\bto\s+(?:see|view|look\s+at|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b/i,
+  // The inability without a "to" — "can't|cannot|unable to see|view|examine|observe the image".
+  /\b(?:can(?:'|no)?t|cannot|unable to)\b[^.?!]*\b(?:see|view|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b/i,
+  // A judgement GATED on missing access — "without seeing|viewing|looking at|examining (the) image".
+  /\bwithout\s+(?:actually\s+)?(?:seeing|viewing|looking\s+at|examining|observing|being\s+shown|the\s+(?:actual\s+)?(?:image|picture))\b/i,
+  // "not been shown|given|provided|sent the image|picture|slop|it".
   /\b(?:not|never|n't)\s+(?:been\s+)?(?:shown|given|provided|sent)\b[^.?!]*\b(?:image|picture|slop|it)\b/i,
+  // "share|send|provide|show me|give me the (actual) image|picture|slop".
   /\b(?:share|send|provide|show me|give me)\b[^.?!]*\b(?:the\s+)?(?:actual\s+)?(?:image|picture|slop)\b/i,
+  // The explicit "you gave me text, not the image" complaint.
   /\bnot\s+a\s+description\b/i,
   /\bdescription\s+of\s+(?:it|the\s+(?:image|slop))\b/i,
   /\b(?:the\s+)?actual\s+image\b/i,

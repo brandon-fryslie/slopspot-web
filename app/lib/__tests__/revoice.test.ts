@@ -137,6 +137,10 @@ describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => 
     "Please provide the actual image so I can give my verdict.",
     "This is a description, not the image — send me the image and I will judge it.",
     "I'm unable to see the image you're describing.",
+    // verb variants the reviewer flagged — 'look at' / 'view', not just 'see'
+    "I need to look at the image to judge it.",
+    "I can't tell without viewing it.",
+    "I'd have to examine the picture before passing any verdict.",
   ];
   // Real grounded verdicts that merely MENTION an image/picture must NOT be caught — the recogniser is about
   // the meta-complaint, not art-talk.
@@ -145,6 +149,10 @@ describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => 
     "The image glows like a wet hubcab; the gold leaf cracks at the wrist. Blessed.",
     "A picture this sincere about its own fog deserves the burial robe.",
     "the neon haze swallows the figure, the palette sickly green — I bless the rot",
+    // the inverse-trap negatives: gushing verdicts that say 'it' / 'look' / 'view' but are NOT refusals
+    "I can't look away from it — buried with relish, and I mean that as praise.",
+    "I need to see it again, it's that gorgeous. Blessed.",
+    "The viewing angle is absurd and I adore every degree of it.",
   ];
 
   it("flags every 'show me the image'-class refusal", () => {
