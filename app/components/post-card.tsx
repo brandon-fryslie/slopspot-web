@@ -108,9 +108,10 @@ function PostCardImpl({
           <SignedRemark ctx={wish} />
         </>
       )}
-      {/* [LAW:dataflow-not-control-flow] The critics who SPOKE on this slop render by the verdicts
-          ARRAY the read boundary computed — empty → nothing, one → a line, two or more → side by side
-          (the feud's visual germ). The array's length is the data; no isReviewed/isFeud flag. */}
+      {/* [LAW:dataflow-not-control-flow] The critics who SPOKE on this slop render by a value-split of
+          the verdicts ARRAY the read boundary computed — empty → nothing, otherwise the hottest take is
+          the full-weight garnish and any others sit one click behind a disclosure (none dropped). The
+          array's length is the data; no isReviewed/isFeud flag. */}
       <Verdicts verdicts={verdicts} />
       {/* [LAW:dataflow-not-control-flow] The back-and-forth renders by the exchange ARRAY the read
           boundary computed (occasion='reply'): empty → no thread, ≥1 → the answers the citizens traded
@@ -697,11 +698,11 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
 // stranger "what YOU wished". [LAW:dataflow-not-control-flow] the copy is the value.
 function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: boolean }) {
   return (
-    <figure className="mx-3 mb-1 mt-2 rounded border border-votive/12 bg-base/40 px-3 py-2">
+    <figure className="mx-3 mb-1 mt-1.5 rounded border border-votive/12 bg-base/40 px-3 py-1.5">
       <figcaption className="font-terminal text-[10px] uppercase tracking-wider text-ash">
         {wishGapCaption(viewerIsModifier)}
       </figcaption>
-      <blockquote className="mt-1 text-sm italic leading-relaxed text-bone/75">
+      <blockquote className="mt-0.5 text-[13px] italic leading-snug text-bone/70">
         {`“${wish}”`}
       </blockquote>
     </figure>
@@ -743,10 +744,10 @@ function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor 
   const { name, href } = authorDisplay(answerer)
   return (
     <figure className="mx-3 mb-1 mt-1 px-1">
-      <blockquote className="text-[13px] italic leading-relaxed text-bone/85">
+      <blockquote className="text-xs italic leading-snug text-bone/75">
         {`❝ ${text} ❞`}
       </blockquote>
-      <figcaption className="mt-1 text-right font-terminal text-[11px] text-ash">
+      <figcaption className="mt-0.5 text-right font-terminal text-[10px] text-ash">
         —{" "}
         {href !== undefined ? (
           <a href={href} className="text-votive/80 transition hover:brightness-125">
@@ -828,21 +829,54 @@ export function EternalMark({ crowning }: { crowning: Crowning }) {
   )
 }
 
-// [LAW:dataflow-not-control-flow] The critics who spoke, rendered by COUNT: an empty array is no
-// block at all; one verdict is the critic's line; two or more render SIDE BY SIDE — the co-presence
-// that is the feud's visual germ (slopspot-voice-w2v.1), the Gremlin's burial beside Vivian's blessing
-// of the same slop. The same flex layout serves one (a single full-width child) or many; the array's
-// length is the data, the layout follows it — no isFeud flag, no count branch in the markup.
-function Verdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
+// [LAW:dataflow-not-control-flow] The critics who spoke, rendered by a VALUE SPLIT of the array, never
+// a discard: an empty array is no block at all; otherwise the FIRST verdict (the city's hottest take —
+// the read boundary owns the order [LAW:one-source-of-truth]) is the full-weight line, and the REST is
+// handed to MoreVerdicts as a value. The image is the main course; ONE sharp verdict is the garnish
+// (the-back-door.md §The Card — ONE named critic's take, not a stacked column). No verdict is dropped —
+// the demoted ones live one click away (MoreVerdicts), so the city still speaks in full
+// [LAW:no-silent-failure]. The split point is data ([primary, ...rest]), not an isFeud/count branch.
+export function Verdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
+  if (verdicts.length === 0) return null
+  const [primary, ...rest] = verdicts
+  return (
+    <>
+      <VerdictLine verdict={primary} />
+      <MoreVerdicts verdicts={rest} />
+    </>
+  )
+}
+
+// [LAW:dataflow-not-control-flow] The demoted verdicts — every critic who spoke AFTER the hottest take.
+// An empty rest is no disclosure at all (the lone-verdict case); ≥1 collapses behind ONE native
+// <details>, mirroring the Exchange's one-click treatment. The summary is the-back-door §The Card's own
+// "machine reactions as texture" line: a glanceable row of who-else-reacted ('✚ The Populist  ✗ The
+// Mortician'), so the FEUD CO-PRESENCE — one blessed, one buried — stays legible WITHOUT a click, while
+// each demoted critic's FULL verdict text waits one click away in the body (nothing dropped
+// [LAW:no-silent-failure]). The texture is a pure map over the rest array; the glyph + colour come from
+// the SAME VERDICT_ROBES the full line wears [LAW:one-source-of-truth], so the mark can never drift from
+// the verdict it stands for. `group/more` scopes this disclosure's open-state so it cannot leak into the
+// per-verdict clamp groups nested inside it. [LAW:one-type-per-behavior] each demoted take is a VerdictLine.
+function MoreVerdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
   if (verdicts.length === 0) return null
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start">
+    <details className="group/more ml-3 mt-1 border-l border-votive/15 pl-2">
+      <summary className="flex w-fit cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-0.5 px-3 pt-1 font-terminal text-[11px] text-ash transition marker:content-[''] hover:brightness-125 [&::-webkit-details-marker]:hidden">
+        {verdicts.map((v, i) => {
+          const robe = VERDICT_ROBES[v.disposition]
+          return (
+            <span key={i} className="inline-flex items-center gap-1">
+              <span aria-hidden className={robe.bylineClass}>{robe.glyph}</span>
+              {v.critic}
+            </span>
+          )
+        })}
+        <span aria-hidden className="text-ash/40 transition group-open/more:rotate-90">▸</span>
+      </summary>
       {verdicts.map((v, i) => (
-        <div key={i} className="min-w-0 flex-1">
-          <VerdictLine verdict={v} />
-        </div>
+        <VerdictLine key={i} verdict={v} />
       ))}
-    </div>
+    </details>
   )
 }
 
