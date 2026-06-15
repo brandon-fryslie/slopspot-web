@@ -149,6 +149,9 @@ describe('runGeneratorPass — the reproduction fold', () => {
       personaPrompt: 'a maker',
       modelId: 'claude-haiku-4-5',
       config: { medium: 'fal-flux-mock' },
+      // The founder write path now samples its trait vector centered on the citizen's own register
+      // (founderTraits) — a real persona always carries traits (parsed at the persona boundary).
+      traits: NEUTRAL_TRAITS,
     })
 
     await runGeneratorPass(env, 2000)
