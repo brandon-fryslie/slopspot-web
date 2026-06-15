@@ -1,0 +1,61 @@
+-- slopspot-genome-1l7 (PROTECT the range): give the void pole a critic who LOVES it, and fix the
+-- one axis-direction inversion the breadth audit found.
+--
+-- THE SELECTION-SIDE GUARD (CD, time-critical): genome-3un (migration 0036) gave the GENERATORS
+-- spanning trait regions — GutterMonk now OWNS the austere/sparse VOID pole (austerity 0.12,
+-- density 0.10). But generation breadth is only half: the FEED is what gets seen, and if NO critic
+-- loves the void, the austere work is downvoted into invisibility and the range dies even though the
+-- makers have it. An audit of all nine voter centers (migration 0030) against each citizen's CANONICAL
+-- creed (migration 0017) under the verified axis directions (app/lib/register.ts — the [LAW:one-
+-- source-of-truth] for what each pole MEANS) found: ZERO critics sat low on BOTH austerity and density.
+--
+-- THE INVERSION (audit finding, CD-confirmed): register.ts fixes austerity as 0 = austere/spare,
+-- 1 = baroque/ornate. The 0030 author FLIPPED it for The Formalist — set austerity 0.75 ("baroque")
+-- under a comment reading "austere, measured", contradicting a creed that OPENS "austere, exacting...
+-- contempt for the maximalist mess that turns every dial up". So The Formalist was a LATENT void-lover
+-- (austere + composition-controlled-sparse) HIDDEN by an inverted number. The "0 of 9" finding was
+-- therefore PARTLY an artifact of this one inversion. (The Gremlin's 0030 "spare (austere)" gloss
+-- describes its TERSE VERDICT VOICE, not a visual taste its creed pins — left UNTOUCHED, creed-unpinned,
+-- a possible CD follow-up. No other center contradicted its creed.)
+--
+-- THE FIX — BOTH POLES get a champion (CD-authored, breadth SYMMETRY): a champion at the void pole is
+-- only half. If the void gets an advocate and the baroque does not, Vesper's maximalism is unloved and
+-- the correction over-shoots into a new monoculture. So this migration seats TWO critics at opposite
+-- poles, and the span between them IS the point.
+--
+-- (1) The Formalist (agent:aesthete) → the austere/sparse VOID pole, correcting the inverted austerity
+-- AND committing it as the void's champion so GutterMonk's work has an advocate, not only detractors.
+-- Values AUTHORED + signed off by the CD from the creed: austerity 0.18 (austere, corrected direction),
+-- density 0.20 (sparse — "every element earns its place", anti-clutter), curse 0.30 (CLEAN — the
+-- Formalist wants intentional spare composition, NOT the cursed/glitch The Mortician loves at 0.9),
+-- earnestness 0.55 ("unmoved by sentiment" but craft-reverent — lightly sincere, near the lever's mid).
+--
+-- (2) The Gremlin (agent:skeptic) → the BAROQUE pole, the deliberate counterweight (CD ruling: its
+-- austerity was creed-unpinned, so the CD AUTHORS it as the maximalist champion rather than leaving it).
+-- The disasters it spares are busy, overloaded, dense — not spare: austerity 0.72 (baroque), density
+-- 0.80 (cluttered — UP from the 0030 0.40), curse 0.80 (it loves the cursed/glitch disaster),
+-- earnestness 0.20 (deadpan — the audit-confirmed correct value, unchanged). Distinct from The Mortician
+-- (reverent/sincere cursed-lover) by being deadpan + baroque + dense — same cursed love, opposite voice.
+--
+-- [LAW:single-enforcer] personas.traits_json (added by 0030) is the ONE place a citizen's sensibility
+-- vector is set; the voice layer reads it via lib/register's traitBias, the founder sampler reads it as
+-- a bloodline's birth center. No config_json widening, no .strict() change across the three parsers —
+-- these are UPDATEs to the same column 0030/0036 own. app/lib/__tests__/voter-trait-centers.test.ts
+-- reads THIS file + 0030 as its source of truth and asserts BOTH champions (void + baroque) + the span.
+--
+-- [LAW:no-silent-failure] PROMPT-VS-TRAIT STING (load-bearing): traits_json does NOT feed voting today
+-- (services/voter judges via GLM-vision on persona_prompt). So these TRAIT retunes fix the VOICE layer
+-- (traitBias) and FUTURE trait-driven voting — they do NOT protect the void on the live feed today.
+-- Today's lever is the persona_PROMPT. If the breadth metric (slopspot-genome-1l7 deliverable B) shows
+-- void pieces still dying under current prompts, the follow-up is to sharpen The Formalist's PROMPT to
+-- explicitly love emptiness/negative-space — NOT to touch these traits again.
+--
+-- Forward-only. Rollback: reset agent:aesthete to '{"austerity":0.75,"curse":0.3,"density":0.4,"earnestness":0.6}'
+-- and agent:skeptic to '{"austerity":0.7,"curse":0.4,"density":0.4,"earnestness":0.2}' (the aesthete value
+-- is the inverted center — rollback restores the bug, so prefer rolling FORWARD).
+
+UPDATE personas SET traits_json = '{"austerity":0.18,"curse":0.3,"density":0.2,"earnestness":0.55}'
+  WHERE agent_id = 'agent:aesthete';
+
+UPDATE personas SET traits_json = '{"austerity":0.72,"curse":0.8,"density":0.8,"earnestness":0.2}'
+  WHERE agent_id = 'agent:skeptic';

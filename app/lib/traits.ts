@@ -35,3 +35,11 @@ export const traitVectorSchema: z.ZodType<TraitVector> = z
     earnestness: z.number().min(0).max(1),
   })
   .strict()
+
+// [LAW:one-source-of-truth] The canonical ordered enumeration of the four axes. Code that must
+// iterate the axes (the register projection, the trait-spread measurement, metric labels) reads
+// THIS, never a re-declared `['austerity', ...]` literal that could drift from TraitVector's keys.
+// `TraitAxis` is `keyof TraitVector` made nameable so a metric label or a cohort report can be
+// typed to exactly the four axes — a typo'd axis is a compile error, same theorem as the schema.
+export type TraitAxis = keyof TraitVector
+export const TRAIT_AXES: readonly TraitAxis[] = ['austerity', 'curse', 'density', 'earnestness']

@@ -13,6 +13,7 @@ function assertAllCeremonyNames(name: CeremonyName): string {
     case 'birth': return name
     case 'grace': return name
     case 'first-poet': return name
+    case 'trait-spread': return name
     default: {
       const _never: never = name
       return _never
@@ -21,9 +22,9 @@ function assertAllCeremonyNames(name: CeremonyName): string {
 }
 
 describe('ceremony registry', () => {
-  it('lists ceremonies in canonical order portrait→rite→birth→grace→first-poet', () => {
+  it('lists ceremonies in canonical order portrait→rite→birth→grace→first-poet→trait-spread', () => {
     expect(CEREMONIES.map(c => c.name)).toEqual([
-      'portrait', 'rite', 'birth', 'grace', 'first-poet',
+      'portrait', 'rite', 'birth', 'grace', 'first-poet', 'trait-spread',
     ])
   })
 
@@ -36,6 +37,6 @@ describe('ceremony registry', () => {
   it('CeremonyName exhaustiveness gate (real verifier is tsc -b)', () => {
     // Adding a ceremony without updating the switch above fails tsc -b at the never default.
     const names = CEREMONIES.map(c => assertAllCeremonyNames(c.name))
-    expect(names).toEqual(['portrait', 'rite', 'birth', 'grace', 'first-poet'])
+    expect(names).toEqual(['portrait', 'rite', 'birth', 'grace', 'first-poet', 'trait-spread'])
   })
 })
