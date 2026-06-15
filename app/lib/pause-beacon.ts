@@ -26,5 +26,11 @@ export function reportPause(surface: PauseSurface, reason: BreedPauseReason): vo
   // own metrics directly. Telemetry must never throw into the user's submit handler.
   if (typeof navigator === "undefined" || typeof navigator.sendBeacon !== "function") return
   const body = new Blob([JSON.stringify({ surface, reason })], { type: "application/json" })
-  navigator.sendBeacon(PAUSE_BEACON_PATH, body)
+  // [LAW:no-silent-failure] sendBeacon returns false when the UA refuses to queue the
+  // payload (the beacon queue is over its size limit). A dropped pause report must not
+  // vanish: surface it in the console for diagnosis. It stays a warn — not a throw or a
+  // heavier fetch retry — because telemetry must never break the user's submit handler,
+  // matching the console-for-diagnosis discipline the rest of the pause flow already uses.
+  const queued = navigator.sendBeacon(PAUSE_BEACON_PATH, body)
+  if (!queued) console.warn("pause-beacon: sendBeacon refused to queue", { surface, reason })
 }
