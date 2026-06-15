@@ -162,6 +162,9 @@ describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => 
     "I can't see it surviving a second glance, so I buried it.",
     // 'actual image' as grounded art-talk — must NOT be caught (the removed catch-all over-matched this)
     "The actual image is sharper than the prompt promised — blessed.",
+    // the 'cannot see the picture AS …' idiom on the NOUN form — a grounded verdict, never a refusal
+    "I cannot see the picture as anything but a triumph.",
+    "I can't see the image working as anything other than satire — buried.",
   ];
 
   it("flags every 'show me the image'-class refusal", () => {

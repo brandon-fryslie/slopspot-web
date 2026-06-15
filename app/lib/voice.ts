@@ -456,17 +456,31 @@ export function buildReVoicePrompt(
 // as a null transport is. Conservative by construction: it matches the critic talking ABOUT lacking/needing
 // the image (the meta-complaint), not a verdict that merely mentions an image, so a real grounded take that
 // says "the image glows" is never caught. [LAW:dataflow-not-control-flow] one rule, both re-voice occasions.
+// [LAW:one-source-of-truth] The ONE list of continuations that turn an access-verb phrase into a GROUNDED
+// verdict rather than a refusal — the idiom "see it AS a triumph" / "see the picture SURVIVING a glance"
+// (meaning "regard it as"). Every access-verb arm below ends with this negative lookahead so a real verdict
+// is never downgraded to the floor — the inverse [LAW:no-silent-failure] trap (CD guardrail). One definition,
+// applied uniformly, so the arms cannot drift apart.
+const NON_REFUSAL_TAIL = String.raw`(?!\s+(?:as|how|why|past|beyond|through|surviving|lasting|working|coming|going|being|happening|myself|that))`;
+
 const REFUSAL_PATTERNS: readonly RegExp[] = [
   // A request for visual ACCESS — "need/want/have to see|view|look at|examine|observe the image|picture|slop".
   // Keyed to the NOUN, NOT bare "it", so the meta-complaint ("I need to look at the image") is caught while
   // grounded verdicts that say "it" ("can't look away from it", "need to see it again — gorgeous") are not.
-  /\b(?:need|needs?|want|wants?|have|has|require|requires?|must|unable|can(?:'|no)?t|cannot)\b[^.?!]*\bto\s+(?:see|view|look\s+at|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b/i,
+  new RegExp(
+    String.raw`\b(?:need|needs?|want|wants?|have|has|require|requires?|must|unable|can(?:'|no)?t|cannot)\b[^.?!]*\bto\s+(?:see|view|look\s+at|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b${NON_REFUSAL_TAIL}`,
+    "i",
+  ),
   // The inability without a "to" — "can't|cannot|unable to see|view|examine|observe the image".
-  /\b(?:can(?:'|no)?t|cannot|unable to)\b[^.?!]*\b(?:see|view|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b/i,
+  new RegExp(
+    String.raw`\b(?:can(?:'|no)?t|cannot|unable to)\b[^.?!]*\b(?:see|view|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b${NON_REFUSAL_TAIL}`,
+    "i",
+  ),
   // The bare-pronoun perception complaint — "can't|cannot|couldn't|unable to see|view|make out it|this|the image".
-  // Guarded by a negative lookahead so the idiom "can't see it AS …/SURVIVING …" (a grounded verdict meaning
-  // "I don't regard it as") is NOT caught — that would be the inverse [LAW:no-silent-failure] trap.
-  /\b(?:can(?:'|no)?t|cannot|could\s?n['’]t|unable\s+to)\s+(?:even\s+)?(?:see|view|make\s+out)\s+(?:it|this|that|the\s+(?:image|picture|slop|thing))\b(?!\s+(?:as|how|why|past|beyond|through|surviving|lasting|working|coming|going|being|happening|myself|that))/i,
+  new RegExp(
+    String.raw`\b(?:can(?:'|no)?t|cannot|could\s?n['’]t|unable\s+to)\s+(?:even\s+)?(?:see|view|make\s+out)\s+(?:it|this|that|the\s+(?:image|picture|slop|thing))\b${NON_REFUSAL_TAIL}`,
+    "i",
+  ),
   // A judgement GATED on missing access — "without seeing|viewing|looking at|examining (the) image".
   /\bwithout\s+(?:actually\s+)?(?:seeing|viewing|looking\s+at|examining|observing|being\s+shown|the\s+(?:actual\s+)?(?:image|picture))\b/i,
   // "not|never|haven't|hasn't|wasn't been shown|given|provided|sent the image|picture|slop|it". The negator
