@@ -463,10 +463,15 @@ const REFUSAL_PATTERNS: readonly RegExp[] = [
   /\b(?:need|needs?|want|wants?|have|has|require|requires?|must|unable|can(?:'|no)?t|cannot)\b[^.?!]*\bto\s+(?:see|view|look\s+at|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b/i,
   // The inability without a "to" — "can't|cannot|unable to see|view|examine|observe the image".
   /\b(?:can(?:'|no)?t|cannot|unable to)\b[^.?!]*\b(?:see|view|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b/i,
+  // The bare-pronoun perception complaint — "can't|cannot|couldn't|unable to see|view|make out it|this|the image".
+  // Guarded by a negative lookahead so the idiom "can't see it AS …/SURVIVING …" (a grounded verdict meaning
+  // "I don't regard it as") is NOT caught — that would be the inverse [LAW:no-silent-failure] trap.
+  /\b(?:can(?:'|no)?t|cannot|could\s?n['’]t|unable\s+to)\s+(?:even\s+)?(?:see|view|make\s+out)\s+(?:it|this|that|the\s+(?:image|picture|slop|thing))\b(?!\s+(?:as|how|why|past|beyond|through|surviving|lasting|working|coming|going|being|happening|myself|that))/i,
   // A judgement GATED on missing access — "without seeing|viewing|looking at|examining (the) image".
   /\bwithout\s+(?:actually\s+)?(?:seeing|viewing|looking\s+at|examining|observing|being\s+shown|the\s+(?:actual\s+)?(?:image|picture))\b/i,
-  // "not been shown|given|provided|sent the image|picture|slop|it".
-  /\b(?:not|never|n't)\s+(?:been\s+)?(?:shown|given|provided|sent)\b[^.?!]*\b(?:image|picture|slop|it)\b/i,
+  // "not|never|haven't|hasn't|wasn't been shown|given|provided|sent the image|picture|slop|it". The negator
+  // matches contraction forms (the "n't" in "haven't" has no preceding word boundary, so it is matched bare).
+  /(?:\b(?:not|never|no)\b|n['’]t)\s+(?:been\s+|yet\s+)?(?:shown|given|provided|sent|presented)\b[^.?!]*\b(?:image|picture|slop|it)\b/i,
   // "share|send|provide|show me|give me the (actual) image|picture|slop".
   /\b(?:share|send|provide|show me|give me)\b[^.?!]*\b(?:the\s+)?(?:actual\s+)?(?:image|picture|slop)\b/i,
   // The explicit "you gave me text, not the image" complaint.

@@ -141,6 +141,10 @@ describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => 
     "I need to look at the image to judge it.",
     "I can't tell without viewing it.",
     "I'd have to examine the picture before passing any verdict.",
+    // bare-pronoun perception complaint + the contraction the negator was missing
+    "I can't see it.",
+    "I haven't been shown the image.",
+    "Cannot make out the image at all.",
   ];
   // Real grounded verdicts that merely MENTION an image/picture must NOT be caught — the recogniser is about
   // the meta-complaint, not art-talk.
@@ -153,6 +157,9 @@ describe("isRefusalClass — the blind-critic refusal recogniser (pure)", () => 
     "I can't look away from it — buried with relish, and I mean that as praise.",
     "I need to see it again, it's that gorgeous. Blessed.",
     "The viewing angle is absurd and I adore every degree of it.",
+    // the 'can't see it AS/SURVIVING' idiom — a grounded verdict, never a refusal
+    "I can't see it as anything but a triumph — blessed.",
+    "I can't see it surviving a second glance, so I buried it.",
   ];
 
   it("flags every 'show me the image'-class refusal", () => {
