@@ -19,6 +19,7 @@
 
 import type { RiteLens } from '~/lib/domain'
 import type { BreedPauseReason } from '~/lib/breed-failure'
+import type { TraitAxis } from '~/lib/traits'
 
 // The puller (homelab-side) parses log lines that start with `[metric]`. Changing
 // this prefix without coordinating with the puller will drop metrics silently.
@@ -208,6 +209,20 @@ export type MetricLabels = {
   'slopspot.fork.pause': {
     surface: 'fork' | 'breed'
     reason: BreedPauseReason
+  }
+  // [LAW:verifiable-goals] The breadth directive's concrete "done" shape made queryable: the per-axis
+  // dispersion (population stddev, in the axis's [0,1] units) of what is GENERATED vs what SURVIVES
+  // (the top-ranked-by-score cohort). RANGE is the product (genome-3un); this metric is how
+  // "monoculture broke" stops being a guess — healthy is BOTH cohorts wide, selection-eating-the-range
+  // is generated wide + surviving narrow. Eight series (2 cohorts × 4 axes), low cardinality.
+  // [LAW:single-enforcer] app/agents/traitSpread.ts (the daily measurement ceremony) is the sole emitter.
+  // [LAW:no-silent-failure] The [metric]→VM puller does NOT exist yet (efficiency-a5w.7) — this emit
+  // reaches Workers Logs + the /metrics scrape accumulator, NOT a dashboard. The ticket's ACCEPTANCE
+  // proof is therefore a DIRECT D1 read (app/db/trait-spread.ts), never this (possibly uncollected) emit.
+  // [LAW:types-are-the-program] axis is the closed TraitAxis union — a typo'd axis is a compile error.
+  'slopspot.trait.spread': {
+    cohort: 'generated' | 'surviving'
+    axis: TraitAxis
   }
 }
 
