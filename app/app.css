@@ -236,3 +236,30 @@
     opacity: 0.7;
   }
 }
+
+/*
+  THE FLOOR AT WORK — the Cast-at-work district visibly LABORS (the-haunted-gallery.md move D).
+  Each working citizen's tool-glyph (⚒ judging / ✶ / ⌖) throbs like a hand at a bench — a shallow
+  opacity-and-scale pulse, never a bounce. The chips carry a per-glyph animation-delay (set inline
+  by index at the call site) so the floor shimmers out of phase — a busy room, not a metronome. The
+  count beside them ticks the city's relentless productivity; this is that productivity made visible
+  as motion, not another static block of prose. Under reduced-motion the glyphs simply hold lit.
+*/
+@keyframes work-glyph {
+  0%, 100% { opacity: 0.55; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+.work-glyph {
+  animation: work-glyph 1.9s ease-in-out infinite;
+  transform-origin: center;
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-glyph {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
