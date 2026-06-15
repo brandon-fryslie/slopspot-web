@@ -15,6 +15,7 @@ export const ROUTE_PATTERNS = [
   "/api/fork/:id",
   "/api/breed/:id",
   "/api/rewrite-prompt",
+  "/api/metrics/fork-pause",
   "/api/found",
   "/api/cast/:handle/back",
   "/api/well",
