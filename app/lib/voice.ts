@@ -474,10 +474,11 @@ const REFUSAL_PATTERNS: readonly RegExp[] = [
   /(?:\b(?:not|never|no)\b|n['’]t)\s+(?:been\s+|yet\s+)?(?:shown|given|provided|sent|presented)\b[^.?!]*\b(?:image|picture|slop|it)\b/i,
   // "share|send|provide|show me|give me the (actual) image|picture|slop".
   /\b(?:share|send|provide|show me|give me)\b[^.?!]*\b(?:the\s+)?(?:actual\s+)?(?:image|picture|slop)\b/i,
-  // The explicit "you gave me text, not the image" complaint.
+  // The explicit "you gave me text, not the image" complaint. (A bare "actual image" catch-all was removed:
+  // it over-matched grounded verdicts like "the actual image is sharper than the prompt promised", and the
+  // real refusals carrying that phrase are already caught by the access-verb and share/provide patterns.)
   /\bnot\s+a\s+description\b/i,
   /\bdescription\s+of\s+(?:it|the\s+(?:image|slop))\b/i,
-  /\b(?:the\s+)?actual\s+image\b/i,
 ];
 
 export function isRefusalClass(line: string): boolean {
