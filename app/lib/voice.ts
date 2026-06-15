@@ -433,13 +433,84 @@ export function buildReVoicePrompt(
     // [LAW:dataflow-not-control-flow] a neutral vector projects to '' → no register line (a value-shaped
     // omission, the same way the composer drops the register line for a neutral genome).
     register ? `Speak in this register: ${register}.` : null,
-    `You have just SEEN a slop and are delivering your verdict on it. Below is exactly what you observed in this image.`,
-    `Re-voice these observations as a single short verdict line in your own register. PRESERVE the specific, concrete things observed — the details that could ONLY come from having seen THIS image. Do not generalize them into mood or abstraction: a verdict that could have been written WITHOUT seeing the image has failed. Decorate the specifics in your register; never launder them away.`,
+    // [LAW:no-silent-failure] HONEST framing (slopspot-voice-7io): this occasion does NOT hold the image —
+    // the substance below is the observation the critic ALREADY recorded when it judged the slop. The old
+    // copy claimed "you have just SEEN this image" and handed text, so the model sometimes refused ("show me
+    // the image") and that refusal was published as a verdict. The verdict is already decided; the only task
+    // now is to VOICE the recorded observation. The model is told plainly it is not being shown an image and
+    // must never ask for one — a no-image occasion that never phrases itself as judging an image it can't see.
+    `Below is the observation you recorded when you judged this slop — the verdict is already decided. Your only task now is to VOICE that observation as your verdict line. This is a rephrasing task, not a fresh judgement: you are not being shown an image here, the observation below is everything you need, and you must never reply that you need to see the image or that you were given only a description.`,
+    `Re-voice the observation as a single short verdict line in your own register. PRESERVE the specific, concrete things it names — the details that could ONLY come from having seen the slop. Do not generalize them into mood or abstraction: a verdict that could have been written WITHOUT those specifics has failed. Decorate the specifics in your register; never launder them away.`,
     `Reply with ONLY the verdict line — no preamble, no quotation marks, no explanation.`,
   ]
     .filter(Boolean)
     .join(" ");
   return { system, user: reasoning };
+}
+
+// [LAW:single-enforcer][LAW:no-silent-failure] A re-voice transport can still emit a META-REFUSAL — the
+// model answering that it needs the image, was shown only a description, or asking to be sent the picture.
+// Publishing that as a verdict is the blind-critic LIE (slopspot-voice-7io): it misrepresents "couldn't see
+// it" as a delivered verdict, the prominent garnish on a framed card. This predicate is the ONE place that
+// recognises that class so the line can be made UNUSABLE — degraded to the grounded verbatim floor exactly
+// as a null transport is. [LAW:dataflow-not-control-flow] one rule, both re-voice occasions.
+//
+// The recogniser is split by CERTAINTY, because a bare perception-inability ("I can't see the image") is
+// genuinely AMBIGUOUS — it is a refusal ("I can't see the image, so I can't judge") OR a grounded verdict
+// that pivots ("I can't see the image as anything but a triumph"; "I can't see the image, but the palette is
+// beautiful"). Forcing it to one class trips [LAW:no-silent-failure] in one direction or the other. So:
+//   • UNAMBIGUOUS_REFUSAL — meta-complaint shapes that are never a verdict (a request for access, a judgement
+//     gated on missing access, a demand to be sent the image, the "you gave me text not the image" tell).
+//     These fire ALONE. They caught every live-feed offender.
+//   • PERCEPTION_INABILITY ∧ META_TELL — a bare "can't see the image" counts ONLY when the same line also
+//     carries a verdict/description tell (it cannot judge / it was handed a description). A perception phrase
+//     that pivots to grounded praise has no such tell and passes through to the floor untouched.
+
+// A request for visual ACCESS — "need/want/have to see|view|look at|examine the image|picture|slop". Keyed to
+// the NOUN, not bare "it", so "I need to look at the image" is caught while "need to see it again — gorgeous"
+// is not. The trailing lookahead drops the idiom "see it AS …/SURVIVING …" (a grounded verdict).
+const NON_REFUSAL_TAIL = String.raw`(?!\s+(?:as|how|why|past|beyond|through|surviving|lasting|working|coming|going|being|happening|myself|that))`;
+
+const UNAMBIGUOUS_REFUSAL: readonly RegExp[] = [
+  new RegExp(
+    String.raw`\b(?:need|needs?|want|wants?|have|has|require|requires?|must|unable|can(?:'|no)?t|cannot)\b[^.?!]*\bto\s+(?:see|view|look\s+at|examine|observe)\b[^.?!]*\b(?:image|picture|slop)\b${NON_REFUSAL_TAIL}`,
+    "i",
+  ),
+  // A judgement GATED on missing access — "without seeing|viewing|looking at|examining (the) image".
+  /\bwithout\s+(?:actually\s+)?(?:seeing|viewing|looking\s+at|examining|observing|being\s+shown|the\s+(?:actual\s+)?(?:image|picture))\b/i,
+  // "not|never|haven't|hasn't|wasn't been shown|given|provided|sent the image|picture|slop|it". The negator
+  // matches contraction forms (the "n't" in "haven't" has no preceding word boundary, so it is matched bare).
+  /(?:\b(?:not|never|no)\b|n['’]t)\s+(?:been\s+|yet\s+)?(?:shown|given|provided|sent|presented)\b[^.?!]*\b(?:image|picture|slop|it)\b/i,
+  // "share|send|provide|show me|give me the (actual) image|picture|slop".
+  /\b(?:share|send|provide|show me|give me)\b[^.?!]*\b(?:the\s+)?(?:actual\s+)?(?:image|picture|slop)\b/i,
+  // The explicit "you gave me text, not the image" complaint.
+  /\bnot\s+a\s+description\b/i,
+  /\bdescription\s+of\s+(?:it|the\s+(?:image|slop))\b/i,
+];
+
+// A bare perception-inability — "can't|cannot|couldn't|unable to see|view|examine|make out the image|it".
+const PERCEPTION_INABILITY =
+  /\b(?:can(?:'|no)?t|cannot|could\s?n['’]t|unable\s+to)\s+(?:even\s+|really\s+|quite\s+)?(?:see|view|examine|observe|make\s+out)\b[^.?!]*\b(?:image|picture|slop|it)\b/i;
+
+// The verdict/description tell that promotes an ambiguous perception-inability to a refusal: the line says it
+// cannot render a verdict, or that it was handed a description. Without one of these, "can't see the X" is
+// left alone — a grounded verdict ("can't see it as anything but a triumph") is never downgraded.
+const META_TELL = /\b(?:verdict|judg|assess|evaluat|critiqu|describ)\w*|\bbeen\s+shown\b/i;
+
+export function isRefusalClass(line: string): boolean {
+  return (
+    UNAMBIGUOUS_REFUSAL.some((re) => re.test(line)) ||
+    (PERCEPTION_INABILITY.test(line) && META_TELL.test(line))
+  );
+}
+
+// [LAW:single-enforcer] A re-voice transport result reduced to a USABLE line, or null. Null/empty (no key,
+// timeout, failure) AND refusal-class output (the blind-critic complaint) both reduce to null, so the caller
+// degrades to its honest grounded floor BY DATA — no guard, one rule shared by the verdict and reply seams.
+export function usableReVoice(line: string | null): string | null {
+  const trimmed = line?.trim();
+  if (trimmed === undefined || trimmed.length === 0) return null;
+  return isRefusalClass(trimmed) ? null : trimmed;
 }
 
 // The verdict instance (voice-w2v.1 floor → FORK C re-voice, voice-w2v.7). A critic narrates its
@@ -457,9 +528,12 @@ export function buildReVoicePrompt(
 // grounded observation. The register only renders when the LLM body answers.
 const composeVerdict: Voice<"verdict"> = async (speaker, judged, caps) => {
   const take = judged.reasoning?.trim();
+  // [LAW:no-silent-failure] usableReVoice nulls out a refusal-class line (the "show me the image" complaint)
+  // exactly as it nulls a failed transport, so the value degrades to the grounded verbatim floor (`?? take`)
+  // — the voter's image-grounded observation — never a published hearsay-complaint. The floor IS the truth.
   return take === undefined || take.length === 0
     ? withheld("indifferent")
-    : spoke((await caps.reVoice(buildReVoicePrompt(speaker.personaPrompt, speaker.traits, take))) ?? take);
+    : spoke(usableReVoice(await caps.reVoice(buildReVoicePrompt(speaker.personaPrompt, speaker.traits, take))) ?? take);
 };
 
 // The disposition's verbs — the city's words for the two ways to judge. A total map over the closed
@@ -536,7 +610,9 @@ export function buildReplyPrompt(
 // replyFloor, the stance-tinted deterministic line, behaviour-identical to w2v.2. The register only renders
 // when the LLM body answers.
 const composeReply: Voice<"reply"> = async (speaker, exchange, caps) => {
-  const line = (await caps.reVoice(buildReplyPrompt(speaker.personaPrompt, speaker.traits, exchange)))?.trim();
+  // [LAW:single-enforcer] same usableReVoice rule as the verdict: empty/failed AND refusal-class lines both
+  // degrade to the stance-tinted floor, so a meta-refusal can never surface as a reply either.
+  const line = usableReVoice(await caps.reVoice(buildReplyPrompt(speaker.personaPrompt, speaker.traits, exchange)));
   return line ? spoke(line) : replyFloor(exchange);
 };
 
