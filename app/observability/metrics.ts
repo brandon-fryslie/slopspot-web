@@ -18,6 +18,7 @@
 // adding a metric in one place forces the other to catch up at compile time.
 
 import type { RiteLens } from '~/lib/domain'
+import type { BreedPauseReason } from '~/lib/breed-failure'
 
 // The puller (homelab-side) parses log lines that start with `[metric]`. Changing
 // this prefix without coordinating with the puller will drop metrics silently.
@@ -194,6 +195,19 @@ export type MetricLabels = {
   // compose/persist threw (caught, surfaced, never an un-grace).
   'slopspot.grace.reveal': {
     outcome: 'spoke' | 'withheld' | 'absent' | 'failed'
+  }
+  // [LAW:no-silent-failure] The visitor-facing pause the fork/breed flow showed. The
+  // pause is classified IN THE BROWSER (the rewrite stream parse and the unexpected-throw
+  // arms have no server equivalent), so it cannot be observed from the Worker alone — the
+  // client beacons it to /api/metrics/fork-pause, which is the sole emitter. A client-side
+  // emit() would only console.log in the browser, which the Workers-Logs puller never sees;
+  // routing through the server is what makes this metric REAL in VictoriaMetrics instead of
+  // a silent no-op. [LAW:single-enforcer] api.metrics.fork-pause.ts is the one emitter.
+  // [LAW:types-are-the-program] reason is the closed BreedPauseReason union (a typo is a
+  // compile error); surface separates the fork journey from the breed journey.
+  'slopspot.fork.pause': {
+    surface: 'fork' | 'breed'
+    reason: BreedPauseReason
   }
 }
 

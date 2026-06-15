@@ -6,6 +6,7 @@ import { getBreedablePool, getFeedItemById } from "~/db/feed"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostId, type RenderablePost } from "~/lib/domain"
 import { forkPause, type BreedPause } from "~/lib/breed-failure"
+import { reportPause } from "~/lib/pause-beacon"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The submit-side action lives
 // at /api/breed/:id (a resource route), mirroring fork's page/resource split (RR7's document-route
@@ -23,10 +24,13 @@ type Slop = { id: string; shortId: string; title: string; imageUrl: string }
 // [LAW:types-are-the-program] Exhaustive over BreedPause; `tsc -b` enforces completeness.
 function breedPauseVoice(pause: BreedPause): string {
   switch (pause.reason) {
-    case 'muse-unreachable': return 'breed paused — the spirit that re-authors the cross has gone quiet; try again shortly'
-    case 'muse-empty':       return 'breed paused — the muse came back empty-handed; try again'
-    case 'out-of-budget':    return 'breed paused — the city has spent all it has tonight; the breeding room reopens by morning'
-    case 'unknown':          return 'breed paused — something went wrong; try again shortly'
+    case 'muse-unreachable':    return 'breed paused — the spirit that re-authors the cross has gone quiet; try again shortly'
+    case 'muse-empty':          return 'breed paused — the muse came back empty-handed; try again'
+    case 'out-of-budget':       return 'breed paused — the city has spent all it has tonight; the breeding room reopens by morning'
+    case 'provider-unreachable': return 'breed paused — the image forge hit a snag; try again shortly'
+    case 'budget-unavailable':  return "breed paused — the city's ledger is unreachable; try again shortly"
+    case 'provider-rejected':   return "breed paused — that ratio isn't supported by this provider; try a different one"
+    case 'unknown':             return 'breed paused — something went wrong; try again shortly'
     default: { const _: never = pause; return _ }
   }
 }
@@ -103,7 +107,11 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
         // room's honest voice (the same pause vocabulary fork uses) and keep the raw status loud
         // in the console for diagnosis.
         console.error("breed failed", resp.status, await resp.text())
-        setPauseHeadline(breedPauseVoice(forkPause(resp.status)))
+        // [LAW:no-silent-failure] Compute the pause once: the headline the visitor reads
+        // and the reason the metric records are the SAME value, never two derivations.
+        const pause = forkPause(resp.status)
+        setPauseHeadline(breedPauseVoice(pause))
+        reportPause("breed", pause.reason)
         setPending(false)
         return
       }
@@ -111,7 +119,9 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
       navigate(`/p/${id}`)
     } catch (e) {
       console.error("breed failed", e)
-      setPauseHeadline(breedPauseVoice(forkPause(0)))
+      const pause = forkPause(0)
+      setPauseHeadline(breedPauseVoice(pause))
+      reportPause("breed", pause.reason)
       setPending(false)
     }
   }

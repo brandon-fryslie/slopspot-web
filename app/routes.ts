@@ -18,6 +18,9 @@ export default [
   // fork (asexual), so a distinct SURFACE, never a mode on fork. [LAW:no-mode-explosion]
   route("api/breed/:id", "routes/api.breed.$id.ts"),
   route("api/rewrite-prompt", "routes/api.rewrite-prompt.ts"),
+  // [LAW:single-enforcer] Server side of the client pause beacon — the one place the
+  // browser-classified fork/breed pause becomes a slopspot.fork.pause metric. [LAW:no-silent-failure]
+  route("api/metrics/fork-pause", "routes/api.metrics.fork-pause.ts"),
   route("api/found", "routes/api.found.ts"),
   // The one allegiance verb — back/unback a citizen. Addressed by handle (the
   // canonical /cast URL key); the single-enforcer writer resolves it to the

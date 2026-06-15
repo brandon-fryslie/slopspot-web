@@ -24,32 +24,66 @@
 // client-safe lib modules) so the fork page can import it into the client bundle
 // without dragging server code along.
 
-// [LAW:types-are-the-program] The closed set of reasons a breed can pause for. Each
-// arm is one honest headline; "paused for no reason" and "a raw HTTP status as the
-// reason" are both unrepresentable. The fork page's error state is `BreedPause | null`
-// — there is no field on this type that can hold an upstream status code or body, so
-// the old `rewrite failed: 502 {…}` leak is impossible BY THE TYPE, not by discipline.
-export type BreedPause =
+// [LAW:one-source-of-truth] The closed set of pause reasons lives here ONCE, as a
+// runtime tuple, and the `BreedPause` type is DERIVED from it. The reason set is needed
+// at two boundaries — the type level (exhaustive headline switches) and the runtime
+// level (the /api/metrics/fork-pause beacon validates an incoming reason against this
+// exact set). Deriving the type from the tuple means a new reason is added in one place
+// and both boundaries catch up; a second hand-kept list could drift from the first.
+export const BREED_PAUSE_REASONS = [
   // The rewrite phase failed: the citizen who silently re-authors the wish (the muse)
   // could not be reached. Any failure of that phase means the same thing to the
   // visitor — the spirit is quiet — regardless of the exact upstream status.
-  | { readonly reason: 'muse-unreachable' }
+  'muse-unreachable',
   // The rewrite phase responded but yielded no usable prompt (no delimiter, or an
   // empty prompt after trimming). The muse spoke but said nothing to breed from.
-  | { readonly reason: 'muse-empty' }
-  // The fork phase hit the daily spend cap — the one user-reachable budget failure,
+  'muse-empty',
+  // The fork phase hit the daily spend cap (429) — a user-reachable budget failure,
   // and the "out of money" axis the breed bug was first suspected to be.
-  | { readonly reason: 'out-of-budget' }
+  'out-of-budget',
+  // The fork phase reached the city but the image forge upstream failed (502) — the
+  // provider call threw or the upstream returned non-2xx. Transient; try again.
+  'provider-unreachable',
+  // The fork phase could not consult the spend ledger at all (503) — the budget check
+  // itself was unavailable, distinct from being over budget. Transient; try again.
+  'budget-unavailable',
+  // The chosen provider rejected the request shape (422 — unsupported params / aspect
+  // ratio, or the provider not being available in this environment) — actionable by the
+  // visitor: pick another provider. NOTE 404 is deliberately NOT mapped here: both routes
+  // overload 404 across "post/mate not found" (a stale or deleted parent — the dominant
+  // case) AND "provider not registered", so the status alone cannot mean provider-rejected
+  // without misleading the far more common not-found case; an unmapped 404 reads as the
+  // honest `unknown`. [LAW:dataflow-not-control-flow]
+  'provider-rejected',
   // An unexpected failure. The technical detail goes to the console (for diagnosis),
-  // never to the visitor — this arm carries no detail field precisely so it cannot.
-  | { readonly reason: 'unknown' }
+  // never to the visitor — this reason carries no detail precisely so it cannot.
+  'unknown',
+] as const
+
+export type BreedPauseReason = (typeof BREED_PAUSE_REASONS)[number]
+
+// [LAW:types-are-the-program] The fork/breed page's error state is `BreedPause | null` —
+// there is no field on this type that can hold an upstream status code or body, so the
+// old `rewrite failed: 502 {…}` leak is impossible BY THE TYPE, not by discipline.
+//
+// Distributive mapped type: derives a DISCRIMINATED UNION (`{reason:'a'} | {reason:'b'} | …`)
+// from the single-source tuple, rather than the flat `{reason: BreedPauseReason}`. The
+// distinction is load-bearing: only the union collapses `pause` to `never` once every arm
+// of an exhaustive `switch` is handled, so the `const _: never = pause` guard in
+// pauseHeadline/breedPauseVoice fails to compile the moment a reason is added without copy.
+export type BreedPause = {
+  readonly [R in BreedPauseReason]: { readonly reason: R }
+}[BreedPauseReason]
 
 // [LAW:dataflow-not-control-flow] The fork phase's HTTP status SELECTS a pause reason
 // from a data table — the same idiom as the well's status-keyed voice table. A new
 // status→reason pairing is one entry here, never a new branch at the call site; any
 // status without an entry is the quiet `unknown`.
-const FORK_PAUSE_BY_STATUS: Record<number, BreedPause['reason']> = {
+const FORK_PAUSE_BY_STATUS: Record<number, BreedPauseReason> = {
+  422: 'provider-rejected',
   429: 'out-of-budget',
+  502: 'provider-unreachable',
+  503: 'budget-unavailable',
 }
 
 // [LAW:single-enforcer] The one mapping from a failed fork response to a pause. The
