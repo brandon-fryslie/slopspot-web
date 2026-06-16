@@ -25,12 +25,14 @@ export type ReproductionPlan =
   | { kind: 'founder' }
   | { kind: 'bred'; parents: readonly [PostId, PostId] }
 
-// [LAW:no-mode-explosion] The novelty injection rate — the SINGLE surfaced knob. When a
-// breedable pair exists, the firehose seeds a fresh founder this fraction of the time and
-// breeds otherwise. Fixed rather than derived from the pool's fitness mass ON PURPOSE: novelty
-// must stay STEADY as the pool grows fitter (the doc's "so the pool never stagnates"), which a
-// mass-proportional founder weight would betray by shrinking. Fitness drives WHICH parents
-// breed; this drives only WHETHER to breed. Tunable; never a flag.
+// [LAW:no-mode-explosion] The BASELINE novelty injection rate — the SINGLE surfaced knob. When
+// a breedable pair exists, the firehose seeds a fresh founder this fraction of the time and
+// breeds otherwise. Fixed against the pool's fitness MASS ON PURPOSE: novelty must stay STEADY
+// as the pool grows fitter (the doc's "so the pool never stagnates"), which a mass-proportional
+// founder weight would betray by shrinking. Fitness drives WHICH parents breed; this drives the
+// BASELINE of WHETHER to breed. The one axis it is NOT fixed against is pool SAMENESS: the drift
+// floor (drift-floor.ts) raises the effective rate toward 1 as the recent pool converges — the
+// monoculture pressure-release. Tunable; never a flag.
 export const FOUNDER_RATE = 0.2
 
 // [LAW:types-are-the-program] The fold. Breedable = positively-selected genomes (fitness > 0):
@@ -38,21 +40,32 @@ export const FOUNDER_RATE = 0.2
 // carries no weight, no guard needed. A breedable pair must exist to cross; when it does not,
 // the breed-weight is zero by data and the draw falls to founder. The two parents are drawn
 // fitness-weighted WITHOUT replacement (B from the pool minus A), so a slop never crosses with
-// itself and fitter genomes reproduce more. Same (candidates, seed) → same plan, every time.
+// itself and fitter genomes reproduce more. Same (candidates, seed, pressure) → same plan.
+//
+// [LAW:dataflow-not-control-flow] `monoculturePressure` (drift-floor.ts; absent = 0, the
+// identity, the same "absence = no-op" idiom the chooser's optional `bias` uses) RAISES the
+// founder weight as the recent pool converges on one phenotype family — the breeder-side drift
+// floor. The bred path conserves `genes.form` wholesale (a fox × fox cross is always a fox), so
+// suppressing fox PARENTS cannot introduce novelty when the whole pool is foxes; only injecting
+// FRESH founders (whose recipe the chooser draws under R7) can. At pressure 1 the breed weight
+// is 0 and every fire founds — the valve fully open.
 export function selectReproduction(
   candidates: readonly FitnessCandidate[],
   seed: number,
+  monoculturePressure = 0,
 ): ReproductionPlan {
   const breedable = candidates.filter((c) => c.fitness > 0)
   const canBreed = breedable.length >= 2
 
-  // [LAW:dataflow-not-control-flow] A two-outcome weighted draw — founder vs bred — at the
-  // steady FOUNDER_RATE. `canBreed ? … : 0` is a weight computed FROM the data (pool shape),
-  // not a branch that skips the draw: the draw runs identically every time, only the breed
-  // weight varies. A starved pool zeroes it and the single draw lands on founder.
+  // [LAW:dataflow-not-control-flow] A two-outcome weighted draw — founder vs bred. The founder
+  // weight is the baseline rate plus the pressure-driven climb toward 1; `canBreed ? … : 0` is
+  // a weight computed FROM the data (pool shape), not a branch that skips the draw. The draw
+  // runs identically every time; only the weights vary. A starved pool OR full pressure zeroes
+  // the breed weight and the single draw lands on founder.
+  const founderWeight = FOUNDER_RATE + (1 - FOUNDER_RATE) * monoculturePressure
   const mode = pickWeighted(
     ['founder', 'bred'] as const,
-    [FOUNDER_RATE, canBreed ? 1 - FOUNDER_RATE : 0],
+    [founderWeight, canBreed ? 1 - founderWeight : 0],
     seed,
     'reproduce',
   )
