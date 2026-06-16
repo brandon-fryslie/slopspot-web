@@ -38,6 +38,7 @@ import { recordRemark } from '~/db/remark'
 import { pickPersona, type Persona } from '~/agents/persona'
 import { breed } from '~/firehose/breed'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
+import { monoculturePressure } from '~/firehose/drift-floor'
 import { composePrompt, type ComposerOccasion } from '~/firehose/composer'
 import { pickNiche } from '~/firehose/niche'
 import { selectReproduction } from '~/firehose/select'
@@ -455,7 +456,19 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
   // so the niche's CURRENT taste outweighs historical accumulation. Reproducible: same fire time →
   // same decayed pool.
   const pool = await getNicheGenePool(env, niche, GENE_POOL_SIZE, scheduledTimeMs)
-  const plan = selectReproduction(pool, seedHash(scheduledTimeMs, 'reproduce'))
+
+  // [LAW:dataflow-not-control-flow] The drift floor's breeder lever (drift-floor.ts): the
+  // recent pool's sameness raises the founder-injection rate so a converging city breeds less
+  // and founds fresh, R7-floored blood more. Read once here and folded into the plan as a
+  // scalar — never a "are we converged?" branch. The founder arm's authorSlop reads `recent`
+  // again for the chooser; that second point-in-time read is independent and cheap (a narrow
+  // indexed projection), and only on the minority founder path.
+  const recent = await getRecentRecipes(env, RECENT_WINDOW)
+  const plan = selectReproduction(
+    pool,
+    seedHash(scheduledTimeMs, 'reproduce'),
+    monoculturePressure(recent),
+  )
 
   // [LAW:types-are-the-program] Exhaustive over ReproductionPlan: a new reproduction mode forces a
   // case here before it compiles. Bred crosses the two selected parents (author = the medium's
