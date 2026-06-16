@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { RecentRecipe } from '~/db/recent'
-import { ProviderId, type AspectRatio, type StyleFamily } from '~/lib/domain'
+import { PostId, ProviderId, type AspectRatio, type StyleFamily } from '~/lib/domain'
 import {
   ASPECT_RATIOS,
   CHOOSER_SUBJECT_TEMPLATE_IDS,
@@ -34,6 +34,7 @@ function input(scheduledTimeMs: number, recent: readonly RecentRecipe[] = []) {
 
 function makeRecent(overrides: Partial<RecentRecipe> = {}): RecentRecipe {
   return {
+    postId: PostId('p-recent'),
     providerId: ProviderId('fal-flux'),
     styleFamily: 'photoreal',
     subjectTemplate: 'T01',
@@ -273,6 +274,7 @@ describe('chooseNextGeneration — sustained chain', () => {
       const r = chooseNextGeneration({ scheduledTimeMs: t, recent, provider: PROVIDER })
       out.push(r)
       const stored: RecentRecipe = {
+        postId: PostId(`chain-${i}`),
         providerId: r.providerId,
         styleFamily: r.styleFamily,
         subjectTemplate: r.subject.subjectTemplate,

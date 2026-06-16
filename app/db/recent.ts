@@ -12,7 +12,7 @@
 import { desc, eq } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { generations, posts } from '~/db/schema'
-import { ProviderId, type AspectRatio, type StyleFamily } from '~/lib/domain'
+import { PostId, ProviderId, type AspectRatio, type StyleFamily } from '~/lib/domain'
 import {
   aspectRatioSchema,
   storedSubjectTemplateIdSchema,
@@ -27,6 +27,11 @@ import {
 // by recipeSubjectSchema, but the chooser doesn't need the discriminated
 // union — it operates on the slot map plus the template-id string.)
 export type RecentRecipe = {
+  // [LAW:one-source-of-truth] The post the recipe belongs to. Already queried for the slots-parse error
+  // message; surfaced because a SECOND consumer (the drift floor's dominant-family reading, drift-floor.ts)
+  // needs a representative slop of the over-represented family so the Noticing can link to a real recent
+  // member of it. The chooser's R1–R6 ignore this field; it costs nothing and lies to no one.
+  postId: PostId
   providerId: ProviderId
   styleFamily: StyleFamily
   subjectTemplate: StoredSubjectTemplateId
@@ -92,6 +97,7 @@ export async function getRecentRecipes(env: Env, n: number): Promise<RecentRecip
     .limit(n)
 
   return rows.map((row) => ({
+    postId: PostId(row.postId),
     providerId: ProviderId(row.providerId),
     styleFamily: styleFamilySchema.parse(row.styleFamily),
     subjectTemplate: storedSubjectTemplateIdSchema.parse(row.subjectTemplate),

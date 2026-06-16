@@ -42,6 +42,18 @@ export type MetricLabels = {
     channel: string
     outcome: 'fired' | 'skipped-budget' | 'skipped-error'
   }
+  // [LAW:single-enforcer] runGeneratorPass's maybeNotice (agents/generator.ts) is the sole emitter. The
+  // Noticing (slopspot-genome-brs) is the city remarking on a monoculture; this makes its cadence a
+  // queryable signal so a watcher can SEE the city notice a convergence (and the noticings fall silent as
+  // the drift floor relaxes the pool). `noticed` = a citizen uttered + recorded an observation;
+  // `quiet` = the pressure-weighted draw stayed silent this fire (the common case — pressure is the rate,
+  // so quiet dominates a healthy pool); `no-convergence` = the recent window held no over-represented
+  // family at all; `no-noticer` = a real convergence, but no critic persona exists to voice it (bootstrap /
+  // misconfiguration — an observable no-op, the mechanism still ran); `failed` = the voice/persist threw
+  // (caught, surfaced, never an aborted fire — the slop is already authored). [LAW:no-silent-failure]
+  'slopspot.firehose.noticing': {
+    outcome: 'noticed' | 'quiet' | 'no-convergence' | 'no-noticer' | 'failed'
+  }
   'slopspot.write.batch_outcome': {
     content_kind: 'generation' | 'found' | 'upload'
     outcome: 'success' | 'failed'

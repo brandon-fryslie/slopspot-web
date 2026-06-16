@@ -8,7 +8,7 @@ import { PostId } from '~/lib/domain'
 import { seedHash } from '~/lib/hash'
 import { chooseNextGeneration } from './chooseNextGeneration'
 import { selectReproduction } from './select'
-import { DRIFT_FLOOR_CAP, driftFloor, monoculturePressure } from './drift-floor'
+import { DRIFT_FLOOR_CAP, dominantFamily, driftFloor, monoculturePressure } from './drift-floor'
 
 // [LAW:behavior-not-structure] These pin the drift floor's CONTRACT: the share→weight
 // transform, the breeder's pressure complement, and the systemic guarantee — over a seeded
@@ -21,6 +21,7 @@ const PROVIDER = getProvider(ProviderId('fal-flux'))
 
 function makeRecent(overrides: Partial<RecentRecipe> = {}): RecentRecipe {
   return {
+    postId: PostId('p-recent'),
     providerId: ProviderId('fal-flux'),
     styleFamily: 'photoreal',
     subjectTemplate: 'T01',
@@ -92,6 +93,67 @@ describe('monoculturePressure — the breeder lever', () => {
   })
 })
 
+describe('dominantFamily — the convergence reading (slopspot-genome-brs)', () => {
+  it('is null on an empty window — nothing has converged, the Noticing has nothing to remark on', () => {
+    expect(dominantFamily([])).toBeNull()
+  })
+
+  it('reports the over-represented ANIMAL family, its count, and a representative slop', () => {
+    // 6 foxes + 4 owls, each fox a distinct post; styles spread so animal is the converged axis.
+    const recent: RecentRecipe[] = [
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeRecent({
+          postId: PostId(`fox-${i}`),
+          styleFamily: STYLE_FAMILIES[i % STYLE_FAMILIES.length],
+          slots: { animal: 'fox' },
+        }),
+      ),
+      ...Array.from({ length: 4 }, (_, i) =>
+        makeRecent({
+          postId: PostId(`owl-${i}`),
+          styleFamily: STYLE_FAMILIES[(i + 1) % STYLE_FAMILIES.length],
+          slots: { animal: 'owl' },
+        }),
+      ),
+    ]
+    const dom = dominantFamily(recent)
+    expect(dom).toMatchObject({ axis: 'animal', label: 'fox', count: 6 })
+    // The representative is the NEWEST member of the family — recent[0], the first fox.
+    expect(dom?.representative).toBe('fox-0')
+  })
+
+  it('reads the STYLE axis when a style saturates harder than any animal', () => {
+    // Every row liminal (10), animals all distinct (count 1 each) → style is the dominant family.
+    const recent: RecentRecipe[] = Array.from({ length: 10 }, (_, i) =>
+      makeRecent({ postId: PostId(`p-${i}`), styleFamily: 'liminal', slots: { animal: `a${i}` } }),
+    )
+    expect(dominantFamily(recent)).toMatchObject({ axis: 'style', label: 'liminal', count: 10 })
+  })
+
+  it('prefers the ANIMAL axis on a tie — the visible convergence the doctrine names', () => {
+    // 3 foxes and 3 of one style, equal counts → animal wins the tie.
+    const recent: RecentRecipe[] = [
+      ...Array.from({ length: 3 }, (_, i) =>
+        makeRecent({ postId: PostId(`fox-${i}`), styleFamily: STYLE_FAMILIES[i]!, slots: { animal: 'fox' } }),
+      ),
+      ...Array.from({ length: 3 }, (_, i) =>
+        makeRecent({ postId: PostId(`other-${i}`), styleFamily: 'vaporwave', slots: { animal: `z${i}` } }),
+      ),
+    ]
+    // animal 'fox' count 3 ties style 'vaporwave' count 3 → animal preferred.
+    expect(dominantFamily(recent)).toMatchObject({ axis: 'animal', label: 'fox', count: 3 })
+  })
+
+  it('agrees with monoculturePressure — one reading, the scalar is its projection', () => {
+    const allFox: RecentRecipe[] = Array.from({ length: 20 }, (_, i) =>
+      makeRecent({ postId: PostId(`fox-${i}`), slots: { animal: 'fox' } }),
+    )
+    const dom = dominantFamily(allFox)
+    expect(dom).not.toBeNull()
+    expect(monoculturePressure(allFox)).toBe(1 - driftFloor(dom!.count, allFox.length))
+  })
+})
+
 // The ticket's headline acceptance: a seeded N-fire simulation where the gene pool is
 // ADVERSARIAL — every breedable candidate is a fox, so every bred fire conserves the fox
 // (breed.ts inherits genes.form wholesale). Without the drift floor, ~80% of fires breed
@@ -126,6 +188,7 @@ describe('drift floor — adversarial N-fire simulation (the Year of the Fox)', 
       } else {
         const r = chooseNextGeneration({ scheduledTimeMs: t, recent, provider: PROVIDER })
         row = {
+          postId: PostId(`sim-${i}`),
           providerId: r.providerId,
           styleFamily: r.styleFamily,
           subjectTemplate: r.subject.subjectTemplate,

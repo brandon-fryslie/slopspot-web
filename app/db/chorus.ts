@@ -32,11 +32,13 @@ export type ChorusLine = {
 }
 
 // [LAW:dataflow-not-control-flow] The occasions whose SPEAKER is a varied citizen — the verdict and reply
-// are LLM-re-voiced in the speaker's register (the genome's divergence made audible), and grace is the
-// choosing citizen's own third-person line. `birth` is DELIBERATELY excluded: every birth line is the
-// Proprietor's one voice, so it would dilute the chorus back toward the single narrator this read exists
-// to break. The set is the value that drives breadth, not a branch.
-const CHORUS_OCCASIONS = ['verdict', 'reply', 'grace'] as const
+// are LLM-re-voiced in the speaker's register (the genome's divergence made audible), grace is the choosing
+// citizen's own third-person line, and `noticing` is a critic remarking on a monoculture the gene pool
+// converged into (slopspot-genome-brs — the city NOTICING the convergence, never declaring an era for it).
+// `birth` is DELIBERATELY excluded: every birth line is the Proprietor's one voice, so it would dilute the
+// chorus back toward the single narrator this read exists to break. The set is the value that drives breadth,
+// not a branch — adding a chorus-eligible occasion is ONE entry here, no new read path.
+const CHORUS_OCCASIONS = ['verdict', 'reply', 'grace', 'noticing'] as const
 
 // [LAW:single-enforcer] The chorus read. One spoken line per DISTINCT speaker (row_number over the
 // speaker, newest kept — the same window pattern verdictsForPosts uses, so the two reads cannot drift),

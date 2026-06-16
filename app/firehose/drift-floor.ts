@@ -20,6 +20,7 @@
 // Same recent → same pressure, every time.
 
 import type { RecentRecipe } from '~/db/recent'
+import type { PostId } from '~/lib/domain'
 
 // [LAW:no-mode-explosion] The single surfaced knob: no phenotype family may exceed this
 // share of the recent pool. Above it, a family's founder-draw weight is 0 and the breeder's
@@ -48,6 +49,24 @@ export function driftFloor(count: number, total: number): number {
       : 1 - (share - RELAX) / (DRIFT_FLOOR_CAP - RELAX)
 }
 
+// [LAW:types-are-the-program] The convergence READING: WHICH phenotype family is over-represented in
+// the recent pool, how many of it there are, and a representative slop (the newest member). This is the
+// ONE source of "what is the monoculture" — the scalar `monoculturePressure` (the breeder lever) is a
+// projection of `count`, and the Noticing (the city remarking on the sameness, slopspot-genome-brs) reads
+// `label` + `representative`. The breeder valve and the city's voice therefore CANNOT disagree about which
+// family is too much, because both read this one reading.
+//
+// `axis` is which phenotype gene converged — the visible animal slot (the "fox") or the deeper style family;
+// `label` is that family's value (a plain recipe string — NEVER an era name: the city notices the foxes, it
+// does not declare a "Year of the Fox"; doctrine/on-eras.md). `representative` is a real recent member the
+// Noticing links to, so a murmur about the sameness points at an actual slop, not an abstraction.
+export interface DominantFamily {
+  readonly axis: 'animal' | 'style'
+  readonly label: string
+  readonly count: number
+  readonly representative: PostId
+}
+
 // [LAW:dataflow-not-control-flow] The breeder's novelty pressure — the EXACT complement of
 // the floor for the dominant family: 0 while the pool is varied, ramping to 1 as the most-
 // represented phenotype family approaches the cap. selectReproduction folds this into the
@@ -55,33 +74,55 @@ export function driftFloor(count: number, total: number): number {
 // cap: as the share rises the city founds more (fresh, floored, non-dominant) and breeds
 // less, the window slides, and the pressure relaxes.
 //
-// Measured over the phenotype axes the convergence manifests in — the animal slot value (the
-// visible "fox") and the style family (the deepest gene, `genes.species`). The denominator is
-// the WHOLE window ("share of the recent pool" / the screenful), matching the chooser's floor:
-// a row with no animal slot contributes to the denominator but to no family's numerator, so a
-// fox is a smaller share of a mixed screenful — exactly the "3 foxes in one screenful" reading.
+// A projection of `dominantFamily`: an empty/family-less window has no dominant family → no pressure (0,
+// the same no-op the floor's empty-window arm gives). One reading, two readers.
 export function monoculturePressure(recent: readonly RecentRecipe[]): number {
-  if (recent.length === 0) return 0
-  const dominant = Math.max(
-    dominantCount(recent, (r) => r.slots['animal']),
-    dominantCount(recent, (r) => r.styleFamily),
-  )
-  return 1 - driftFloor(dominant, recent.length)
+  const dominant = dominantFamily(recent)
+  return dominant === null ? 0 : 1 - driftFloor(dominant.count, recent.length)
 }
 
-// The largest count any single projected phenotype family holds in the window. A row whose
-// projection is undefined (a subject template with no animal slot) is simply not counted for
-// any family, so it dilutes every family's share rather than inflating one.
-function dominantCount(
+// [LAW:single-enforcer] The dominant phenotype family across BOTH convergence axes — the animal slot value
+// (the visible "fox") and the style family (the deepest gene, `genes.species`). Returns the single most-
+// represented family of the two; a tie prefers the ANIMAL axis (the visible convergence the doctrine names).
+// Null ONLY when the window is empty (a bootstrap pool with nothing generated yet) — every RecentRecipe
+// carries a styleFamily, so any non-empty window has a most-represented family even when that share is a
+// trivial 1/n (then `monoculturePressure` projects it to 0 and the Noticing's draw stays quiet). The null is
+// a genuine "nothing has converged" the readers handle as a value, never a thrown guard.
+//
+// The denominator the share is read against is the WHOLE window ("share of the recent pool" / the screenful);
+// a row with no animal slot contributes to no family's numerator, so a fox is a smaller share of a mixed
+// screenful — exactly the "3 foxes in one screenful" reading. The representative is the family's NEWEST
+// member (recent is ordered newest-first, so the first match), deterministic on the same recent.
+export function dominantFamily(recent: readonly RecentRecipe[]): DominantFamily | null {
+  const animal = dominantOf(recent, 'animal', (r) => r.slots['animal'])
+  const style = dominantOf(recent, 'style', (r) => r.styleFamily)
+  if (animal === null) return style
+  if (style === null) return animal
+  // Strictly-greater style wins; an equal count falls to the animal axis.
+  return style.count > animal.count ? style : animal
+}
+
+// The most-represented family along one projected axis, with its count and newest representative. A row
+// whose projection is undefined (a subject template with no animal slot) is simply not counted for any
+// family, so it dilutes every family's share rather than inflating one.
+function dominantOf(
   recent: readonly RecentRecipe[],
+  axis: DominantFamily['axis'],
   project: (r: RecentRecipe) => string | undefined,
-): number {
-  const counts = new Map<string, number>()
+): DominantFamily | null {
+  // One entry per family: its running count and its NEWEST representative. recent is newest-first, so the
+  // first row of a family is its newest member — set the representative once, never overwrite it.
+  const families = new Map<string, { count: number; representative: PostId }>()
   for (const r of recent) {
     const key = project(r)
-    if (key !== undefined) counts.set(key, (counts.get(key) ?? 0) + 1)
+    if (key === undefined) continue
+    const seen = families.get(key)
+    if (seen === undefined) families.set(key, { count: 1, representative: r.postId })
+    else seen.count++
   }
-  let max = 0
-  for (const c of counts.values()) if (c > max) max = c
-  return max
+  let best: DominantFamily | null = null
+  for (const [label, { count, representative }] of families) {
+    if (best === null || count > best.count) best = { axis, label, count, representative }
+  }
+  return best
 }

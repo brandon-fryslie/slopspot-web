@@ -31,20 +31,23 @@ import {
   type Post,
 } from '~/lib/domain'
 import { createPost } from '~/db/posts'
-import { getRecentRecipes } from '~/db/recent'
+import { getRecentRecipes, type RecentRecipe } from '~/db/recent'
 import { getNicheGenePool } from '~/db/genepool'
 import { getPostById } from '~/db/feed'
 import { recordRemark } from '~/db/remark'
+import { recordUtterance } from '~/db/utterances'
 import { pickPersona, type Persona } from '~/agents/persona'
 import { breed } from '~/firehose/breed'
 import { chooseNextGeneration } from '~/firehose/chooseNextGeneration'
-import { monoculturePressure } from '~/firehose/drift-floor'
+import { dominantFamily, monoculturePressure } from '~/firehose/drift-floor'
 import { composePrompt, type ComposerOccasion } from '~/firehose/composer'
 import { pickNiche } from '~/firehose/niche'
-import { selectReproduction } from '~/firehose/select'
+import { selectReproduction, type ReproductionPlan } from '~/firehose/select'
 import { seedHash } from '~/lib/hash'
+import { pickWeighted } from '~/lib/weighted'
 import { founderTraits } from '~/lib/founder-traits'
-import { utter } from '~/lib/voice'
+import { utter, type PersonaRef } from '~/lib/voice'
+import { emit } from '~/observability/metrics'
 import { ASPECT_RATIOS, STYLE_FAMILIES, type AspectRatio, type StyleFamily } from '~/lib/variety'
 import { getProvider, mediumOf, realProviders } from '~/providers'
 
@@ -464,15 +467,30 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
   // again for the chooser; that second point-in-time read is independent and cheap (a narrow
   // indexed projection), and only on the minority founder path.
   const recent = await getRecentRecipes(env, RECENT_WINDOW)
-  const plan = selectReproduction(
-    pool,
-    seedHash(scheduledTimeMs, 'reproduce'),
-    monoculturePressure(recent),
-  )
+  // [LAW:one-source-of-truth] ONE pressure reading off ONE recent snapshot, fed to BOTH the breeder valve
+  // (selectReproduction's founder injection) AND the city's voice (maybeNotice). The mechanism that RELAXES
+  // the monoculture and the citizen that REMARKS on it therefore read the identical convergence — they can
+  // never disagree about how converged the pool is this fire (drift-floor.ts).
+  const pressure = monoculturePressure(recent)
+  const plan = selectReproduction(pool, seedHash(scheduledTimeMs, 'reproduce'), pressure)
 
-  // [LAW:types-are-the-program] Exhaustive over ReproductionPlan: a new reproduction mode forces a
-  // case here before it compiles. Bred crosses the two selected parents (author = the medium's
-  // citizen); founder seeds a fresh bloodline through a picked generator persona, no occasion.
+  await dispatchReproduction(env, plan, scheduledTimeMs)
+
+  // [LAW:no-ambient-temporal-coupling] The Noticing NARRATES the convergence the pool is in — it runs AFTER
+  // the slop is authored (the act, then the remark on it), reading the same pre-author `recent`/`pressure`
+  // that drove this fire. Self-isolated (its own catch inside), so a voice failure never aborts the fire.
+  await maybeNotice(env, recent, pressure, scheduledTimeMs)
+}
+
+// [LAW:types-are-the-program] Exhaustive over ReproductionPlan: a new reproduction mode forces a case here
+// before it compiles. Bred crosses the two selected parents (author = the medium's citizen); founder seeds
+// a fresh bloodline through a picked generator persona, no occasion. Extracted from runGeneratorPass so the
+// pass body stays linear (dispatch, then notice) without the switch's early returns swallowing the Noticing.
+async function dispatchReproduction(
+  env: Env,
+  plan: ReproductionPlan,
+  scheduledTimeMs: number,
+): Promise<void> {
   switch (plan.kind) {
     case 'bred': {
       const a = await loadBreedable(env, plan.parents[0])
@@ -494,5 +512,78 @@ export async function runGeneratorPass(env: Env, scheduledTimeMs: number): Promi
       const _exhaustive: never = plan
       return _exhaustive
     }
+  }
+}
+
+// [LAW:single-enforcer] The Noticing (slopspot-genome-brs, Piece 1) — the city remarks on a monoculture it
+// has converged into. The DOCTRINE-SAFE present-tense move: a citizen OBSERVES the sameness; it never declares
+// an era for it (doctrine/on-eras.md — eras are conferred in retrospect, never proclaimed in the present).
+//
+// [LAW:dataflow-not-control-flow] The firing rate IS the convergence pressure — the SAME scalar (drift-floor.ts)
+// that opens the breeder's founder valve is the THIRD reader here, as the weight of a two-outcome draw. At
+// pressure 0 (a healthy, varied pool) the draw is always `quiet`; as the pool converges the rate climbs toward
+// always-`notice`. No threshold constant, no `if (converged)` — the one number governs the chooser floor, the
+// breeder injection, AND the city's voice, all complements about the same sameness. The draw is seeded by the
+// fire time (reproducible), decorrelated from the reproduce/breed draws by its own `kind` tag.
+//
+// [LAW:no-silent-failure] Every path emits its outcome. ISOLATED + best-effort like revealGrace: the slop is
+// already authored (primary truth); a voice/persist failure here is caught, surfaced on its own signal, and
+// never propagated as a fire failure. Exported (not inlined) so the firing gate is verifiable directly from a
+// (recent, pressure) pair, without driving the whole reproduction/createPost/provider path.
+export async function maybeNotice(
+  env: Env,
+  recent: readonly RecentRecipe[],
+  pressure: number,
+  scheduledTimeMs: number,
+): Promise<void> {
+  try {
+    // The convergence reading is genuine optionality: a varied/empty pool has no over-represented family,
+    // so there is nothing to notice — handled as a value, not a thrown guard. [LAW:no-defensive-null-guards]
+    const convergence = dominantFamily(recent)
+    if (convergence === null) {
+      emit('slopspot.firehose.noticing', { outcome: 'no-convergence' }, 1)
+      return
+    }
+    // The pressure-weighted draw — pressure is the rate. `quiet` dominates a healthy pool; the city only
+    // speaks as the sameness mounts. (pickWeighted requires a positive total; pressure∈[0,1] keeps it 1.)
+    const draw = pickWeighted(
+      ['notice', 'quiet'] as const,
+      [pressure, 1 - pressure],
+      seedHash(scheduledTimeMs, 'notice'),
+      'notice',
+    )
+    if (draw === 'quiet') {
+      emit('slopspot.firehose.noticing', { outcome: 'quiet' }, 1)
+      return
+    }
+    // A critic voices the noticing — the citizens whose work is judging variety are the ones who notice its
+    // loss. A deterministic pick by fire time keeps the speaker reproducible and the chorus varied across
+    // convergences. A null pool (no voter personas seeded) is an observable no-op: the mechanism still ran,
+    // there is simply no one to speak. [LAW:no-silent-failure]
+    const noticer = await pickPersona(env, 'voter', scheduledTimeMs)
+    if (noticer === null) {
+      emit('slopspot.firehose.noticing', { outcome: 'no-noticer' }, 1)
+      return
+    }
+    const speaker: PersonaRef = { handle: noticer.agentId, displayName: noticer.displayName }
+    const utterance = await utter(
+      speaker,
+      'noticing',
+      { family: convergence.label, count: convergence.count, representative: convergence.representative },
+      {},
+    )
+    await recordUtterance(env, {
+      speaker: noticer.agentId,
+      occasion: 'noticing',
+      targetPostId: convergence.representative,
+      utterance,
+    })
+    emit('slopspot.firehose.noticing', { outcome: 'noticed' }, 1)
+  } catch (err) {
+    // A noticing failure is observable on its OWN outcome, never an aborted fire — the slop is already
+    // authored. [LAW:no-silent-failure] a swallowed throw mislabelled as a clean no-op is exactly the lie
+    // this avoids.
+    emit('slopspot.firehose.noticing', { outcome: 'failed' }, 1)
+    console.error('[noticing] failed — the fire stands, the remark did not', err)
   }
 }

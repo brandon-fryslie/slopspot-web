@@ -6,6 +6,7 @@ import {
   type AnsweredWish,
   type ChosenSilenceReason,
   type JudgedSlop,
+  type NoticedConvergence,
   type Occasion,
   type OccasionTarget,
   type ReplyExchange,
@@ -198,6 +199,58 @@ describe("utter — the grace instance (The Third-Person Reveal)", () => {
   });
 });
 
+// These pin the noticing FLOOR (The Noticing, slopspot-genome-brs) — a citizen remarks on a monoculture the
+// gene pool converged into. The doctrine-safe contract: it OBSERVES the family it keeps seeing, it never
+// DECLARES an era for it (doctrine/on-eras.md). A deterministic floor rotated by the representative's hash,
+// the same room the LLM-backed citizen voice can re-voice later.
+describe("utter — the noticing instance (The Noticing)", () => {
+  const critic = { handle: "agent:idris" as AgentId, displayName: "Idris" };
+  const convergence = { family: "fox", count: 7, representative: "post_fox_1" as PostId };
+
+  it("names the over-represented family — the city notices the foxes", async () => {
+    const result = await utter(critic, "noticing", convergence, {});
+    expect(result.kind).toBe("spoke");
+    if (result.kind === "spoke") {
+      expect(result.text.toLowerCase()).toContain("fox");
+    }
+  });
+
+  it("NOTICES, never DECLARES — the line carries no era proclamation", async () => {
+    // doctrine/on-eras.md: eras are conferred in retrospect, never declared in the present. The floor must
+    // not proclaim a "Year of the Fox" or crown the convergence an age.
+    const families = ["fox", "owl", "cathedral", "vaporwave", "drain"];
+    for (let i = 0; i < families.length; i++) {
+      const r = await utter(
+        critic,
+        "noticing",
+        { family: families[i]!, count: 5, representative: `post_${i}` as PostId },
+        {},
+      );
+      if (r.kind === "spoke") {
+        expect(r.text.toLowerCase()).not.toMatch(/year of the\b/);
+        expect(r.text.toLowerCase()).not.toMatch(/\bera\b|\bage of\b|\bepoch\b|\bdynasty\b/);
+        expect(r.text).not.toMatch(/\bI hereby\b|\bdecree\b|\bproclaim\b/i);
+      }
+    }
+  });
+
+  it("is a deterministic floor — the same convergence always selects the same line", async () => {
+    const a = await utter(critic, "noticing", convergence, {});
+    const b = await utter(critic, "noticing", convergence, {});
+    expect(a).toEqual(b);
+  });
+
+  it("rotates its repertoire by the representative's hash (different convergences can differ)", async () => {
+    const reps = ["post_a", "post_b", "post_c", "post_d", "post_e", "post_f", "post_g"];
+    const frames = new Set<string>();
+    for (const rep of reps) {
+      const r = await utter(critic, "noticing", { family: "fox", count: 6, representative: rep as PostId }, {});
+      if (r.kind === "spoke") frames.add(r.text);
+    }
+    expect(frames.size).toBeGreaterThan(1); // a repertoire, selected by data
+  });
+});
+
 // These pin the reply FLOOR — the deterministic degradation target when the re-voice transport cannot
 // speak (a null-returning reVoice). The persona-driven re-voice path (slopspot-feud-voice-pq8) is gated in
 // revoice.test.ts; here the floor still names the opponent and stays stance-distinct, so a Haiku outage
@@ -331,6 +384,8 @@ describe("each occasion fixes its legal target (unrepresentable pairings)", () =
     const decreeBound: Equal<OccasionTarget["decree"], RiteOutcome> = true;
     // The Feud Engine (voice-w2v.2) bound `reply` — an opposing-verdict exchange, no longer reserved.
     const replyBound: Equal<OccasionTarget["reply"], ReplyExchange> = true;
+    // The Noticing (slopspot-genome-brs) bound `noticing` — a convergence observation, no longer reserved.
+    const noticingBound: Equal<OccasionTarget["noticing"], NoticedConvergence> = true;
     const captionReserved: Equal<OccasionTarget["caption"], never> = true;
     const commentReserved: Equal<OccasionTarget["comment"], never> = true;
     const decreeIsOccasion: Equal<Extract<Occasion, "decree">, "decree"> = true;
@@ -339,9 +394,10 @@ describe("each occasion fixes its legal target (unrepresentable pairings)", () =
       remarkBound,
       decreeBound,
       replyBound,
+      noticingBound,
       captionReserved,
       commentReserved,
       decreeIsOccasion,
-    ]).toEqual([true, true, true, true, true, true, true]);
+    ]).toEqual([true, true, true, true, true, true, true, true]);
   });
 });
