@@ -5,9 +5,13 @@
 //
 // [LAW:types-are-the-program] `chooseNextGeneration` is a pure function: it
 // takes (scheduledTimeMs, recent, provider) and returns a complete recipe.
-// No clocks, no env, no I/O. All anti-rep rules (R1, R2, R4, R5, R6) are
+// No clocks, no env, no I/O. All anti-rep rules (R1, R2, R4, R5, R6, R7) are
 // expressed as weighted-distribution modifiers, not control-flow branches —
 // empty `recent` reduces every rule to a no-op without a "first run" check.
+// R7 is the DRIFT FLOOR (drift-floor.ts): a share-cap suppression layered over
+// R5/R6 that drives an over-represented phenotype family's weight to 0 as its
+// share of the recent pool approaches the cap — the founder-side of the city's
+// monoculture pressure-release (the-procession.md Act 0, the Year of the Fox).
 // [RECONCILE C] The provider is a single fixed input (the author-persona's
 // medium), not a pool to pick from — there is no R3 (provider rotation).
 
@@ -28,6 +32,7 @@ import {
   type StyleFamily,
 } from '~/lib/variety'
 import type { RecentRecipe } from '~/db/recent'
+import { driftFloor } from '~/firehose/drift-floor'
 import { seedHash } from '~/lib/hash'
 import { pickWeighted } from '~/lib/weighted'
 import type { GenerationProvider } from '~/providers/types'
@@ -100,19 +105,24 @@ function countBy<T>(items: readonly T[]): Map<T, number> {
 
 // R1 hard-rejects the most-recent style family (window 1).
 // R5 soft-downweights any style family appearing ≥R5_REPEAT_THRESHOLD times in
-// the last R5_WINDOW. Empty `recent` → both rules contribute nothing.
+// the last R5_WINDOW. R7 (the drift floor) multiplies in a share-cap suppression
+// that drives a family's weight to 0 as its share of the window approaches the cap
+// — the founder-side monoculture release for the deepest gene (species). Empty
+// `recent` → every rule contributes 1.0 (window total 0 ⇒ driftFloor = 1).
 // `biasMult` multiplies per-family — absent key = 1.0 (no-op). [LAW:dataflow-not-control-flow]
 function styleFamilyWeights(
   recent: readonly RecentRecipe[],
   biasMult?: Partial<Record<StyleFamily, number>>,
 ): number[] {
   const r1Reject = recent[0]?.styleFamily
-  const r5Counts = countBy(recent.slice(0, R5_WINDOW).map((r) => r.styleFamily))
+  const window = recent.slice(0, R5_WINDOW)
+  const r5Counts = countBy(window.map((r) => r.styleFamily))
   return STYLE_FAMILIES.map((s) => {
     if (s === r1Reject) return 0
-    const heavy = (r5Counts.get(s) ?? 0) >= R5_REPEAT_THRESHOLD
+    const count = r5Counts.get(s) ?? 0
+    const heavy = count >= R5_REPEAT_THRESHOLD
     const base = heavy ? R5_DOWNWEIGHT : 1.0
-    return base * (biasMult?.[s] ?? 1.0)
+    return base * driftFloor(count, window.length) * (biasMult?.[s] ?? 1.0)
   })
 }
 
@@ -127,21 +137,29 @@ function subjectTemplateWeights(recent: readonly RecentRecipe[]): number[] {
   return CHOOSER_SUBJECT_TEMPLATE_IDS.map((t) => (recentTemplates.has(t) ? 0 : 1.0))
 }
 
-// R6 soft-downweights vocab values that appeared in the last R6_WINDOW posts
-// in this slot position. Iteration scans every recent row's slots map; absent
-// keys (a recent T00 row doesn't carry `animal`) contribute no downweight to
-// this slot, naturally.
+// R6 soft-downweights vocab values that appeared in the last R6_WINDOW posts in
+// this slot position. R7 (the drift floor) multiplies in a share-cap suppression
+// keyed on how OFTEN the value recurred — driving it to 0 as its share of the
+// window approaches the cap, the founder-side release for the visible "fox" (the
+// animal slot). Iteration scans every recent row's slots map; absent keys (a
+// recent T00 row doesn't carry `animal`) contribute no count to this slot, so a
+// value's share is measured against the whole window — the screenful reading.
 function slotWeights(
   vocab: readonly string[],
   slotKey: string,
   recent: readonly RecentRecipe[],
 ): number[] {
-  const used = new Set<string>()
-  for (const r of recent.slice(0, R6_WINDOW)) {
+  const window = recent.slice(0, R6_WINDOW)
+  const counts = new Map<string, number>()
+  for (const r of window) {
     const v = r.slots[slotKey]
-    if (v !== undefined) used.add(v)
+    if (v !== undefined) counts.set(v, (counts.get(v) ?? 0) + 1)
   }
-  return vocab.map((v) => (used.has(v) ? R6_DOWNWEIGHT : 1.0))
+  return vocab.map((v) => {
+    const count = counts.get(v) ?? 0
+    const r6 = count > 0 ? R6_DOWNWEIGHT : 1.0
+    return r6 * driftFloor(count, window.length)
+  })
 }
 
 // R4 hard-rejects the candidate aspect ratio if and only if the last two

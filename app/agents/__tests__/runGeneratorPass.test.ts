@@ -19,6 +19,28 @@ import { PostId } from '~/lib/domain'
 import { selectReproduction } from '~/firehose/select'
 import { seedHash } from '~/lib/hash'
 import { seedPost } from '~/db/__tests__/helpers'
+import { STYLE_FAMILIES } from '~/lib/variety'
+
+// [LAW:dataflow-not-control-flow] runGeneratorPass's founder-vs-bred draw now reads the
+// drift floor (drift-floor.ts): a CONVERGED recent feed raises the founder-injection rate.
+// A degenerate 2-post feed reads as a total monoculture (one style at 50% share » the cap),
+// so the floor would correctly force EVERY fire to found — making a hermetic test of the
+// BRED path impossible. This seeds a varied (unvoted, therefore non-breedable) recent window
+// so the floor is quiescent and the bred draw fires, i.e. the realistic precondition: a
+// breedable pair inside a feed that ISN'T already a monoculture. Unvoted ⇒ fitness 0 ⇒ never
+// in the breedable pool, so the pool stays exactly the two voted parents.
+async function seedVariedFeed(count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await seedPost(env, {
+      id: `varied-feed-filler-${i}`,
+      content: {
+        kind: 'generation',
+        providerId: 'fal-flux-mock',
+        styleFamily: STYLE_FAMILIES[i % STYLE_FAMILIES.length],
+      },
+    })
+  }
+}
 
 // Deterministically find a scheduledTimeMs whose seedHash('reproduce') lands the
 // reproduction draw in the 'bred' bucket (> FOUNDER_RATE threshold). Called once
@@ -70,19 +92,21 @@ describe('runGeneratorPass — bred path integration (L3 gate)', () => {
     await setVote({ postId: parentA, voterId: 'anon-h1', value: 1 }, { env })
     await setVote({ postId: parentB, voterId: 'anon-h2', value: 1 }, { env })
 
+    // A varied recent feed so the drift floor doesn't (correctly) force a founder fire.
+    await seedVariedFeed(20)
+
     const postsBefore = await db(env).select({ id: posts.id }).from(posts)
-    const countBefore = postsBefore.length
+    const beforeIds = new Set(postsBefore.map((p) => p.id))
 
     // ACT: fire runGeneratorPass with BRED_SEED — deterministically produces 'bred'
     await runGeneratorPass(env, BRED_SEED)
 
     // ASSERT: exactly one new post was created
     const postsAfter = await db(env).select({ id: posts.id }).from(posts)
-    expect(postsAfter.length).toBe(countBefore + 1)
+    expect(postsAfter.length).toBe(beforeIds.size + 1)
 
-    // Find the new post (not parentA, not parentB)
-    const knownIds = new Set([parentA, parentB])
-    const childId = postsAfter.find((p) => !knownIds.has(PostId(p.id)))?.id
+    // Find the new post (the one id not present before the fire — robust to filler)
+    const childId = postsAfter.find((p) => !beforeIds.has(p.id))?.id
     expect(childId).toBeTruthy()
 
     // ASSERT: exactly 2 lineage_edges for the child, pointing to the two parents
@@ -143,13 +167,18 @@ describe('runGeneratorPass — bred path integration (L3 gate)', () => {
     await setVote({ postId: grandparentA, voterId: 'anon-dynasty-1', value: 1 }, { env })
     await setVote({ postId: grandparentB, voterId: 'anon-dynasty-2', value: 1 }, { env })
 
+    // A varied recent feed so the drift floor doesn't force founder fires (see helper).
+    await seedVariedFeed(20)
+
     // First breed — produces the child (grandparent pair → child)
+    const beforeChild = new Set(
+      (await db(env).select({ id: posts.id }).from(posts)).map((p) => p.id),
+    )
     const seed1 = findBredSeed(2_000_000)
     await runGeneratorPass(env, seed1)
 
     const allPosts = await db(env).select({ id: posts.id }).from(posts)
-    const knownIds = new Set([grandparentA, grandparentB])
-    const child = allPosts.find((p) => !knownIds.has(PostId(p.id)))
+    const child = allPosts.find((p) => !beforeChild.has(p.id))
     expect(child).toBeTruthy()
     const childId = PostId(child!.id)
 
