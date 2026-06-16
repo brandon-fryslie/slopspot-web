@@ -91,6 +91,25 @@ describe("getChorus", () => {
     expect(await getChorus(db(env), 2)).toHaveLength(2)
   })
 
+  it("surfaces a noticing — a critic's remark on a monoculture rides the masthead like a verdict", async () => {
+    // slopspot-genome-brs: the city NOTICING a convergence is a chorus-eligible voice (verdict/reply/grace/
+    // noticing), so adding it to CHORUS_OCCASIONS surfaces it with zero new read path.
+    await seedPersona("a:idris", "Idris")
+    await seedPost("p1")
+    await seedUtterance({
+      speaker: "a:idris",
+      targetPostId: "p1",
+      occasion: "noticing",
+      text: "Another fox. The well keeps dreaming the same dream.",
+      createdAt: 400,
+    })
+
+    const chorus = await getChorus(db(env))
+    expect(chorus).toEqual([
+      { speaker: "a:idris", displayName: "Idris", text: "Another fox. The well keeps dreaming the same dream.", postId: "p1" },
+    ])
+  })
+
   it("excludes unnamed speakers, withheld silences, and the Proprietor's birth lines (one narrator)", async () => {
     await seedPersona("a:named", "Named")
     await seedPersona("a:blank", "") // a persona with no byline - excluded

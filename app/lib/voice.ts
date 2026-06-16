@@ -166,6 +166,23 @@ export interface FirstPoet {
   readonly bornOn: string;
 }
 
+// The target of a `noticing` (The Noticing, slopspot-genome-brs): the city REMARKS on a monoculture it has
+// converged into — a citizen observes the sameness in the recent pool. `family` is the over-represented
+// phenotype's label (the visible "fox", or a saturating style) and `representative` is a real recent member
+// of it the murmur links to; `count` is how many of the family sit in the screenful the observation is about.
+//
+// [LAW:make-it-impossible] The target carries NO era name and no decree title — only a present-tense
+// observation's material. doctrine/on-eras.md forbids declaring an era in the present ("a city that declares
+// its own eras is writing autobiography in advance"); eras are conferred in RETROSPECT, never here. Because
+// the type has no field a declaration could occupy, composeNoticing CANNOT proclaim "the Year of the Fox" —
+// it can only notice the foxes. The same shape-level guarantee GraceChoice uses to keep the reveal from
+// naming the chosen.
+export interface NoticedConvergence {
+  readonly family: string
+  readonly count: number
+  readonly representative: PostId
+}
+
 // --- the moment (occasion) --------------------------------------------------
 
 // [LAW:no-mode-explosion][LAW:one-type-per-behavior] The CLOSED union of occasions (the-voice-layer.md
@@ -184,7 +201,8 @@ export type Occasion =
   | "eulogy"
   | "birth"
   | "first-poet"
-  | "grace";
+  | "grace"
+  | "noticing";
 
 // The legal target for each occasion (design-docs/the-voice-layer.md pairing table). `verdict`
 // (voice-w2v.1), `remark` (foundation.7), `decree` (The Daily Rite), and `reply` (the Feud Engine,
@@ -203,6 +221,7 @@ export interface OccasionTarget {
   birth: Newcomer;
   "first-poet": FirstPoet;
   grace: GraceChoice;
+  noticing: NoticedConvergence;
 }
 
 // --- the result (utterance) -------------------------------------------------
@@ -414,6 +433,39 @@ const GRACE_FRAMES: ReadonlyArray<(maker: string, subject: string) => string> = 
 const composeGrace: Voice<"grace"> = (speaker, choice) => {
   const frame = GRACE_FRAMES[seedHash(0, choice.slop.postId) % GRACE_FRAMES.length]!;
   return spoke(frame(speaker.displayName, slopSubject(choice.slop.prompt)));
+};
+
+// [LAW:dataflow-not-control-flow][LAW:one-type-per-behavior] The citizen's REPERTOIRE of NOTICINGS — a
+// resident has more than one way to remark on a sameness it has started seeing everywhere. Each frame names
+// the family the pool keeps producing (the "fox") and stays in the hospitable-ominous register the door-keeper
+// city speaks in: it OBSERVES the convergence, it never DECREES an era for it (doctrine/on-eras.md — the city
+// notices the foxes; it does not crown "the Year of the Fox"). The frame is selected by DATA (the
+// representative slop's hash), never a branch and never an LLM — a pure deterministic floor the LLM-backed
+// citizen voice can re-voice later in the speaker's own register, the signature unchanged (the same room
+// composeGrace/composeBirth leave for it).
+const NOTICING_FRAMES: ReadonlyArray<(family: string) => string> = [
+  (family) =>
+    `Another ${family}. The well keeps dreaming the same dream lately — the same shape, over and over, and nobody decided it.`,
+  (family) =>
+    `It's all ${family} down here now. I keep meaning to be surprised and keep failing. Something in the water, maybe.`,
+  (family) =>
+    `${family} after ${family} after ${family}. The city has a favourite this season and won't say why. Mind the relics; they're starting to rhyme.`,
+  (family) =>
+    `You notice it once and then you can't stop: ${family}, again. The pool has narrowed to a single held breath.`,
+  (family) =>
+    `The same ${family} keeps coming up the stairs wearing a new coat. Hospitable of it. Still — one does start to wonder where the others went.`,
+];
+
+// The noticing instance (The Noticing, slopspot-genome-brs). A resident remarks on the monoculture the gene
+// pool has converged into — modeled on composeGrace/composeBirth (a pure deterministic floor that rotates its
+// repertoire by the made-thing's hash). [LAW:make-it-impossible] the target carries no era name, so the line
+// can only NOTICE the sameness, never DECLARE an era for it. [LAW:dataflow-not-control-flow] the convergence
+// VALUE selects the frame (seedHash over the representative postId — the reproducible hash the chooser/scheduler
+// share) AND supplies the family; the caller utters ONLY when a real convergence was drawn, never on "is the
+// pool converged" — that gate is the firehose's pressure-weighted draw, not a branch in here.
+const composeNoticing: Voice<"noticing"> = (_speaker, convergence) => {
+  const frame = NOTICING_FRAMES[seedHash(0, convergence.representative) % NOTICING_FRAMES.length]!;
+  return spoke(frame(convergence.family));
 };
 
 // [LAW:single-enforcer] The verdict re-voice PROMPT — built in ONE pure place so CI can prove its
@@ -635,6 +687,7 @@ const VOICES: { readonly [O in Occasion]: Voice<O> } = {
   birth: composeBirth,
   "first-poet": composeFirstPoet,
   grace: composeGrace,
+  noticing: composeNoticing,
 };
 
 // [LAW:single-enforcer] the ONE place a voice failure becomes a value. A voice that throws OR rejects (a
