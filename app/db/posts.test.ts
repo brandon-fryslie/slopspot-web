@@ -9,16 +9,36 @@ import type { CreatePostInput } from '~/db/posts'
 import { AgentId, ProviderId } from '~/lib/domain'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 
+// [LAW:no-ambient-temporal-coupling] The system-under-test and its mocked collaborators are STATIC
+// top-level imports, NOT in-test `await import(...)`. vitest hoists the vi.mock() factories below
+// above every import, so a static import still receives the mock — the dynamic import was never
+// needed for mock ordering (this file does no vi.resetModules). The cost it removes: an in-test
+// `await import('~/db/posts')` billed esbuild's transform of posts.ts's whole graph against the 5s
+// testTimeout; under the fleet's concurrent suites that crossed the deadline and flaked
+// (slopspot-testing-4dv). Static imports move that transform to the un-timed collection phase.
+import { createPost } from '~/db/posts'
+import { emit } from '~/observability/metrics'
+import { ingestImage } from '~/storage/ingest'
+
 // Drizzle fluent chain returns `this` at each step, with batch as the terminal.
 // The mock must satisfy: db(env).insert(table).values(row) → a batchable token,
 // db(env).batch([...tokens]) → the array of D1Result-shaped objects.
-const mockBatch = vi.fn()
-const mockInsert = vi.fn()
-const mockUpdate = vi.fn()
-const mockDelete = vi.fn()
-// Captured at module scope so tests can assert on it directly without reading
-// mock.results (which is empty before getProvider has been called in the test).
-const mockGenerate = vi.fn()
+//
+// [LAW:no-ambient-temporal-coupling] These fns are declared in vi.hoisted() — NOT plain top-level
+// consts — because the vi.mock() factories below close over them, and vitest hoists vi.mock above
+// every const. A plain const would be in its temporal dead zone when the hoisted factory runs,
+// which is exactly what forced the SUT to be loaded via in-test `await import` before (deferring
+// the factory to test-time). vi.hoisted runs alongside the factories, so mockGenerate et al. are
+// initialized when the factory closes over them — letting createPost be a static import (its
+// transform billed to collection, off the 5s testTimeout the fleet's concurrent suites blew past).
+// mockGenerate is also asserted on directly so tests need not read mock.results.
+const { mockBatch, mockInsert, mockUpdate, mockDelete, mockGenerate } = vi.hoisted(() => ({
+  mockBatch: vi.fn(),
+  mockInsert: vi.fn(),
+  mockUpdate: vi.fn(),
+  mockDelete: vi.fn(),
+  mockGenerate: vi.fn(),
+}))
 
 vi.mock('~/db/client', () => ({
   db: () => ({
@@ -113,7 +133,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
 
   describe('createGenerationPost', () => {
     it('rejects a blank placard title before writing any row or calling the provider', async () => {
-      const { createPost } = await import('~/db/posts')
       await expect(
         createPost({ ...GENERATION_INPUT, title: '   ' }, { env: fakeEnv }),
       ).rejects.toThrow('title must be a non-empty placard')
@@ -125,7 +144,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('throws when generations INSERT returns success:false — runs orphan cleanup, does not call provider', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure('constraint error'))
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'generations INSERT failed: constraint error',
       )
@@ -141,7 +159,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
         where: vi.fn().mockResolvedValue({ success: false, error: 'delete failed' }),
       })
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'generations INSERT failed: gen constraint; orphan cleanup also failed: delete failed',
       )
@@ -152,9 +169,7 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       mockDelete.mockReturnValue({
         where: vi.fn().mockRejectedValue(new Error('delete exception')),
       })
-      const { emit } = await import('~/observability/metrics')
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'generations INSERT failed: gen constraint; orphan cleanup threw: delete exception',
       )
@@ -167,9 +182,7 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
 
     it('emits batch_outcome=failed and rethrows when initial batch itself throws', async () => {
       mockBatch.mockRejectedValue(new Error('D1 outage'))
-      const { emit } = await import('~/observability/metrics')
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow('D1 outage')
       expect(vi.mocked(emit)).toHaveBeenCalledWith(
         'slopspot.write.batch_outcome',
@@ -181,7 +194,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('throws when posts INSERT returns success:false — no orphan delete (posts row was never written)', async () => {
       mockBatch.mockResolvedValue(batchWithFirstFailure('posts constraint'))
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'posts INSERT failed: posts constraint',
       )
@@ -193,7 +205,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('propagates the D1 error string in the thrown message', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure('D1_ERROR: no such table'))
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'D1_ERROR: no such table',
       )
@@ -202,7 +213,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('uses "unknown" when the D1 result carries no error string', async () => {
       mockBatch.mockResolvedValue([{ success: true }, { success: false }])
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'generations INSERT failed: unknown',
       )
@@ -212,7 +222,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       mockBatch.mockResolvedValue([{ success: true }, { success: true }])
       mockGenerate.mockRejectedValueOnce(new Error('provider-error'))
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow('provider-error')
     })
 
@@ -247,7 +256,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
 
       mockBatch.mockResolvedValue([{ success: true }, { success: true }])
       mockGenerate.mockResolvedValueOnce({ kind: 'image', url: 'https://cdn/x.png', w: 1, h: 1 })
-      const { ingestImage } = await import('~/storage/ingest')
       vi.mocked(ingestImage).mockResolvedValueOnce({
         url: '/media/abc',
         key: 'abc',
@@ -261,7 +269,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       const valuesSpy = vi.fn().mockReturnThis()
       mockInsert.mockReturnValue({ values: valuesSpy })
 
-      const { createPost } = await import('~/db/posts')
       const post = await createPost(wishInput, { env: fakeEnv })
 
       // The wish is preserved on the render record as provenance...
@@ -291,7 +298,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       }
       mockBatch.mockResolvedValue([{ success: true }, { success: true }])
       mockGenerate.mockResolvedValueOnce({ kind: 'image', url: 'https://cdn/x.png', w: 1, h: 1 })
-      const { ingestImage } = await import('~/storage/ingest')
       vi.mocked(ingestImage).mockResolvedValueOnce({
         url: '/media/abc',
         key: 'abc',
@@ -301,7 +307,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       const valuesSpy = vi.fn().mockReturnThis()
       mockInsert.mockReturnValue({ values: valuesSpy })
 
-      const { createPost } = await import('~/db/posts')
       const post = await createPost(input, { env: fakeEnv })
 
       // The stored render params carry the utterance, never the caller's stale prompt; other
@@ -327,12 +332,10 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('persists a text output inline — does NOT call ingestImage, stores the body in output_json', async () => {
       mockBatch.mockResolvedValue([{ success: true }, { success: true }])
       mockGenerate.mockResolvedValueOnce({ kind: 'text', body: 'the room remembers its emptiness' })
-      const { ingestImage } = await import('~/storage/ingest')
       // Capture the succeeded-status update's set(...) so we can assert the inline output_json.
       const setSpy = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
       mockUpdate.mockReturnValue({ set: setSpy })
 
-      const { createPost } = await import('~/db/posts')
       const post = await createPost(GENERATION_INPUT, { env: fakeEnv })
 
       // A text poem is not image bytes — the R2 enforcer is never touched.
@@ -364,11 +367,9 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
         url: 'https://cdn/x.mp4',
         durationMs: 1000,
       })
-      const { ingestImage } = await import('~/storage/ingest')
       const setSpy = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
       mockUpdate.mockReturnValue({ set: setSpy })
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow(
         'video media has no persistence path yet',
       )
@@ -382,7 +383,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('throws when found INSERT returns success:false and deletes the orphan posts row', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure('constraint error'))
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
         'found INSERT failed: constraint error',
       )
@@ -395,7 +395,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
         where: vi.fn().mockResolvedValue({ success: false, error: 'delete failed' }),
       })
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
         'found INSERT failed: found constraint; orphan cleanup also failed: delete failed',
       )
@@ -406,9 +405,7 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       mockDelete.mockReturnValue({
         where: vi.fn().mockRejectedValue(new Error('delete exception')),
       })
-      const { emit } = await import('~/observability/metrics')
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
         'found INSERT failed: found constraint; orphan cleanup threw: delete exception',
       )
@@ -422,7 +419,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('throws when posts INSERT returns success:false — no orphan delete', async () => {
       mockBatch.mockResolvedValue(batchWithFirstFailure('posts constraint'))
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow(
         'posts INSERT failed: posts constraint',
       )
@@ -431,9 +427,7 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
 
     it('emits batch_outcome=failed on success:false', async () => {
       mockBatch.mockResolvedValue(batchWithSecondFailure())
-      const { emit } = await import('~/observability/metrics')
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).rejects.toThrow()
 
       expect(vi.mocked(emit)).toHaveBeenCalledWith(
@@ -446,7 +440,6 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
     it('batch guard passes — returns Post domain object', async () => {
       mockBatch.mockResolvedValue([{ success: true }, { success: true }])
 
-      const { createPost } = await import('~/db/posts')
       await expect(createPost(FOUND_INPUT, { env: fakeEnv })).resolves.toMatchObject({
         content: { kind: 'found', url: FOUND_INPUT.url },
       })
