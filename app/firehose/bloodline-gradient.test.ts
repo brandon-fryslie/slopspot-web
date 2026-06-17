@@ -4,6 +4,7 @@ import type { FitnessCandidate } from '~/db/genepool'
 import { descendants, ancestralFounders } from '~/lib/genealogy'
 import type { LineageDag } from '~/db/genome-dag'
 import { FOUNDER_RATE, selectReproduction } from '~/firehose/select'
+import { chooseNiche } from '~/firehose/niche'
 import { recencyWeight } from '~/lib/recency'
 import { seedHash } from '~/lib/hash'
 
@@ -85,11 +86,14 @@ describe('bloodline gradient — monoculture guard + cross-niche invariance', ()
     expect(rate).toBeLessThan(FOUNDER_RATE + 0.04)
   })
 
-  it('the cross-niche pick is structurally blind to bloodline fitness (guard untouched)', async () => {
+  it('the cross-niche pick is structurally blind to bloodline fitness (guard untouched)', () => {
     // chooseNiche's signature carries only citizen ACTIVITY — bloodline fitness is not an input, so
     // no dynasty's accumulated votes can shift WHICH niche breeds. The populist-mean guard from L3
     // stands by construction. (The full guard is locked in niche.test.ts; this asserts the seam.)
-    const { chooseNiche } = await import('~/firehose/niche')
+    // [LAW:no-ambient-temporal-coupling] chooseNiche is a STATIC import (top of file): module
+    // transform is billed to collection, not to this test body. An in-test `await import` charged
+    // esbuild's transform of niche.ts's graph against the 5s testTimeout, which the fleet's
+    // concurrent suites blew past under CPU contention (slopspot-testing-4dv).
     expect(chooseNiche.length).toBe(3) // (citizens, activity, seed) — no bloodline parameter
   })
 })
