@@ -36,6 +36,10 @@ export type HaikuOptions = {
   system?: string
   user: string
   maxTokens: number
+  // Optional sampling temperature. Omit for the API default (creative authoring — the composer and the
+  // verdict re-voice). The eval JUDGE sets 0 so its verdict on a given line is near-deterministic: a judge
+  // is an instrument, not an author, and run-to-run variance on a fixed line is measurement noise.
+  temperature?: number
 }
 
 // [LAW:single-enforcer] One Haiku call: env + options → raw text response. Throws
@@ -55,6 +59,7 @@ export async function callHaiku(env: Env, opts: HaikuOptions): Promise<string> {
       messages: [{ role: 'user', content: opts.user }],
     }
     if (opts.system) body.system = opts.system
+    if (opts.temperature !== undefined) body.temperature = opts.temperature
 
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

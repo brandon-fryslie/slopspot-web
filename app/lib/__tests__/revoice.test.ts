@@ -52,7 +52,9 @@ describe("buildReVoicePrompt — the grounding seam (pure)", () => {
   it("a NEUTRAL genome projects to NO register line (a value-shaped omission, not a branch)", () => {
     const { system } = buildReVoicePrompt(voiced(NEUTRAL_TRAITS).personaPrompt, NEUTRAL_TRAITS, REASONING);
     expect(traitBias(NEUTRAL_TRAITS)).toBe(""); // precondition: neutral steers to ''
-    expect(system).not.toContain("Speak in this register:");
+    // The traitBias STEER line is absent for a neutral vector (the static register directive still appears —
+    // it carries no genome steer). The steer line is the one keyed on the projected vector.
+    expect(system).not.toContain("as load-bearing as the observation");
   });
 });
 

@@ -3,7 +3,7 @@
 // act-layer truth) before this runs, and this only reads the snapshot + persists the utterance.
 // [LAW:one-way-deps] voice → domain (ids only); a narration failure can never corrupt the vote.
 
-import { utter, type JudgedSlop, type PersonaRef, type ReVoice, type ReplyExchange, type SlopGist, type VoicedPersonaRef } from '~/lib/voice'
+import { utter, REVOICE_MAX_TOKENS, REVOICE_TEMPERATURE, type JudgedSlop, type PersonaRef, type ReVoice, type ReplyExchange, type SlopGist, type VoicedPersonaRef } from '~/lib/voice'
 import { getPersona } from '~/agents/persona'
 import { getPostById } from '~/db/feed'
 import { db } from '~/db/client'
@@ -18,11 +18,17 @@ import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, ty
 // never sees env or Anthropic. [LAW:dataflow-not-control-flow] a transport failure returns null (not a
 // throw), so composeVerdict degrades to its verbatim floor; the catch keeps a re-voice failure from
 // corrupting the surrounding narration. (slopspot-voice-w2v.7)
-const REVOICE_MAX_TOKENS = 200
 function makeReVoice(env: Env): ReVoice {
   return async (prompt) => {
     try {
-      return await callHaiku(env, { system: prompt.system, user: prompt.user, maxTokens: REVOICE_MAX_TOKENS })
+      // [LAW:one-source-of-truth] the SAME transport params the eval gate measures (voice.ts) — runtime
+      // ships exactly what the gate proved. Cool temperature holds the register (CD's character-fidelity).
+      return await callHaiku(env, {
+        system: prompt.system,
+        user: prompt.user,
+        maxTokens: REVOICE_MAX_TOKENS,
+        temperature: REVOICE_TEMPERATURE,
+      })
     } catch (err) {
       console.error('verdict re-voice: Haiku call failed; falling back to verbatim reasoning', err)
       return null

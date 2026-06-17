@@ -275,6 +275,21 @@ const composeDecree: Voice<"decree"> = (speaker, outcome) => {
   }
 };
 
+// [LAW:one-source-of-truth] The verdict re-voice transport params — consumed by BOTH the runtime
+// (agents/verdict makeReVoice) AND the eval (eval/revoice-eval haikuReVoice), so the gate measures EXACTLY
+// the generator that ships, never a different one.
+//
+// [soul — CD's ruling, slopspot-voice-w2v.7] The verdict voice optimizes CHARACTER FIDELITY over novelty:
+// a citizen you cannot RECOGNIZE is not a citizen, so its register must hold across runs. The city's
+// wildness lives in the slops (generated wild) and the cast diversity (each citizen reliably ITSELF across
+// a million varied slops), NEVER in a single verdict's register wobble. So the re-voice runs COOL — wild
+// WITHIN its register, reliable ACROSS registers: the WARMEST temperature at which the register's 95%
+// lower-bound still clears 0.90 (swept against the eval), never 0 (robotic, a character with no
+// spontaneity). The warmest-passing temp is itself a datum: how much wildness the register can carry
+// before it breaks.
+export const REVOICE_MAX_TOKENS = 200;
+export const REVOICE_TEMPERATURE = 0.4; // swept against the eval to the warmest temp clearing the register bound
+
 // [LAW:single-enforcer] The verdict re-voice PROMPT — built in ONE pure place so CI can prove its
 // shape deterministically (the grounding seam). SUBSTANCE is the critic's image-grounded observation
 // (`reasoning`); REGISTER is traitBias(traits) — the SAME lib/register projection the image composer
@@ -287,13 +302,52 @@ export function buildReVoicePrompt(
   reasoning: string,
 ): ReVoicePrompt {
   const register = traitBias(traits);
+  // [LAW:dataflow-not-control-flow] Pole-SELECT the operational directive from the earnestness lean — show
+  // the citizen ONLY the clause for the register it actually has. Both detailed clauses in one prompt bled:
+  // CD's (deliberately) aggressive SMIRK guidance leaked ironic devices into SINCERE renders (a sincere arm
+  // is not helped by a vivid lecture on how to deflate). The earnestness VALUE picks the clause; CD's words
+  // are wired verbatim — only the matching one is included. Neutral earnestness → neither (the steer is
+  // empty too; a neutral citizen has no pole to commit to). (slopspot-voice-w2v.7)
+  // [soul, CD verbatim] Both poles WELD TO THE SPECIFIC — the unification of the grounding and register
+  // gates: sincere fails by letting go UPWARD (clever), ironic by letting go OUTWARD (general); both abandon
+  // the grounded detail. React to THIS thing, never the category. The sincere arm's residual failures were a
+  // specific KIND of clever the blind judge correctly flagged as distancing: self-aware asides, medium-
+  // commentary ("that AI softness"), and wry personification ("stubborn insistence"). CD's UNCLEVER clause
+  // names those devices to forbid — the judge stays sacred; the writing moves to meet it. UNCLEVER killed the
+  // AI-commentary class but not the CONCEIT class: figurative language whose surprise IS the distance. The
+  // first NO-CONCEIT clause BACKFIRED — its negative examples ("eggs do not have grief") were themselves
+  // deflation moves, the IRONIC register's signature, so the sincere prompt bled ironic (register obs 90%→80%,
+  // measured isolated at N=100). The bleed law: a NEGATIVE example contaminates with the very register it
+  // excludes. v2 (the current clause) is POSITIVE — name the actual thing — with CLINICAL mechanism names
+  // (no simile / personification / metaphor-substitution) that describe, not perform, irony. The THIRD class
+  // is the LANDING: both poles hold register through the close (the most seductive moment to break it — a
+  // tonal pivot at the final beat retroactively recasts the whole line). HOLD-THROUGH-LANDING is wired into
+  // BOTH poles (sincere lands plainer; ironic stays in the deflation), pole-selected so neither bleeds. v2's
+  // survivors showed the model still emits banned simile/personification at temp 0.4 — adherence is temp-
+  // bound, not wording-bound — so the sweep runs COOLER (0.2) to find the point where adherence AND 001-grade
+  // aliveness BOTH hold; the const holds whichever temp the gate proves. (slopspot-voice-w2v.7)
+  const KNEEL = `To KNEEL (sincere): drop every distancing device — no wink, no camp, no scare-quotes, no joke about the rendering or the machine. Look straight at the thing and find the real feeling beneath it, even when the thing is ridiculous. Mean it, undefended. The kneel is PLAIN, not clever: do not reach for the meta-observation, the knowing turn, or the witty inversion — cleverness is a wink in disguise. Weld to the specific: react to THIS detail you saw, never rise above it to a general truth about the category. The feeling lives IN this exact detail, not in what it represents — stay down in the particular and find the grief or the holiness THERE, plainly. BE UNCLEVER. No aside that is aware of itself. No commentary that the image is AI / rendered / an-image. No wry personification. React to THIS thing as if you had never heard of irony and had no audience to be clever for. A sincere line cannot wink. NAME WHAT IS THERE. The discovery is in the SPECIFIC DETAIL itself, not in what you can make it mean. Say the actual thing: the six-fingered grip, the tilting sixth tier, the left cheek. Say the relationship between actual things: the shadow of the hand on the plate. Say the quality of the actual thing: the particular stillness of the chrome. DO NOT reach for figurative language that translates the subject into something it is not: no simile (X like Y, where Y is not also in the image), no personification (attributing refusal, knowledge, mourning, breath to non-volitional things), no metaphor that substitutes one thing for another. The affect arrives through the specific thing itself, named plainly. Let it. The close must land on the immediate and specific — the thing the poem has been watching, named plainly, without pivoting to a conceit, a reframe, or a summary-as-metaphor. The weight of the landing is earned by what the specific detail already carries, not by a tonal climb. If the line before the close was plain, the close is plainer.`;
+  const SMIRK = `To SMIRK (ironic) you are UNIMPRESSED, and your wink must ATTACH to the very details you saw — never float as a pretty frame around them. Name the specific thing, then puncture it in the SAME BREATH: the more beautiful, holy, or sad the detail, the FASTER and harder you deflate it. Do NOT render a heavy thing beautifully and call it irony — beauty rendered straight is the sincere arm, and it will read as reverence. Instead find the UNIMPRESSED ANGLE on each detail: the mundane mechanism under the apparent meaning, the budget cut behind the 'minimalism', the bureaucratic glitch behind the 'miracle', the too-earnest crayon behind the 'grief'. The fused halo-finger is not 'sanctified' — it is one more hand the saint needed to count its own press. These words are BANNED on this arm because they are reverence betraying a smirk gone soft: sanctifying, blessed, sacred, holy, grace, apotheosis, weeps, radiating, holding-its-breath, genuinely, loves-itself. Name the exact detail you saw, then deflate THAT detail — a deflation with no specific in it has laundered the thing you were sent to see; never replace the specific with a general quip about the category. Final test: if a line of yours could be read aloud at a funeral without a wince, it FAILED — rewrite until the detail you named has been visibly deflated. The close must stay in the deflation — the wink does not release into tenderness, the absurdist premise does not resolve into ache. A quiet wit is fine; a tender aphorism dressed as a closing beat is the pole breaking. The ironic close earns nothing by going soft at the end — it earns by holding through.`;
+  // The neutral band matches lib/register's earnestness band (|lean|·2 < 0.1 ⇒ |earnestness−0.5| < 0.05).
+  const lean = traits.earnestness - 0.5;
+  const poleDirective = lean > 0.05 ? KNEEL : lean < -0.05 ? SMIRK : null;
+
   const system = [
     personaPrompt,
     // [LAW:dataflow-not-control-flow] a neutral vector projects to '' → no register line (a value-shaped
     // omission, the same way the composer drops the register line for a neutral genome).
-    register ? `Speak in this register: ${register}.` : null,
+    register ? `Your sensibility leans this way — commit to it FULLY, it is as load-bearing as the observation: ${register}.` : null,
     `You have just SEEN a slop and are delivering your verdict on it. Below is exactly what you observed in this image.`,
-    `Re-voice these observations as a single short verdict line in your own register. PRESERVE the specific, concrete things observed — the details that could ONLY come from having seen THIS image. Do not generalize them into mood or abstraction: a verdict that could have been written WITHOUT seeing the image has failed. Decorate the specifics in your register; never launder them away.`,
+    // (1) GROUNDING — the WHAT survives. (Clears the eval at 100%; keep it.)
+    `Re-voice these observations as a single short verdict line. PRESERVE the specific, concrete things observed — the details that could ONLY come from having seen THIS image. Do not generalize them into mood or abstraction: a verdict that could have been written WITHOUT seeing the image has failed. Decorate the specifics in your register; never launder them away.`,
+    // (2) REGISTER — CD's verbatim directive (slopspot-voice-w2v.7, the §D soul-read author). The separation
+    // principle is balanced (names both poles), so it is always present; the OPERATIONAL clause is pole-
+    // selected above to avoid cross-pole bleed.
+    `Your register is your STANCE toward what you see — never the mood of the thing itself. The subject's own tone must never set yours: a sincere citizen kneels even before the absurd; an ironic citizen winks even at the holy. Your register is sharpest AGAINST THE GRAIN — when the thing seen resists your stance, lean into the contradiction; the resistance is where your voice is most itself.`,
+    poleDirective,
+    // (3) ONE REGISTER, WHOLE UTTERANCE — CD's consistency ruling: a mixed line reads as whichever register
+    // it opens in (the blind judge correctly called such lines off the opening — that was the "noise" I saw).
+    `Hold ONE register from the FIRST word to the last: the sincere line kneels from its opening, the ironic line winks from its opening — never drift into the other register mid-line.`,
     `Reply with ONLY the verdict line — no preamble, no quotation marks, no explanation.`,
   ]
     .filter(Boolean)
