@@ -15,6 +15,7 @@ import {
 import { ASPECT_RATIOS, STYLE_FAMILIES, STYLE_FAMILY_PROMPT_SEEDS, renderTemplate } from "~/lib/variety"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
 import { forkPause, type BreedPause } from "~/lib/breed-failure"
+import { parseForkErrorCause } from "~/lib/fork-error"
 import { reportPause } from "~/lib/pause-beacon"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The
@@ -64,6 +65,7 @@ function pauseHeadline(pause: BreedPause): string {
     case 'provider-unreachable': return 'fork paused — the image forge hit a snag; try again shortly'
     case 'budget-unavailable':  return "fork paused — the city's ledger is unreachable; try again shortly"
     case 'provider-rejected':   return "fork paused — that ratio isn't supported by this provider; try a different one"
+    case 'internal-error':      return "fork paused — something jammed in the works on our end; we've logged it"
     case 'unknown':             return 'fork paused — something went wrong; try again shortly'
     default: { const _: never = pause; return _ }
   }
@@ -425,12 +427,14 @@ export default function ForkPage({ loaderData }: Route.ComponentProps) {
         signal: abort.signal,
       })
       if (!res.ok) {
-        // [LAW:no-silent-fallbacks] Raw status + body to the console; the visitor
-        // hears the voice. The fork status selects a pause reason from data — 429 (the
-        // daily budget cap) is voiced distinctly; any other failure is the quiet pause.
-        const detail = await res.text().catch(() => "")
-        console.error("breed: fork phase failed", res.status, detail)
-        throw new BreedPauseError(forkPause(res.status))
+        // [LAW:no-silent-fallbacks] Raw status + body to the console; the visitor hears the
+        // voice. [LAW:dataflow-not-control-flow] The pause is selected from the body's
+        // machine-readable CAUSE — an unambiguous signal — not from the HTTP status (which
+        // overloads 502/422 across several causes). A body with no known cause → null → the
+        // quiet unknown pause.
+        const body = await res.json().catch(() => null)
+        console.error("breed: fork phase failed", res.status, body)
+        throw new BreedPauseError(forkPause(parseForkErrorCause(body)))
       }
       // [LAW:single-enforcer] Navigate to the new post's permalink, not to
       // home. The feed orders by (score DESC, createdAt DESC), so a fresh

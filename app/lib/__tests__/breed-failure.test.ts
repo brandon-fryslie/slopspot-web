@@ -1,36 +1,43 @@
-// [LAW:behavior-not-structure] Pins the shared pause taxonomy contract: the type and
-// status mapper are shared between fork and breed; each page owns its own voice copy.
-// The real completeness verifier is `tsc -b` (the exhaustive fold's `never` default in
-// each page's local pauseHeadline goes reachable if a reason is dropped). These
-// assertions cover the shared module's contract only: reason taxonomy and status mapping.
+// [LAW:behavior-not-structure] Pins the shared pause taxonomy contract: the cause→reason
+// mapper is shared between fork and breed; each page owns its own voice copy. The real
+// completeness verifier is `tsc -b` (the exhaustive fold's `never` default in each page's
+// local pauseHeadline goes reachable if a reason is dropped; `Record<ForkErrorCause, …>`
+// makes a missing cause a compile error). These assertions cover the shared module's
+// behavior: each unambiguous server CAUSE selects its one honest pause reason.
 
 import { describe, it, expect } from 'vitest'
 import { BREED_PAUSE_REASONS, forkPause, type BreedPause } from '~/lib/breed-failure'
+import { FORK_ERROR_CAUSES, type ForkErrorCause } from '~/lib/fork-error'
 
-describe('forkPause — the fork/breed phase HTTP status selects a pause reason from data', () => {
-  it('maps each known failure status to its specific, honest pause reason', () => {
-    // [LAW:behavior-not-structure] The contract is the status→reason pairing, not the
-    // table's shape. 429 is the budget cap; 502/503 separate "forge upstream failed" from
-    // "could not read the ledger"; 422/404 are the provider rejecting the request shape.
-    expect(forkPause(429)).toEqual({ reason: 'out-of-budget' })
-    expect(forkPause(502)).toEqual({ reason: 'provider-unreachable' })
-    expect(forkPause(503)).toEqual({ reason: 'budget-unavailable' })
-    expect(forkPause(422)).toEqual({ reason: 'provider-rejected' })
+describe('forkPause — a fork/breed failure CAUSE selects a pause reason from data', () => {
+  // [LAW:behavior-not-structure] The contract is the cause→reason pairing. The two 502 causes
+  // (provider-upstream vs internal) select DIFFERENT reasons — the whole point of the split:
+  // "the forge hit a snag; try again" is honest for an upstream failure, a LIE for a server bug.
+  const cases: ReadonlyArray<readonly [ForkErrorCause, BreedPause['reason']]> = [
+    ['budget-exhausted', 'out-of-budget'],
+    ['budget-unavailable', 'budget-unavailable'],
+    ['provider-unavailable', 'provider-rejected'],
+    ['invalid-params', 'provider-rejected'],
+    ['provider-upstream', 'provider-unreachable'],
+    ['internal', 'internal-error'],
+    ['parent-not-found', 'unknown'],
+    ['provider-not-registered', 'unknown'],
+  ]
+
+  it.each(cases)('maps cause %s to the %s pause reason', (cause, reason) => {
+    expect(forkPause(cause)).toEqual({ reason })
   })
 
-  it('leaves 404 as unknown — both routes overload it (post/mate-not-found AND unknown provider)', () => {
-    // [LAW:dataflow-not-control-flow] 404 is too weak a discriminator: a stale/deleted
-    // parent (the dominant case) shares the status with an unregistered provider. The
-    // honest quiet line beats wrongly telling the visitor to pick a different provider.
-    expect(forkPause(404)).toEqual({ reason: 'unknown' })
+  it('covers every cause in the closed set — one behavior per cause, no gaps', () => {
+    // [LAW:verifiable-goals] The table above must enumerate the WHOLE cause union; a new cause
+    // added to FORK_ERROR_CAUSES without a row here fails this, before it can default to unknown.
+    expect(cases.map(([cause]) => cause).sort()).toEqual([...FORK_ERROR_CAUSES].sort())
   })
 
-  it('maps every unlisted status to the quiet unknown', () => {
-    // A 500, a 403, a malformed-body 400, a network 0 — none has a table entry, so all
-    // read as unknown (the visitor hears the quiet line; the real status hits the console).
-    for (const status of [500, 403, 400, 0, 418]) {
-      expect(forkPause(status), `status=${status}`).toEqual({ reason: 'unknown' })
-    }
+  it('maps a null cause (no usable server signal) to the quiet unknown', () => {
+    // [LAW:no-silent-failure] A true network failure / a response with no known cause yields
+    // null — the honest quiet line, never a guessed reason.
+    expect(forkPause(null)).toEqual({ reason: 'unknown' })
   })
 })
 
