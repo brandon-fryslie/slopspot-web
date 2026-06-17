@@ -1,5 +1,6 @@
 import { z } from "zod"
 import type { AspectRatio } from "~/lib/domain"
+import { healthFromHttpStatus, reportAccountHealth } from "~/observability/account-health"
 
 // Shared trust-boundary code for the Replicate prediction API. Replicate's
 // `/v1/predictions` envelope is identical for every model — only `output`'s
@@ -39,6 +40,21 @@ export const predictionSchema = z.object({
 })
 export type Prediction = z.infer<typeof predictionSchema>
 
+// [LAW:types-are-the-program] Carry the HTTP status ON the thrown value (mirrors haiku.ts'
+// AnthropicHttpError) so the account-health classifier reads the reason from DATA, not by
+// re-parsing a message string. `phase` localizes WHICH Replicate call failed (the create POST
+// or a poll GET) without the caller string-matching the message.
+export class ReplicateHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly phase: 'create' | 'poll',
+    body: string,
+  ) {
+    super(`Replicate ${phase} failed: ${status} ${body}`)
+    this.name = 'ReplicateHttpError'
+  }
+}
+
 const REPLICATE_PREDICTIONS_URL = 'https://api.replicate.com/v1/predictions'
 const POLL_INTERVAL_MS = 2000
 // Server-side wait via Prefer: wait=60 covers the common case (most Replicate
@@ -53,6 +69,14 @@ const MAX_POLLS = 30
 // `/v1/predictions` (not `/v1/models/{owner}/{name}/predictions`) because the
 // auto-latest endpoint is restricted to "official models" and 404s for
 // community-hosted models — pinning the version hash is the contract.
+//
+// [LAW:single-enforcer] This helper is the Replicate transport leaf both replicate-* providers
+// flow through, so the Replicate account's health is reported HERE — both providers are covered by
+// construction, zero per-provider code. A 2xx on this auth-bearing create is the recovery signal
+// (the same token feeds the poll, so an ok here means the credential works); a non-2xx classifies
+// the down/degraded reason from the status. [LAW:dataflow-not-control-flow] health is reported on
+// both arms; the data decides. A prediction that later reaches status='failed' is a GENERATION
+// failure with the account healthy (every HTTP call was 2xx) — not an account-health concern.
 export async function createPrediction(opts: {
   version: string
   input: Record<string, unknown>
@@ -68,8 +92,11 @@ export async function createPrediction(opts: {
     body: JSON.stringify({ version: opts.version, input: opts.input }),
   })
   if (!res.ok) {
-    throw new Error(`Replicate create failed: ${res.status} ${await res.text()}`)
+    const body = await res.text()
+    reportAccountHealth('replicate', healthFromHttpStatus(res.status))
+    throw new ReplicateHttpError(res.status, 'create', body)
   }
+  reportAccountHealth('replicate', { status: 'ok' })
   return predictionSchema.parse(await res.json())
 }
 
@@ -90,7 +117,9 @@ export async function pollPrediction(prediction: Prediction, token: string): Pro
       headers: { Authorization: `Bearer ${token}` },
     })
     if (!res.ok) {
-      throw new Error(`Replicate poll failed: ${res.status} ${await res.text()}`)
+      const body = await res.text()
+      reportAccountHealth('replicate', healthFromHttpStatus(res.status))
+      throw new ReplicateHttpError(res.status, 'poll', body)
     }
     current = predictionSchema.parse(await res.json())
     polls += 1

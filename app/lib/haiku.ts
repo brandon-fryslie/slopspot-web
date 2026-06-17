@@ -4,6 +4,8 @@
 // once. Callers never touch the Anthropic REST API directly.
 // [LAW:one-way-deps] Pure outbound HTTP + env — no back-edge.
 
+import { healthFromHttpStatus, reportAccountHealth } from '~/observability/account-health'
+
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const REQUEST_TIMEOUT_MS = 15_000
 
@@ -42,8 +44,19 @@ export type HaikuOptions = {
 // MissingApiKeyError when the key is absent; throws AnthropicHttpError on a non-2xx
 // response; throws on an empty text block; throws on timeout (aborted signal). The
 // caller is responsible for fallback policy — this leaf is the transport only.
+//
+// [LAW:single-enforcer] Account health for the Anthropic credential is reported HERE, in the one
+// transport every Anthropic caller flows through — so a new caller reports by construction and
+// cannot forget. [LAW:dataflow-not-control-flow] exactly one health sample is reported per call,
+// the DATA deciding which: a 2xx is ok (a recovered key auto-resolves the page); 401/403 and a
+// missing key are down{auth}; 402/429 map to payment/quota; a network throw or timeout is the
+// transient degraded that never pages. (The streaming Anthropic call in api.rewrite-prompt.ts
+// bypasses this leaf and reports at its own site — a pre-existing single-enforcer gap, tracked.)
 export async function callHaiku(env: Env, opts: HaikuOptions): Promise<string> {
-  if (!env.SLOPSPOT_ANTHROPIC_API_KEY) throw new MissingApiKeyError()
+  if (!env.SLOPSPOT_ANTHROPIC_API_KEY) {
+    reportAccountHealth('anthropic', { status: 'down', reason: 'auth' })
+    throw new MissingApiKeyError()
+  }
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
@@ -56,21 +69,34 @@ export async function callHaiku(env: Env, opts: HaikuOptions): Promise<string> {
     }
     if (opts.system) body.system = opts.system
 
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': env.SLOPSPOT_ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
+    let resp: Response
+    try {
+      resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': env.SLOPSPOT_ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+    } catch (err) {
+      // Network failure or timeout abort — the credential is not implicated, so this is
+      // the transient state that self-heals and never pages.
+      reportAccountHealth('anthropic', { status: 'degraded' })
+      throw err
+    }
 
     if (!resp.ok) {
       const responseBody = await resp.text()
+      reportAccountHealth('anthropic', healthFromHttpStatus(resp.status))
       throw new AnthropicHttpError(resp.status, responseBody)
     }
+
+    // A 2xx means the credential is healthy regardless of body shape — an empty text block
+    // below is a content fault, never an account-down, so health is reported ok here.
+    reportAccountHealth('anthropic', { status: 'ok' })
 
     type AnthropicMessage = { content: Array<{ type: string; text?: string }> }
     const data = (await resp.json()) as AnthropicMessage

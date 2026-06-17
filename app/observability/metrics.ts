@@ -18,6 +18,10 @@
 // adding a metric in one place forces the other to catch up at compile time.
 
 import type { RiteLens } from '~/lib/domain'
+// [LAW:one-source-of-truth] The OUTPUT type and the metric are ONE: Account is defined with the
+// account-health domain and consumed here for the label so the metric can never name an account
+// the domain doesn't know. Type-only import — the runtime edge is one-way (account-health → metrics).
+import type { Account } from './account-health'
 
 // The puller (homelab-side) parses log lines that start with `[metric]`. Changing
 // this prefix without coordinating with the puller will drop metrics silently.
@@ -163,6 +167,19 @@ export type MetricLabels = {
   'slopspot.firstpoet.decree': {
     outcome: 'decreed' | 'already-decreed' | 'no-poet'
   }
+  // [LAW:dataflow-not-control-flow] The account-health signal — emitted at every external-account
+  // boundary on BOTH success and failure, the DATA picking the outcome so the alert fires (and
+  // auto-resolves) with no branch at the call site over whether to report. status=down{reason} is
+  // the alertable state (auth = dead/expired key, payment = out of money, quota = rate/usage cap);
+  // status=ok lets a recovered account auto-resolve the page; status=degraded is a transient,
+  // self-healing fault — observed for the dashboard, NEVER alerted. [LAW:types-are-the-program]
+  // reason is present ONLY on down (mirrors composer.result's discriminated union), so a down
+  // without a reason or an ok with one is a compile error. [LAW:one-source-of-truth] this one
+  // stream feeds BOTH the page (vmalert rule) and the all-things dashboard.
+  'slopspot.account.health':
+    | { account: Account; status: 'ok' }
+    | { account: Account; status: 'degraded' }
+    | { account: Account; status: 'down'; reason: 'auth' | 'payment' | 'quota' }
 }
 
 export type MetricName = keyof MetricLabels

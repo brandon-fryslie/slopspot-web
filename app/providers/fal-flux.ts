@@ -1,7 +1,9 @@
 import { fal } from "@fal-ai/client"
+import { ApiError } from "@fal-ai/client"
 import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
 import { ProviderId, type AspectRatio, type Media } from "~/lib/domain"
+import { healthFromHttpStatus, reportAccountHealth } from "~/observability/account-health"
 import type { GenerationProvider } from "./types"
 
 // Real fal.ai FLUX schnell provider. Params are provider-specific (prompt +
@@ -75,13 +77,25 @@ export const falFlux: GenerationProvider<Params> = {
   },
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
     fal.config({ credentials: env.SLOPSPOT_FAL_API_KEY })
-    const result = await fal.run("fal-ai/flux/schnell", {
-      input: {
-        prompt: p.prompt,
-        image_size: imageSize[aspectRatio],
-        num_inference_steps: p.steps,
-      },
-    })
+    // [LAW:dataflow-not-control-flow] The try wraps ONLY the external fal call — its outcome is
+    // the fal account's health, reported once either way. fal's ApiError carries the HTTP status on
+    // the value (verified against the client types), so the reason is classified from data, not a
+    // parsed message; any non-ApiError throw (network) is the transient degraded. parseFalFluxResponse
+    // stays OUTSIDE the try: a malformed 200 body is a content fault, never an account-down.
+    let result: Awaited<ReturnType<typeof fal.run>>
+    try {
+      result = await fal.run("fal-ai/flux/schnell", {
+        input: {
+          prompt: p.prompt,
+          image_size: imageSize[aspectRatio],
+          num_inference_steps: p.steps,
+        },
+      })
+    } catch (err) {
+      reportAccountHealth("fal", err instanceof ApiError ? healthFromHttpStatus(err.status) : { status: "degraded" })
+      throw err
+    }
+    reportAccountHealth("fal", { status: "ok" })
     return parseFalFluxResponse(result.data, p.prompt)
   },
 }

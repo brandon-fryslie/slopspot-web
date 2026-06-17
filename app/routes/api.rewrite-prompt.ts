@@ -5,6 +5,7 @@ import { invalidBodyResponse } from "~/lib/api-errors"
 import { styleFamilySchema, aspectRatioSchema, STYLE_FAMILY_PROMPT_SEEDS, ASPECT_RATIO_LABELS } from "~/lib/variety"
 import { PROMPT_MAX } from "~/lib/fork-bounds"
 import { REWRITE_DELIMITER } from "~/lib/rewrite-delim"
+import { healthFromHttpStatus, reportAccountHealth } from "~/observability/account-health"
 
 // [LAW:single-enforcer] The HTTP trust boundary for prompt rewrite requests.
 // Resource route (no default export) — mirrors the same-origin + Zod pattern
@@ -44,6 +45,11 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   const apiKey = context.cloudflare.env.SLOPSPOT_ANTHROPIC_API_KEY
   if (!apiKey) {
+    // [LAW:single-enforcer] This streaming route is the SECOND Anthropic boundary (it bypasses the
+    // callHaiku leaf, which can't stream — a pre-existing single-enforcer gap, tracked). A missing
+    // key is the same down{auth} the leaf reports, so a dead/absent Anthropic credential pages
+    // regardless of which boundary the request hit.
+    reportAccountHealth("anthropic", { status: "down", reason: "auth" })
     return Response.json({ error: "Anthropic API key not configured" }, { status: 500 })
   }
 
@@ -142,10 +148,21 @@ export async function action({ request, context }: Route.ActionArgs) {
       signal: timeoutController.signal,
     })
   } catch (err) {
+    // Network failure or timeout abort — the credential is not implicated: transient degraded.
+    reportAccountHealth("anthropic", { status: "degraded" })
     return Response.json({ error: "upstream request failed", detail: String(err) }, { status: 502 })
   } finally {
     clearTimeout(timeoutId)
   }
+
+  // [LAW:dataflow-not-control-flow] Report the Anthropic account's health from the response status
+  // unconditionally — a 2xx is ok (recovery auto-resolves the page), a non-2xx classifies the
+  // down/degraded reason. A 200 with an absent body is the account working, so it reports ok and
+  // still 502s below as an upstream-shape error, never an account-down.
+  reportAccountHealth(
+    "anthropic",
+    anthropicResp.ok ? { status: "ok" } : healthFromHttpStatus(anthropicResp.status),
+  )
 
   if (!anthropicResp.ok || !anthropicResp.body) {
     const body = await anthropicResp.text().catch(() => "")
