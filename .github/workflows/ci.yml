@@ -91,18 +91,26 @@ jobs:
           node-version: '24'
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      # [LAW:no-ambient-temporal-coupling] SCHEMA LEADS CODE. Migrations apply BEFORE the worker uploads, so the
-      # new worker never meets an old shape, and a failed migration aborts the job before any code ships (the
-      # old worker keeps running against the unchanged schema — a safe no-op, never a half-deploy). wrangler's
-      # apply auto-proceeds in non-interactive CI (no prompt flag needed).
+      # [LAW:no-ambient-temporal-coupling] Ordering is build → migrate → upload, and each boundary is chosen so
+      # the most likely failure happens before the most irreversible step:
+      #   1. BUILD FIRST — prove the worker artifact compiles + bundles with NO prod side effect. A build failure
+      #      (the common deploy failure) aborts here, before a single schema change. This also emits
+      #      build/server/wrangler.json, which the upload step reads. `pnpm build`, not `pnpm run deploy`, so the
+      #      upload is a separate, separately-gated step (the bare `pnpm deploy` is shadowed by pnpm's
+      #      monorepo-deploy builtin, hence `pnpm exec wrangler deploy` for the upload).
+      - name: Build worker (verify the artifact before any prod change)
+        run: pnpm build
+      #   2. MIGRATE — SCHEMA LEADS the live worker: apply pending migrations after the artifact is proven
+      #      buildable but BEFORE the upload, so the new worker never meets an old shape. Migrations here are
+      #      forward-compatible (a widened CHECK / added rows), so even a later upload failure leaves the OLD
+      #      worker on the new schema — a safe no-op, never a half-deploy. wrangler's apply auto-proceeds in
+      #      non-interactive CI (no prompt flag needed).
       - name: Apply pending D1 migrations (remote)
         run: pnpm exec wrangler d1 migrations apply slopspot-db --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      # pnpm RUN deploy — the bare `pnpm deploy` is shadowed by pnpm's monorepo-deploy builtin (a
-      # pnpm-workspace.yaml exists). The build step is load-bearing: it emits build/server/wrangler.json that
-      # `wrangler deploy` reads, so deploying without a fresh build would ship the previous config.
-      - name: Build & deploy worker
-        run: pnpm run deploy
+      #   3. UPLOAD — ship the already-built artifact (wrangler reads build/server/wrangler.json from step 1).
+      - name: Deploy worker
+        run: pnpm exec wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
