@@ -24,6 +24,8 @@
 // client-safe lib modules) so the fork page can import it into the client bundle
 // without dragging server code along.
 
+import type { ForkErrorCause } from "~/lib/fork-error"
+
 // [LAW:one-source-of-truth] The closed set of pause reasons lives here ONCE, as a
 // runtime tuple, and the `BreedPause` type is DERIVED from it. The reason set is needed
 // at two boundaries — the type level (exhaustive headline switches) and the runtime
@@ -47,16 +49,20 @@ export const BREED_PAUSE_REASONS = [
   // The fork phase could not consult the spend ledger at all (503) — the budget check
   // itself was unavailable, distinct from being over budget. Transient; try again.
   'budget-unavailable',
-  // The chosen provider rejected the request shape (422 — unsupported params / aspect
-  // ratio, or the provider not being available in this environment) — actionable by the
-  // visitor: pick another provider. NOTE 404 is deliberately NOT mapped here: both routes
-  // overload 404 across "post/mate not found" (a stale or deleted parent — the dominant
-  // case) AND "provider not registered", so the status alone cannot mean provider-rejected
-  // without misleading the far more common not-found case; an unmapped 404 reads as the
-  // honest `unknown`. [LAW:dataflow-not-control-flow]
+  // The chosen provider rejected the request shape, or is not available in this
+  // environment — actionable by the visitor: pick another provider/ratio. Both the
+  // `invalid-params` and `provider-unavailable` causes select this reason because their
+  // remedy genuinely coincides ("pick a different provider"); the SIGNAL distinguishing
+  // them stays unambiguous (the cause), the visitor advice is the same. [LAW:dataflow-not-control-flow]
   'provider-rejected',
-  // An unexpected failure. The technical detail goes to the console (for diagnosis),
-  // never to the visitor — this reason carries no detail precisely so it cannot.
+  // A deterministic server-side fault the route reported via the `internal` cause (a bug /
+  // R2 / D1 failure). Distinct from `provider-unreachable` precisely so the visitor is NOT
+  // told "the forge hit a snag; try again" when retrying cannot help — the honest line is
+  // that the fault is ours and logged. [LAW:no-silent-failure]
+  'internal-error',
+  // An unexpected failure with NO usable server signal: a true network failure (no
+  // response reached us), a response carrying no known cause, or an unexpected client-side
+  // throw. The technical detail goes to the console, never to the visitor.
   'unknown',
 ] as const
 
@@ -75,19 +81,33 @@ export type BreedPause = {
   readonly [R in BreedPauseReason]: { readonly reason: R }
 }[BreedPauseReason]
 
-// [LAW:dataflow-not-control-flow] The fork phase's HTTP status SELECTS a pause reason
-// from a data table — the same idiom as the well's status-keyed voice table. A new
-// status→reason pairing is one entry here, never a new branch at the call site; any
-// status without an entry is the quiet `unknown`.
-const FORK_PAUSE_BY_STATUS: Record<number, BreedPauseReason> = {
-  422: 'provider-rejected',
-  429: 'out-of-budget',
-  502: 'provider-unreachable',
-  503: 'budget-unavailable',
+// [LAW:dataflow-not-control-flow] A fork/breed failure's machine-readable CAUSE selects the
+// pause reason from a data table. The cause is the unambiguous signal the route emits (one
+// cause = one failure mode), so this is a TOTAL function over the closed `ForkErrorCause`
+// union — `Record<ForkErrorCause, …>` makes a missing cause a compile error, so a new cause
+// cannot be added without deciding its reason here. The old status-keyed table is gone: a
+// status like 502 / 422 meant several causes, which is exactly the conflation this fixes.
+const PAUSE_BY_CAUSE: Record<ForkErrorCause, BreedPauseReason> = {
+  'budget-exhausted': 'out-of-budget',
+  'budget-unavailable': 'budget-unavailable',
+  // Remedy coincides ("pick a different provider/ratio") — same reason, distinct causes.
+  'provider-unavailable': 'provider-rejected',
+  'invalid-params': 'provider-rejected',
+  'provider-upstream': 'provider-unreachable',
+  // The deterministic server fault — never voiced as a transient "try again". [LAW:no-silent-failure]
+  'internal': 'internal-error',
+  // Both 404 causes stay the quiet `unknown`: telling a visitor whose parent was deleted to
+  // "pick a different provider" would be a misleading lie, and an unregistered-provider id is
+  // a crafted request the UI never produces. A more specific "that slop is gone" reason is a
+  // future refinement; the signal is now unambiguous, so it can be added without guessing.
+  'parent-not-found': 'unknown',
+  'provider-not-registered': 'unknown',
 }
 
-// [LAW:single-enforcer] The one mapping from a failed fork response to a pause. The
-// fork page calls this with the response status; the status is read here, never shown.
-export function forkPause(status: number): BreedPause {
-  return { reason: FORK_PAUSE_BY_STATUS[status] ?? 'unknown' }
+// [LAW:single-enforcer] The one mapping from a fork/breed failure CAUSE to a pause. The
+// fork/breed page parses the cause out of the error body (parseForkErrorCause) and calls this;
+// a `null` cause — no response reached us, or no known cause in the body — is the quiet
+// `unknown`, never a guessed reason.
+export function forkPause(cause: ForkErrorCause | null): BreedPause {
+  return { reason: cause === null ? 'unknown' : PAUSE_BY_CAUSE[cause] }
 }

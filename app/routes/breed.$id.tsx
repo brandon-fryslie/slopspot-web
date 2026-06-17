@@ -6,6 +6,7 @@ import { getBreedablePool, getFeedItemById } from "~/db/feed"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostId, type RenderablePost } from "~/lib/domain"
 import { forkPause, type BreedPause } from "~/lib/breed-failure"
+import { parseForkErrorCause } from "~/lib/fork-error"
 import { reportPause } from "~/lib/pause-beacon"
 
 // [LAW:locality-or-seam] Page route only — loader + default export. The submit-side action lives
@@ -30,6 +31,7 @@ function breedPauseVoice(pause: BreedPause): string {
     case 'provider-unreachable': return 'breed paused — the image forge hit a snag; try again shortly'
     case 'budget-unavailable':  return "breed paused — the city's ledger is unreachable; try again shortly"
     case 'provider-rejected':   return "breed paused — that ratio isn't supported by this provider; try a different one"
+    case 'internal-error':      return "breed paused — something jammed in the works on our end; we've logged it"
     case 'unknown':             return 'breed paused — something went wrong; try again shortly'
     default: { const _: never = pause; return _ }
   }
@@ -103,13 +105,15 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
         body: JSON.stringify({ mateId }),
       })
       if (!resp.ok) {
-        // [LAW:no-silent-fallbacks] The HTTP status carries the failure; map it to the breeding
-        // room's honest voice (the same pause vocabulary fork uses) and keep the raw status loud
-        // in the console for diagnosis.
-        console.error("breed failed", resp.status, await resp.text())
+        // [LAW:dataflow-not-control-flow] The body's machine-readable CAUSE carries the failure
+        // (an unambiguous signal — one cause = one failure mode), not the overloaded HTTP status;
+        // map it to the breeding room's honest voice and keep the raw status + body loud in the
+        // console for diagnosis. A body with no known cause → null → the quiet unknown pause.
+        const body = await resp.json().catch(() => null)
+        console.error("breed failed", resp.status, body)
         // [LAW:no-silent-failure] Compute the pause once: the headline the visitor reads
         // and the reason the metric records are the SAME value, never two derivations.
-        const pause = forkPause(resp.status)
+        const pause = forkPause(parseForkErrorCause(body))
         setPauseHeadline(breedPauseVoice(pause))
         reportPause("breed", pause.reason)
         setPending(false)
@@ -118,8 +122,10 @@ export default function BreedingRoom({ loaderData }: Route.ComponentProps) {
       const { id } = breedResponseSchema.parse(await resp.json())
       navigate(`/p/${id}`)
     } catch (e) {
+      // A true network failure — no response reached us, so there is no cause to read. `null`
+      // is the quiet unknown pause; the technical detail goes to the console, never the visitor.
       console.error("breed failed", e)
-      const pause = forkPause(0)
+      const pause = forkPause(null)
       setPauseHeadline(breedPauseVoice(pause))
       reportPause("breed", pause.reason)
       setPending(false)
