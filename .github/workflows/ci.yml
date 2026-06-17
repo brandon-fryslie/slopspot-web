@@ -61,3 +61,56 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+
+  # [LAW:no-ambient-temporal-coupling] Migrate-on-ship made structural: prod D1 once lagged master by three
+  # migrations because applying them was a MANUAL step a human forgot across merged epics (slopspot-deploy-ai5).
+  # This job removes the human from the loop — every merge to master applies pending D1 migrations and deploys
+  # the worker, in that ONE ORDER, gated on green checks. So "the migration runs when the code that needs it
+  # ships" is no longer a checklist item; it is the only path code reaches prod.
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    # [LAW:dataflow-not-control-flow] Only a real merge to master deploys — a PR build runs the gates but never
+    # ships. The condition is a value on the event, not a separate workflow.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # [LAW:verifiable-goals] Deploy only green code: the same three gates every PR had to clear must be green on
+    # the merge commit before a single byte reaches prod.
+    needs: [lint, typecheck, test]
+    # [LAW:single-enforcer] One prod deploy at a time — two overlapping merges must not race the migration apply
+    # or the worker upload. A newer run waits rather than interleaving.
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '10.28.2'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      # [LAW:no-ambient-temporal-coupling] Ordering is build → migrate → upload, and each boundary is chosen so
+      # the most likely failure happens before the most irreversible step:
+      #   1. BUILD FIRST — prove the worker artifact compiles + bundles with NO prod side effect. A build failure
+      #      (the common deploy failure) aborts here, before a single schema change. This also emits
+      #      build/server/wrangler.json, which the upload step reads. `pnpm build`, not `pnpm run deploy`, so the
+      #      upload is a separate, separately-gated step (the bare `pnpm deploy` is shadowed by pnpm's
+      #      monorepo-deploy builtin, hence `pnpm exec wrangler deploy` for the upload).
+      - name: Build worker (verify the artifact before any prod change)
+        run: pnpm build
+      #   2. MIGRATE — SCHEMA LEADS the live worker: apply pending migrations after the artifact is proven
+      #      buildable but BEFORE the upload, so the new worker never meets an old shape. Migrations here are
+      #      forward-compatible (a widened CHECK / added rows), so even a later upload failure leaves the OLD
+      #      worker on the new schema — a safe no-op, never a half-deploy. wrangler's apply auto-proceeds in
+      #      non-interactive CI (no prompt flag needed).
+      - name: Apply pending D1 migrations (remote)
+        run: pnpm exec wrangler d1 migrations apply slopspot-db --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      #   3. UPLOAD — ship the already-built artifact (wrangler reads build/server/wrangler.json from step 1).
+      - name: Deploy worker
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
