@@ -9,6 +9,7 @@ import { getPersonaByMedium } from "~/agents/persona"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
+import { forkErrorResponse } from "~/lib/fork-error"
 import { authorLabel } from "~/lib/author-label"
 import { GenomeId, PostId, ProviderId, type AuthoredOrigin, type PersonaActor } from "~/lib/domain"
 import { aspectRatioSchema, fallbackTitle, styleFamilySchema } from "~/lib/variety"
@@ -57,10 +58,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
   const parent = await getPostById(context.cloudflare.env, PostId(params.id))
   if (parent === null) {
-    return Response.json(
-      { error: "parent post not found", postId: params.id },
-      { status: 404 },
-    )
+    return forkErrorResponse("parent-not-found", "parent post not found", { postId: params.id })
   }
   if (parent.content.kind !== "generation") {
     // [LAW:types-are-the-program] Uploads carry no recipe. The PostCard Fork
@@ -81,17 +79,13 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   try {
     budget = await checkBudget(context.cloudflare.env)
   } catch {
-    return Response.json({ error: "budget check unavailable" }, { status: 503 })
+    return forkErrorResponse("budget-unavailable", "budget check unavailable")
   }
   if (!budget.withinBudget) {
-    return Response.json(
-      {
-        error: "daily budget exhausted",
-        spentUsd: budget.spentUsd,
-        ceilingUsd: budget.ceilingUsd,
-      },
-      { status: 429 },
-    )
+    return forkErrorResponse("budget-exhausted", "daily budget exhausted", {
+      spentUsd: budget.spentUsd,
+      ceilingUsd: budget.ceilingUsd,
+    })
   }
 
   // [LAW:single-enforcer] Provider lookup happens here (and again inside
@@ -109,13 +103,9 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     provider = getProvider(chosenProviderId)
   } catch (e) {
     if (e instanceof UnknownProviderError) {
-      return Response.json(
-        {
-          error: "provider not registered",
-          providerId: parsed.providerId,
-        },
-        { status: 404 },
-      )
+      return forkErrorResponse("provider-not-registered", "provider not registered", {
+        providerId: parsed.providerId,
+      })
     }
     throw e
   }
@@ -125,9 +115,10 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // so crafted requests can't bypass the filter and use mock providers in prod.
   const available = realProviders(context.cloudflare.env)
   if (!available.some((p) => p.id === chosenProviderId)) {
-    return Response.json(
-      { error: "provider not available in this environment", providerId: parsed.providerId },
-      { status: 422 },
+    return forkErrorResponse(
+      "provider-unavailable",
+      "provider not available in this environment",
+      { providerId: parsed.providerId },
     )
   }
 
@@ -215,45 +206,36 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     // pre-lookup above resolved the provider once, but createPost's internal
     // getProvider call runs again — a race during dev HMR (registry rebuilt
     // between the two calls) would surface UnknownProviderError from inside
-    // createPost. Map it to the same 404 the pre-lookup uses rather than
-    // letting it fall to the generic 502.
+    // createPost. Map it to the same provider-not-registered cause the pre-lookup
+    // uses rather than letting it fall through to the generic `internal` fault.
     if (e instanceof UnknownProviderError) {
-      return Response.json(
-        {
-          error: "provider not registered",
-          providerId: parsed.providerId,
-        },
-        { status: 404 },
-      )
+      return forkErrorResponse("provider-not-registered", "provider not registered", {
+        providerId: parsed.providerId,
+      })
     }
     if (e instanceof InvalidParamsError) {
-      return Response.json(
-        {
-          error: "invalid params for provider",
-          providerId: parsed.providerId,
-          issues: e.issues,
-        },
-        { status: 422 },
-      )
+      return forkErrorResponse("invalid-params", "invalid params for provider", {
+        providerId: parsed.providerId,
+        issues: e.issues,
+      })
     }
     if (e instanceof ApiError) {
-      return Response.json(
-        {
-          error: "fork failed",
-          providerId: parsed.providerId,
-          upstreamStatus: e.status,
-          detail: e.body,
-        },
-        { status: 502 },
-      )
-    }
-    return Response.json(
-      {
-        error: "fork failed",
+      // [LAW:no-silent-failure] The provider call reached upstream and FAILED there —
+      // transient. Distinct cause (and status 502) from the generic catch below, so the
+      // visitor's "try again" advice is only given when retrying can actually help.
+      return forkErrorResponse("provider-upstream", "fork failed", {
         providerId: parsed.providerId,
-        detail: e instanceof Error ? e.message : String(e),
-      },
-      { status: 502 },
-    )
+        upstreamStatus: e.status,
+        detail: e.body,
+      })
+    }
+    // [LAW:no-silent-failure] Any OTHER throw is a deterministic server-side fault (a bug, an
+    // R2 write failure, a D1 failure inside createPost) — NOT a transient provider hiccup.
+    // It gets the `internal` cause (status 500), so the visitor is told the fault is ours and
+    // logged, never the misleading "the forge hit a snag; try again" the old shared 502 gave.
+    return forkErrorResponse("internal", "fork failed", {
+      providerId: parsed.providerId,
+      detail: e instanceof Error ? e.message : String(e),
+    })
   }
 }

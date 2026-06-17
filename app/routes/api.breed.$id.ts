@@ -9,6 +9,7 @@ import { UnknownProviderError } from "~/providers"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
+import { forkErrorResponse } from "~/lib/fork-error"
 import { authorLabel } from "~/lib/author-label"
 import { PostId, type HumanModifier } from "~/lib/domain"
 
@@ -60,7 +61,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   const breedable = async (id: string): Promise<BreedableParent | Response> => {
     const post = await getPostById(env, PostId(id))
     if (post === null) {
-      return Response.json({ error: "parent post not found", postId: id }, { status: 404 })
+      return forkErrorResponse("parent-not-found", "parent post not found", { postId: id })
     }
     if (post.content.kind !== "generation") {
       return Response.json({ error: "only generation posts can breed", postId: id }, { status: 400 })
@@ -82,13 +83,13 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   try {
     budget = await checkBudget(env)
   } catch {
-    return Response.json({ error: "budget check unavailable" }, { status: 503 })
+    return forkErrorResponse("budget-unavailable", "budget check unavailable")
   }
   if (!budget.withinBudget) {
-    return Response.json(
-      { error: "daily budget exhausted", spentUsd: budget.spentUsd, ceilingUsd: budget.ceilingUsd },
-      { status: 429 },
-    )
+    return forkErrorResponse("budget-exhausted", "daily budget exhausted", {
+      spentUsd: budget.spentUsd,
+      ceilingUsd: budget.ceilingUsd,
+    })
   }
 
   // The human picked the MATES; this is the breeder MODIFIER on the bred child's authorship, never
@@ -111,28 +112,37 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     if (voter.setCookieHeader !== null) headers.set("set-cookie", voter.setCookieHeader)
     return new Response(JSON.stringify({ id: post.id, parents: [a.id, b.id] }), { headers, status: 201 })
   } catch (e) {
-    // [LAW:single-enforcer] Mirror api.fork / api.generate error mapping.
+    // [LAW:single-enforcer] Mirror api.fork / api.generate error mapping — each thrown type
+    // emits its own unambiguous cause, so the breeding room's pause is selected from a signal
+    // that means exactly one thing, never a status that means several.
     if (e instanceof UnknownProviderError) {
-      return Response.json({ error: "bred medium not registered", providerId: e.providerId }, { status: 404 })
+      return forkErrorResponse("provider-not-registered", "bred medium not registered", {
+        providerId: e.providerId,
+      })
     }
     if (e instanceof BredMediumUnavailableError) {
-      return Response.json(
-        { error: "bred medium not available in this environment", providerId: e.providerId },
-        { status: 422 },
+      return forkErrorResponse(
+        "provider-unavailable",
+        "bred medium not available in this environment",
+        { providerId: e.providerId },
       )
     }
     if (e instanceof InvalidParamsError) {
-      return Response.json({ error: "invalid params for bred medium", issues: e.issues }, { status: 422 })
+      return forkErrorResponse("invalid-params", "invalid params for bred medium", {
+        issues: e.issues,
+      })
     }
     if (e instanceof ApiError) {
-      return Response.json(
-        { error: "breed failed", upstreamStatus: e.status, detail: e.body },
-        { status: 502 },
-      )
+      // [LAW:no-silent-failure] Upstream provider failure (transient) — retry is honest.
+      return forkErrorResponse("provider-upstream", "breed failed", {
+        upstreamStatus: e.status,
+        detail: e.body,
+      })
     }
-    return Response.json(
-      { error: "breed failed", detail: e instanceof Error ? e.message : String(e) },
-      { status: 502 },
-    )
+    // [LAW:no-silent-failure] Any other throw is a deterministic server fault (500), never the
+    // transient `provider-upstream` — the visitor is not told to "try again" when it won't help.
+    return forkErrorResponse("internal", "breed failed", {
+      detail: e instanceof Error ? e.message : String(e),
+    })
   }
 }
