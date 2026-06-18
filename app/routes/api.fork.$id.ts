@@ -131,6 +131,11 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     prompt: parsed.prompt,
     styleFamily: parsed.styleFamily,
     seed,
+    // [LAW:dataflow-not-control-flow] A user fork re-derives a recipe from an existing
+    // post; it is NOT a Well wish, so it carries no embalmed-relic intent (the Fork-
+    // rewrite muse is a separate concern, slopspot-wishing-well-97o.1). No embalm-negative
+    // steering applies here.
+    embalmedRelic: false,
   })
 
   const voter = resolveVoter(request)

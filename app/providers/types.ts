@@ -60,6 +60,20 @@ export type RecipeBuilderInput = {
   prompt: string
   styleFamily: StyleFamily
   seed: number
+  // [LAW:decomposition] Whether this draw is an EMBALMED RELIC — the Wishing
+  // Well's signature output, where the muse re-authors a wish into a preserved
+  // specimen (skeleton/taxidermy/fossil). A provider that supports negative
+  // prompts steers its render away from the three known embalm-render failures
+  // (a live creature, a substituted human skeleton, a promoted second creature)
+  // ONLY when this is true. The provider needs to know "embalmed relic: yes/no",
+  // NOT the occasion taxonomy that produced it — the wish/breed/firehose
+  // distinction stays upstream in generator.ts. [LAW:dataflow-not-control-flow]
+  // the steering is a VALUE that flows through this seam, not a branch the
+  // provider takes; REQUIRED (not optional) so "forgot to decide" is
+  // unrepresentable rather than a silent false. [LAW:single-enforcer] the canonical
+  // recipe carries only this boolean — the negative TEXT is each provider's own
+  // native translation, like its aspect-ratio map.
+  embalmedRelic: boolean
 }
 
 // [LAW:locality-or-seam] The plugin contract. Adding a new provider is one new

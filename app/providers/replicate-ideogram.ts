@@ -111,6 +111,18 @@ const STYLE_TO_IDEOGRAM_STYLE_TYPE: Record<StyleFamily, IdeogramStyleType> = {
 // translation already done here.
 const IDEOGRAM_SEED_MASK = 0x7fffffff
 
+// [LAW:single-enforcer] Ideogram's NATIVE negative-prompt translation of an embalmed-relic
+// draw (RecipeBuilderInput.embalmedRelic). One string steering against the three render
+// failures round 10 proved on this provider (slopspot-render-fidelity-v2l): (1) a live
+// creature where the prompt asked for a skeleton, (2) a substituted human skull/skeleton
+// when the wished creature is hard to render, (3) a demoted second creature (octopus /
+// tentacles) promoted to a dominant chimera. Owned HERE — not a shared canonical value —
+// for the same reason IDEOGRAM_ASPECT_RATIO is per-provider: a future ideogram-specific
+// retune of the negative phrasing is a one-line diff at this site, never a coupled edit
+// across providers. [LAW:no-mode-explosion] one coherent set, not a flag per mode.
+export const IDEOGRAM_EMBALM_NEGATIVE =
+  'living animal, live creature, breathing animal, human skull, human skeleton, second creature, two animals, tentacles, octopus'
+
 export const replicateIdeogram: GenerationProvider<Params> = {
   id: ProviderId("replicate-ideogram"),
   kind: 'real',
@@ -120,12 +132,17 @@ export const replicateIdeogram: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.025 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
-  defaultParamsForRecipe({ prompt, styleFamily, seed }): Params {
+  defaultParamsForRecipe({ prompt, styleFamily, seed, embalmedRelic }): Params {
+    // [LAW:dataflow-not-control-flow] negativePrompt is ALWAYS computed; only its
+    // VALUE varies with the embalmedRelic intent (the steering string, or undefined
+    // for an ordinary draw — generate() then omits negative_prompt for undefined).
+    // No branch skips the field; the wish-vs-firehose distinction is the value.
     return {
       prompt,
       seed: seed & IDEOGRAM_SEED_MASK,
       styleType: STYLE_TO_IDEOGRAM_STYLE_TYPE[styleFamily],
       magicPromptOption: 'Auto',
+      negativePrompt: embalmedRelic ? IDEOGRAM_EMBALM_NEGATIVE : undefined,
     }
   },
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {

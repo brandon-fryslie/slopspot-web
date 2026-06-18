@@ -62,6 +62,18 @@ const SDXL_MODEL_VERSION = '7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eef
 // that's a per-style table here.
 const SDXL_DEFAULT_GUIDANCE = 7.5
 
+// [LAW:single-enforcer] SDXL's NATIVE negative-prompt translation of an embalmed-relic
+// draw (RecipeBuilderInput.embalmedRelic). One string steering against the three render
+// failures round 10 proved on this provider (slopspot-render-fidelity-v2l): (1) a live
+// creature where the prompt asked for a skeleton, (2) a substituted human skull/skeleton
+// when the wished creature is hard to render, (3) a demoted second creature (octopus /
+// tentacles) promoted to a dominant chimera. Owned HERE — not a shared canonical value —
+// for the same reason the aspect-ratio table is per-provider: a future SDXL-specific
+// retune of the negative phrasing is a one-line diff at this site, never a coupled edit
+// across providers. [LAW:no-mode-explosion] one coherent set, not a flag per mode.
+export const SDXL_EMBALM_NEGATIVE =
+  'living animal, live creature, breathing animal, human skull, human skeleton, second creature, two animals, tentacles, octopus'
+
 export const replicateSdxl: GenerationProvider<Params> = {
   id: ProviderId("replicate-sdxl"),
   kind: 'real',
@@ -71,8 +83,17 @@ export const replicateSdxl: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.0035 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
-  defaultParamsForRecipe({ prompt, seed }): Params {
-    return { prompt, guidanceScale: SDXL_DEFAULT_GUIDANCE, seed }
+  defaultParamsForRecipe({ prompt, seed, embalmedRelic }): Params {
+    // [LAW:dataflow-not-control-flow] negativePrompt is ALWAYS computed; only its
+    // VALUE varies with the embalmedRelic intent (the steering string, or undefined
+    // for an ordinary draw — generate() then omits negative_prompt for undefined).
+    // No branch skips the field; the wish-vs-firehose distinction is the value.
+    return {
+      prompt,
+      guidanceScale: SDXL_DEFAULT_GUIDANCE,
+      seed,
+      negativePrompt: embalmedRelic ? SDXL_EMBALM_NEGATIVE : undefined,
+    }
   },
   async generate({ params: p, aspectRatio }, { env }): Promise<Media> {
     const { w, h } = REPLICATE_CANONICAL_DIMS[aspectRatio]

@@ -51,6 +51,11 @@ export const falFluxDev: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.025 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 500,
+  // [LAW:no-silent-failure] This provider IGNORES RecipeBuilderInput.embalmedRelic:
+  // fal's FLUX dev endpoint has NO native negative_prompt input (only guidance_scale),
+  // so an embalmed-relic draw here CANNOT be steered away from the render failures
+  // (slopspot-render-fidelity-v2l mode 1-3). The gap the DEFERRED provider-weighting
+  // lever (c) must close — embalmed-relic draws belong on sdxl/ideogram.
   defaultParamsForRecipe({ prompt, seed }): Params {
     return { prompt, steps: FLUX_DEV_DEFAULT_STEPS, guidanceScale: FLUX_DEV_DEFAULT_GUIDANCE, seed }
   },
