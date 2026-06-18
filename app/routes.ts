@@ -29,6 +29,9 @@ export default [
   // The Wishing Well — the haunted prompt box. The dedicated page renders the box;
   // the resource route is its single trust boundary. [LAW:dataflow-not-control-flow]
   route("api/well", "routes/api.well.ts"),
+  // THROWAWAY: gate-open composer verification harness (well-verify-harness branch
+  // only — never merges to master). See routes/api.well-verify.ts.
+  route("api/well-verify", "routes/api.well-verify.ts"),
   route("well", "routes/well.tsx"),
   route("fork/:id", "routes/fork.$id.tsx"),
   // The Breeding Room — the doorway on a card carries parent A in; the room is where you find
