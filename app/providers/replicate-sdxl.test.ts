@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseReplicateSdxlResponse, SDXL_DIMS } from './replicate-sdxl'
+import { parseReplicateSdxlResponse, replicateSdxl, SDXL_DIMS, SDXL_EMBALM_NEGATIVE } from './replicate-sdxl'
 
 // [LAW:no-defensive-null-guards] These tests pin the trust-boundary contract:
 // the parser MUST reject any Replicate prediction that isn't a succeeded one
@@ -80,6 +80,29 @@ describe('parseReplicateSdxlResponse', () => {
     const fixture = { ...succeeded } as Record<string, unknown>
     delete fixture.id
     expect(() => parseReplicateSdxlResponse(fixture, { alt: 'p', w: 1024, h: 1024 })).toThrow()
+  })
+})
+
+describe('replicateSdxl.defaultParamsForRecipe — embalmedRelic negative steering', () => {
+  // [LAW:behavior-not-structure] The contract: an embalmed-relic draw (the Wishing
+  // Well's wish occasion) gets the embalm-negative steering; an ordinary draw (firehose
+  // / breed / fork) does NOT — so the firehose's living-creature output is never
+  // steered away from living creatures (slopspot-render-fidelity-v2l). The false case
+  // is the regression guard, not an afterthought.
+  const base = { prompt: 'a relic', styleFamily: 'photoreal', seed: 7 } as const
+
+  it('applies the embalm negative when embalmedRelic is true', () => {
+    const params = replicateSdxl.defaultParamsForRecipe({ ...base, embalmedRelic: true })
+    expect(params.negativePrompt).toBe(SDXL_EMBALM_NEGATIVE)
+    // Sanity: the negative is a real, non-empty steer that survives the params schema.
+    expect(SDXL_EMBALM_NEGATIVE.length).toBeGreaterThan(0)
+    expect(() => replicateSdxl.paramsSchema.parse(params)).not.toThrow()
+  })
+
+  it('omits the negative (undefined) when embalmedRelic is false — no firehose regression', () => {
+    const params = replicateSdxl.defaultParamsForRecipe({ ...base, embalmedRelic: false })
+    expect(params.negativePrompt).toBeUndefined()
+    expect(() => replicateSdxl.paramsSchema.parse(params)).not.toThrow()
   })
 })
 
