@@ -17,6 +17,7 @@ import {
   PLACARD_TITLE_MAX,
   recipeSubjectSchema,
   renderTemplate,
+  sceneForWish,
   STYLE_FAMILY_PROMPT_SEEDS,
 } from '~/lib/variety'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
@@ -294,7 +295,17 @@ describe('composePrompt', () => {
       wishBody = typeof init?.body === 'string' ? init.body : undefined
       return jsonResponse('Lakeside Heresy', 'A machine prompt')
     })
-    const input = makeInput({ occasion: { kind: 'wish', wish } })
+    // [LAW:behavior-not-structure] move-7 (slopspot-well-foundation-3aj.13) supersedes "the RAW
+    // recipe subject survives" for the ~12 {animal}-bearing templates — there the live creature is
+    // embalmed-or-dropped, so the raw render no longer appears (asserted in the move-7 test below).
+    // makeInput's default subject is T01 (an {animal} template), so this move-5 control pins its
+    // invariant on a NON-animal subject, where sceneForWish === renderTemplate and the world survives
+    // verbatim. The two contracts compose: non-animal scenes pass through, animal scenes petrify.
+    const subject = recipeSubjectSchema.parse({
+      subjectTemplate: 'T05',
+      slots: { setting: 'a tide pool', timeOfDay: 'dusk' },
+    })
+    const input = makeInput({ subject, occasion: { kind: 'wish', wish } })
     const recipeSubject = renderTemplate(input.subject)
 
     await composePrompt(input, mockEnv('test-key'))
@@ -304,6 +315,57 @@ describe('composePrompt', () => {
     expect(wishBody).toContain(recipeSubject)
     // But Haiku is NOT instructed to depict it: the subject slot is reserved for the wished relic.
     expect(wishBody).not.toContain(`depicting ${recipeSubject}`)
+  })
+
+  // move-7 (slopspot-well-foundation-3aj.13): scene-not-menagerie. On a WISH occasion an {animal}-
+  // bearing recipe-subject must NEVER reach the render as a LIVING co-subject — the raw live-actor
+  // phrase ("a raven working as a clerk") is replaced by sceneForWish, which embalms the creature into
+  // the setting as an inanimate motif or recedes it.
+  // [LAW:behavior-not-structure] The assertions are WORDING-INVARIANT: they pin the WIRING property
+  // (raw live-actor render absent; the sceneForWish value is what reaches the body), reading
+  // sceneForWish's own output rather than any literal scene string — so they survive the CD's
+  // pending ruling on the per-template embalm-vs-recede wording.
+  it('a wish never lets an {animal} recipe-subject reach the render as a live co-creature', async () => {
+    // One valid RecipeSubject per {animal}-bearing template (slots are validated for length only, not
+    // vocab membership, so any non-empty value is legal). 'raven' is the canonical round-11 offender.
+    const animalSubjects = [
+      { subjectTemplate: 'T01', slots: { animal: 'raven', profession: 'clerk' } },
+      { subjectTemplate: 'T02', slots: { animal: 'raven', emotion: 'grief' } },
+      { subjectTemplate: 'T08', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T14', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T17', slots: { animal: 'raven', manMadeObject: 'ledger' } },
+      { subjectTemplate: 'T18', slots: { profession: 'clerk', animal: 'raven' } },
+      { subjectTemplate: 'T22', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T25', slots: { era: 'Victorian', animal: 'raven' } },
+      { subjectTemplate: 'T29', slots: { animal: 'raven' } },
+      { subjectTemplate: 'T30', slots: { profession: 'clerk', animal: 'raven' } },
+      { subjectTemplate: 'T33', slots: { animal: 'raven' } },
+      { subjectTemplate: 'T38', slots: { animal: 'raven' } },
+    ]
+
+    for (const raw of animalSubjects) {
+      const subject = recipeSubjectSchema.parse(raw)
+      let body: string | undefined
+      vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+        body = typeof init?.body === 'string' ? init.body : undefined
+        return jsonResponse('Embalmed', 'A machine prompt')
+      })
+
+      await composePrompt(
+        makeInput({ subject, occasion: { kind: 'wish', wish: 'a cat' } }),
+        mockEnv('test-key'),
+      )
+
+      expect(body, `${raw.subjectTemplate} body captured`).toBeDefined()
+      // The raw LIVE-actor render ("a raven working as a clerk") never reaches Haiku.
+      expect(body, `${raw.subjectTemplate}: raw live-actor phrase removed`).not.toContain(
+        renderTemplate(subject),
+      )
+      // The transformed scene IS what reaches Haiku (the wish-assembly swap fired).
+      expect(body, `${raw.subjectTemplate}: transformed scene present`).toContain(
+        sceneForWish(subject),
+      )
+    }
   })
 
   // The control proving move-5 is wish-SCOPED: the firehose path (no occasion) is unchanged — the
