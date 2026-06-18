@@ -279,6 +279,48 @@ describe('composePrompt', () => {
     expect(capturedBody).toContain(WISH_DIRECTIVE)
   })
 
+  // [LAW:behavior-not-structure] move-5 (slopspot-well-foundation-3aj): the SUBJECT slot. On a wish
+  // occasion the recipe subject is demoted from the thing DEPICTED to the SCENE the wished relic is
+  // mounted in. The two-competing-subjects shape (recipe-subject-as-primary + wish-overlay) let
+  // strong-voiced citizens embalm the recipe subject and discard the wish (round-9 gm-cat-a). The
+  // contract is the SLOT, pinned minimally: the wish meta-prompt must NOT tell Haiku to "depict" the
+  // recipe subject, yet must still carry it (the scene is the citizen's world, never discarded).
+  // Survives any rewording of the scene framing — it asserts only that the recipe subject is no
+  // longer the subject for wishes.
+  it('a wish occasion makes the recipe subject the SCENE, not the depicted subject', async () => {
+    const wish = 'a cozy cottage by a quiet lake at dawn'
+    let wishBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      wishBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('Lakeside Heresy', 'A machine prompt')
+    })
+    const input = makeInput({ occasion: { kind: 'wish', wish } })
+    const recipeSubject = renderTemplate(input.subject)
+
+    await composePrompt(input, mockEnv('test-key'))
+
+    expect(wishBody).toBeDefined()
+    // The recipe subject survives as the SCENE — the citizen's world is never discarded.
+    expect(wishBody).toContain(recipeSubject)
+    // But Haiku is NOT instructed to depict it: the subject slot is reserved for the wished relic.
+    expect(wishBody).not.toContain(`depicting ${recipeSubject}`)
+  })
+
+  // The control proving move-5 is wish-SCOPED: the firehose path (no occasion) is unchanged — the
+  // recipe subject IS the depicted subject. If this regresses, the change leaked past the wish gate.
+  it('the firehose path still depicts the recipe subject (move-5 is wish-scoped)', async () => {
+    let firehoseBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      firehoseBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('Ordinary Slop', 'A machine prompt')
+    })
+    const input = makeInput()
+
+    await composePrompt(input, mockEnv('test-key'))
+
+    expect(firehoseBody).toContain(`depicting ${renderTemplate(input.subject)}`)
+  })
+
   it('a wish never reaches the recipe-only fallback when Haiku is unavailable', async () => {
     const wish = 'a cozy cottage by a quiet lake at dawn'
     vi.mocked(fetch).mockRejectedValueOnce(new Error('down'))
