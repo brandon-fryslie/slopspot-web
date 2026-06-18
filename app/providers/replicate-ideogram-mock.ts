@@ -2,7 +2,7 @@ import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
 import { ProviderId, type Media } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
-import { IDEOGRAM_DIMS } from "./replicate-ideogram"
+import { IDEOGRAM_DIMS, IDEOGRAM_EMBALM_NEGATIVE } from "./replicate-ideogram"
 
 // Replicate Ideogram mock. Params shape is identical to the real provider
 // because every callsite (HTTP route, chooser, firehose) commits to a params
@@ -32,12 +32,16 @@ export const replicateIdeogramMock: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
-  defaultParamsForRecipe({ prompt, seed }): Params {
+  defaultParamsForRecipe({ prompt, seed, embalmedRelic }): Params {
+    // [LAW:one-source-of-truth] Mirror the real ideogram provider's embalmedRelic →
+    // negativePrompt mapping (same constant) so a local dev wish-fire exercises the
+    // same param shape it will in prod — the swap stays a true swap.
     return {
       prompt,
       seed: seed & 0x7fffffff,
       styleType: 'Auto',
       magicPromptOption: 'Auto',
+      negativePrompt: embalmedRelic ? IDEOGRAM_EMBALM_NEGATIVE : undefined,
     }
   },
   async generate({ params: p, aspectRatio }): Promise<Media> {

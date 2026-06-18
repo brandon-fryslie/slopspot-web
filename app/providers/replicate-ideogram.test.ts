@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { parseReplicateIdeogramResponse, IDEOGRAM_DIMS } from './replicate-ideogram'
+import {
+  parseReplicateIdeogramResponse,
+  replicateIdeogram,
+  IDEOGRAM_DIMS,
+  IDEOGRAM_EMBALM_NEGATIVE,
+} from './replicate-ideogram'
 
 // [LAW:no-defensive-null-guards] These tests pin the trust-boundary contract:
 // ideogram's `output` is a SINGLE URL string (not an array, unlike SDXL). The
@@ -68,6 +73,27 @@ describe('parseReplicateIdeogramResponse', () => {
     const fixture = { ...succeeded } as Record<string, unknown>
     delete fixture.id
     expect(() => parseReplicateIdeogramResponse(fixture, { alt: 'p', w: 1024, h: 1024 })).toThrow()
+  })
+})
+
+describe('replicateIdeogram.defaultParamsForRecipe — embalmedRelic negative steering', () => {
+  // [LAW:behavior-not-structure] Same contract as SDXL: an embalmed-relic draw (the
+  // wish occasion) gets the embalm-negative steering; an ordinary draw does NOT, so
+  // the firehose's living-creature output is never steered away from living creatures
+  // (slopspot-render-fidelity-v2l). The false case is the regression guard.
+  const base = { prompt: 'a relic', styleFamily: 'photoreal', seed: 7 } as const
+
+  it('applies the embalm negative when embalmedRelic is true', () => {
+    const params = replicateIdeogram.defaultParamsForRecipe({ ...base, embalmedRelic: true })
+    expect(params.negativePrompt).toBe(IDEOGRAM_EMBALM_NEGATIVE)
+    expect(IDEOGRAM_EMBALM_NEGATIVE.length).toBeGreaterThan(0)
+    expect(() => replicateIdeogram.paramsSchema.parse(params)).not.toThrow()
+  })
+
+  it('omits the negative (undefined) when embalmedRelic is false — no firehose regression', () => {
+    const params = replicateIdeogram.defaultParamsForRecipe({ ...base, embalmedRelic: false })
+    expect(params.negativePrompt).toBeUndefined()
+    expect(() => replicateIdeogram.paramsSchema.parse(params)).not.toThrow()
   })
 })
 

@@ -237,6 +237,14 @@ export async function authorSlop(
     prompt,
     styleFamily: recipe.styleFamily,
     seed: recipe.paramsSeed,
+    // [LAW:one-source-of-truth] A WISH occasion IS an embalmed-relic draw (the muse
+    // doctrine embalms every Well wish). Derived from the SAME `occasion?.kind === 'wish'`
+    // predicate this function already uses for the wisher modifier, the persisted wish, and
+    // the remark — so all wish-scoped behaviors read one condition and cannot drift. A
+    // supporting provider (sdxl/ideogram) then steers its render away from the round-10
+    // failures (slopspot-render-fidelity-v2l); the firehose/self-portrait draw passes false
+    // and renders living subjects unhindered. [LAW:dataflow-not-control-flow]
+    embalmedRelic: occasion?.kind === 'wish',
   })
 
   // [LAW:types-are-the-program] The author is the persona, always. The human, when
@@ -399,6 +407,10 @@ export async function authorBredSlop(
     prompt: utterance,
     styleFamily: bred.genes.species,
     seed,
+    // [LAW:dataflow-not-control-flow] Breeding crosses two existing slops' genomes; it is
+    // NOT a Well wish, so it carries no embalmed-relic intent — the child renders its
+    // recombined subject without embalm-negative steering.
+    embalmedRelic: false,
   })
 
   // [LAW:dataflow-not-control-flow] The bred child is AUTHORED by the medium's citizen; the optional

@@ -64,6 +64,11 @@ export const openAIDalle: GenerationProvider<Params> = {
   // samples within this set; generate() never receives 4:3 or 3:4.
   supportedAspectRatios: ['1:1', '16:9', '9:16'],
   promptMaxLength: 4000,
+  // [LAW:no-silent-failure] This provider IGNORES RecipeBuilderInput.embalmedRelic:
+  // DALL-E 3's images API has NO negative_prompt parameter, so an embalmed-relic draw
+  // here CANNOT be steered away from the render failures (slopspot-render-fidelity-v2l
+  // mode 1-3). The gap the DEFERRED provider-weighting lever (c) must close — embalmed-
+  // relic draws belong on sdxl/ideogram.
   defaultParamsForRecipe({ prompt }): Params {
     return { prompt, quality: DEFAULT_QUALITY }
   },

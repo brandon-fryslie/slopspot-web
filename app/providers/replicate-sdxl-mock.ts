@@ -2,7 +2,7 @@ import { z } from "zod"
 import { ASPECT_RATIOS } from "~/lib/variety"
 import { ProviderId, type Media } from "~/lib/domain"
 import type { GenerationProvider } from "./types"
-import { SDXL_DIMS } from "./replicate-sdxl"
+import { SDXL_DIMS, SDXL_EMBALM_NEGATIVE } from "./replicate-sdxl"
 
 // Replicate SDXL mock. Params remain *structurally different* from fal-flux:
 // negativePrompt, guidanceScale, seed — none of which fal has. That asymmetry
@@ -29,8 +29,16 @@ export const replicateSdxlMock: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
-  defaultParamsForRecipe({ prompt, seed }): Params {
-    return { prompt, guidanceScale: 7.5, seed }
+  defaultParamsForRecipe({ prompt, seed, embalmedRelic }): Params {
+    // [LAW:one-source-of-truth] Mirror the real SDXL provider's embalmedRelic →
+    // negativePrompt mapping (same constant) so a local dev wish-fire exercises the
+    // same param shape it will in prod — the swap stays a true swap.
+    return {
+      prompt,
+      guidanceScale: 7.5,
+      seed,
+      negativePrompt: embalmedRelic ? SDXL_EMBALM_NEGATIVE : undefined,
+    }
   },
   async generate({ params: p, aspectRatio }): Promise<Media> {
     const { w, h } = SDXL_DIMS[aspectRatio]

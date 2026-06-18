@@ -83,6 +83,12 @@ export const falFlux: GenerationProvider<Params> = {
   capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0.003 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 500,
+  // [LAW:no-silent-failure] This provider IGNORES RecipeBuilderInput.embalmedRelic:
+  // FLUX schnell is guidance-distilled and has NO native negative_prompt input, so an
+  // embalmed-relic draw here CANNOT be steered away from the render failures
+  // (slopspot-render-fidelity-v2l mode 1-3). This is not a skip we hide — it is the gap
+  // the DEFERRED provider-weighting lever (c) must close by steering embalmed-relic
+  // draws toward the providers that DO support negatives (sdxl/ideogram).
   defaultParamsForRecipe({ prompt }): Params {
     return { prompt, steps: FIREHOSE_STEPS }
   },
