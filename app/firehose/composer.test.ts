@@ -257,6 +257,30 @@ describe('composePrompt', () => {
     expect(result.prompt).not.toContain(wish)
   })
 
+  // [LAW:behavior-not-structure] The OBJECTIFY-THE-INTRUSION contract (the-muse-doctrine.md,
+  // slopspot-wishing-well-97o): the wish directive instructs Haiku to refract a LITERAL wish
+  // into a discrete uncanny object of the muse's own making, never to assemble the literal
+  // composite the visitor pictured. This pins the directive's presence so the "meat-brained
+  // literal render" loophole cannot silently reopen via a prompt edit. The behavioral proof
+  // (a literal wish does NOT come back as a faithful composite) is the doctrine's acceptance
+  // battery, which needs a live model — this is the structural guard that the directive ships.
+  it('a wish occasion instructs Haiku to objectify, not render the literal composite', async () => {
+    const wish = "cindy crawford's body with a big mac for a head"
+    let capturedBody: string | undefined
+    vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
+      capturedBody = typeof init?.body === 'string' ? init.body : undefined
+      return jsonResponse('Displaced Idol', 'A reliquary altar, a paper crown where a face should be')
+    })
+
+    await composePrompt(makeInput({ occasion: { kind: 'wish', wish } }), mockEnv('test-key'))
+
+    expect(capturedBody).toBeDefined()
+    // The directive forbids assembling the literal picture and demands objectification.
+    expect(capturedBody).toMatch(/do NOT assemble the literal picture/i)
+    expect(capturedBody).toMatch(/discrete uncanny object/i)
+    expect(capturedBody).toMatch(/never a faithful execution/i)
+  })
+
   it('a wish never reaches the recipe-only fallback when Haiku is unavailable', async () => {
     const wish = 'a cozy cottage by a quiet lake at dawn'
     vi.mocked(fetch).mockRejectedValueOnce(new Error('down'))
