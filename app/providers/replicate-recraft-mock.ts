@@ -39,7 +39,9 @@ export const replicateRecraftMock: GenerationProvider<Params> = {
   version: "2026-06-12",
   displayName: "Replicate Recraft V3 (mock)",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
+  // supportsNegativePrompt:false — mirrors the real Recraft V3 model, whose
+  // input schema has no negative_prompt; this mock ignores embalmedRelic too.
+  capabilities: { producesMedia: ["image"], supportsSeed: true, supportsNegativePrompt: false, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
   defaultParamsForRecipe({ prompt, seed }): Params {

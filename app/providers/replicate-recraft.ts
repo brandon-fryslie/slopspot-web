@@ -121,14 +121,14 @@ export const replicateRecraft: GenerationProvider<Params> = {
   version: "2026-06-12",
   displayName: "Replicate Recraft V3",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.04 },
+  // supportsNegativePrompt:false — Recraft V3's input schema is
+  // prompt/size/style/aspect_ratio with NO negative_prompt (verified against the
+  // live Replicate model schema for the pinned version), so an embalmed-relic
+  // draw here cannot be steered. The gap is now typed, not prose; the deferred
+  // provider-weighting lever (c) reads supportsNegativePrompt to route around it.
+  capabilities: { producesMedia: ["image"], supportsSeed: true, supportsNegativePrompt: false, costEstimateUsd: 0.04 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
-  // [LAW:no-silent-failure] This provider IGNORES RecipeBuilderInput.embalmedRelic:
-  // Recraft V3's input schema (prompt/size/style/aspect_ratio) has NO negative_prompt,
-  // so an embalmed-relic draw here CANNOT be steered away from the render failures
-  // (slopspot-render-fidelity-v2l mode 1-3). The gap the DEFERRED provider-weighting
-  // lever (c) must close — embalmed-relic draws belong on sdxl/ideogram.
   defaultParamsForRecipe({ prompt, styleFamily, seed }): Params {
     return {
       prompt,
