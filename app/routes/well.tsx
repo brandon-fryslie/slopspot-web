@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { z } from "zod"
 import { WISH_MAX, wellVoiceLine } from "~/lib/well-response"
+import { WELL_REACHABLE } from "~/lib/well-gate"
 
 // The Wishing Well — the haunted prompt box (design-docs/the-wishing-well.md).
 //
@@ -34,6 +35,17 @@ export function meta() {
     { title: "The Wishing Well — SlopSpot" },
     { name: "description", content: "Make a wish." },
   ]
+}
+
+// [LAW:single-enforcer] The Well is gated until its soul is verified (well-gate.ts). A
+// gated box is genuinely NOT FOUND — not a disabled state to render — so the page never
+// teaches a visitor that a back door exists before it can haunt. A loader is read-only,
+// so this adds none of the action-CSRF concern that keeps this route action-free.
+export function loader() {
+  if (!WELL_REACHABLE) {
+    throw new Response("Not Found", { status: 404 })
+  }
+  return null
 }
 
 // [LAW:types-are-the-program] Two phases, not a boolean. "wishing" persists until

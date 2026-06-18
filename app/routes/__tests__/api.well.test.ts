@@ -25,6 +25,11 @@ vi.mock('~/storage/ingest', () => ({
   })),
 }))
 
+// These cases pin the Well's AUTHORING contract, which exists whether or not the surface is
+// currently reachable. Mock the gate OPEN so the flow runs; the gated-closed behavior (404
+// before any side effect) is pinned in api.well.gate.test.ts. [LAW:single-enforcer]
+vi.mock('~/lib/well-gate', () => ({ WELL_REACHABLE: true }))
+
 import { action } from '~/routes/api.well'
 import { getPostById } from '~/db/feed'
 import { db } from '~/db/client'

@@ -20,6 +20,7 @@ import { FeastProclamation } from "~/components/feast-proclamation"
 import { PulseStrip } from "~/components/pulse-strip"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
+import { WELL_REACHABLE } from "~/lib/well-gate"
 import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
 import { defaultSortMode, parseSortMode, serializeSortMode, sortModeUrlQuery } from "~/lib/sort-mode"
 import { ritePhaseClock } from "~/lib/rite"
@@ -256,13 +257,17 @@ export default function Home({ loaderData }: Route.ComponentProps) {
                   entry in the masthead's atmospheric register — votive-tinted, NOT the
                   profane /submit CTA. [FRAMING:representation] The copy names only the
                   ordinary act ("make a wish") and never the mechanism: the haunting must
-                  DAWN on the slop's card, so the door must not disclose what's behind it. */}
-              <Link
-                to="/well"
-                className="mt-3 inline-block font-terminal text-[11px] text-votive/70 transition-colors hover:text-votive"
-              >
-                ·· make a wish at the well ··
-              </Link>
+                  DAWN on the slop's card, so the door must not disclose what's behind it.
+                  [LAW:single-enforcer] Hidden while the Well is gated (well-gate.ts) — a dead
+                  link to a 404 would be worse than no door; the same switch closes the route. */}
+              {WELL_REACHABLE && (
+                <Link
+                  to="/well"
+                  className="mt-3 inline-block font-terminal text-[11px] text-votive/70 transition-colors hover:text-votive"
+                >
+                  ·· make a wish at the well ··
+                </Link>
+              )}
             </div>
             <Link
               to="/submit"
