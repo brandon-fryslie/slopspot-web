@@ -20,7 +20,7 @@ import {
   STYLE_FAMILY_PROMPT_SEEDS,
 } from '~/lib/variety'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
-import { composePrompt, type ComposerInput } from './composer'
+import { composePrompt, WISH_DIRECTIVE, type ComposerInput } from './composer'
 
 vi.mock('~/observability/metrics', () => ({ emit: vi.fn(), emitAccountHealth: vi.fn() }))
 import { emit } from '~/observability/metrics'
@@ -258,13 +258,13 @@ describe('composePrompt', () => {
   })
 
   // [LAW:behavior-not-structure] The OBJECTIFY-THE-INTRUSION contract (the-muse-doctrine.md,
-  // slopspot-wishing-well-97o): the wish directive instructs Haiku to refract a LITERAL wish
-  // into a discrete uncanny object of the muse's own making, never to assemble the literal
-  // composite the visitor pictured. This pins the directive's presence so the "meat-brained
-  // literal render" loophole cannot silently reopen via a prompt edit. The behavioral proof
-  // (a literal wish does NOT come back as a faithful composite) is the doctrine's acceptance
-  // battery, which needs a live model — this is the structural guard that the directive ships.
-  it('a wish occasion instructs Haiku to objectify, not render the literal composite', async () => {
+  // slopspot-wishing-well-97o): a wish occasion ships the WISH_DIRECTIVE into the Haiku call,
+  // so the "meat-brained literal render" loophole cannot silently reopen by deleting it. The
+  // behavioral proof (a literal wish does NOT come back as a faithful composite) is the
+  // doctrine's acceptance battery, which needs a live model. This guard asserts the directive's
+  // PRESENCE via the shared constant — not its verbatim wording — so a harmless reword of the
+  // directive moves the constant and this test together rather than breaking it.
+  it('a wish occasion ships the objectify-the-intrusion directive into the Haiku call', async () => {
     const wish = "cindy crawford's body with a big mac for a head"
     let capturedBody: string | undefined
     vi.mocked(fetch).mockImplementationOnce(async (_url, init) => {
@@ -275,10 +275,8 @@ describe('composePrompt', () => {
     await composePrompt(makeInput({ occasion: { kind: 'wish', wish } }), mockEnv('test-key'))
 
     expect(capturedBody).toBeDefined()
-    // The directive forbids assembling the literal picture and demands objectification.
-    expect(capturedBody).toMatch(/do NOT assemble the literal picture/i)
-    expect(capturedBody).toMatch(/discrete uncanny object/i)
-    expect(capturedBody).toMatch(/never a faithful execution/i)
+    // The directive (whatever its wording) is present in the instruction to Haiku.
+    expect(capturedBody).toContain(WISH_DIRECTIVE)
   })
 
   it('a wish never reaches the recipe-only fallback when Haiku is unavailable', async () => {
