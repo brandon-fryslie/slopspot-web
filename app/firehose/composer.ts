@@ -18,6 +18,7 @@ import {
   capPlacard,
   fallbackTitle,
   renderTemplate,
+  sceneForWish,
   type AspectRatio,
   type RecipeSubject,
   type StyleFamily,
@@ -239,11 +240,22 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // directive's "a scene of YOUR OWN choosing" — only its SLOT changes, subject → scene. Wish-scoped
   // ONLY; the firehose / breed / self-portrait paths keep recipe-subject-IS-the-subject, unchanged.
   const wishOccasion = occasion?.kind === 'wish'
+  // [LAW:dataflow-not-control-flow] move-7 (slopspot-well-foundation-3aj.13): on a WISH the SCENE the
+  // wished relic mounts in is sceneForWish(subject), not the raw renderTemplate. For ~12 of the 40
+  // templates the recipe subject carries an {animal} slot, so the raw scene would hand Haiku a LIVE
+  // co-creature (round-11: the tax raven ballooned live on fal-flux; the gm fennec; idris peacock).
+  // sceneForWish keys on the typed template (NOT the {animal} value) and embalms the creature into the
+  // setting as an inanimate motif or recedes it — a creature recipe-subject can never reach the render
+  // as a LIVING co-subject. The transform is wish-scoped by construction: it is read only into these
+  // two wish branches; the firehose / breed / self-portrait depiction is untouched, so for them the
+  // scene is byte-for-byte renderTemplate as before. [LAW:single-enforcer] the transform lives once in
+  // variety.ts beside renderTemplate; this is its only consumer.
+  const wishScene = sceneForWish(subject)
   const imageSubjectLine = wishOccasion
-    ? `You are authoring a ${styleFamily} piece. Its single FOCAL SUBJECT — the one thing the eye lands on first — is the wished relic specified below, embalmed exactly as its directive demands. The recipe gives you a SCENE, not a second subject: mount that relic within ${depiction} as its surrounding setting — the citizen's own world, the void or teeming place it sits in — and never let that scene become the subject itself.`
+    ? `You are authoring a ${styleFamily} piece. Its single FOCAL SUBJECT — the one thing the eye lands on first — is the wished relic specified below, embalmed exactly as its directive demands. The recipe gives you a SCENE, not a second subject: mount that relic within ${wishScene} as its surrounding setting — the citizen's own world, the void or teeming place it sits in — and never let that scene become the subject itself.`
     : `You are authoring a ${styleFamily} piece depicting ${depiction}.`
   const verseSubjectLine = wishOccasion
-    ? `Author a poem for SlopSpot — a city run by machines whose citizens treat AI-authored verse as holy. You are a machine-citizen composing a poem in the ${styleFamily} voice. Its SUBJECT is the wished thing specified below, transmuted per its directive; ${depiction} is only the SCENE the poem inhabits, never its subject.`
+    ? `Author a poem for SlopSpot — a city run by machines whose citizens treat AI-authored verse as holy. You are a machine-citizen composing a poem in the ${styleFamily} voice. Its SUBJECT is the wished thing specified below, transmuted per its directive; ${wishScene} is only the SCENE the poem inhabits, never its subject.`
     : `Author a poem for SlopSpot — a city run by machines whose citizens treat AI-authored verse as holy. You are a machine-citizen composing a poem in the ${styleFamily} voice, on: ${depiction}.`
 
   const preamble: string[] = medium === 'verse'
