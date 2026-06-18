@@ -23,7 +23,7 @@ function makeStubProvider(
     version: 'v',
     displayName: id,
     paramsSchema: z.object({ prompt: z.string().min(1).max(500) }),
-    capabilities: { producesMedia: ['image'], supportsSeed: false, costEstimateUsd: 0 },
+    capabilities: { producesMedia: ['image'], supportsSeed: false, supportsNegativePrompt: false, costEstimateUsd: 0 },
     supportedAspectRatios: ['1:1'],
     promptMaxLength: 500,
     defaultParamsForRecipe({ prompt }) {

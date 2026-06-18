@@ -35,6 +35,9 @@ export const verseProvider: GenerationProvider<Params> = {
   capabilities: {
     producesMedia: ['text'],
     supportsSeed: false,
+    // supportsNegativePrompt:false — verse produces text, not a diffusion image;
+    // there is no negative_prompt concept and embalmedRelic does not apply.
+    supportsNegativePrompt: false,
     // [LAW:one-source-of-truth] The Haiku API cost is incurred by composePrompt
     // (the composer, not this provider). The provider itself makes no API call,
     // so its marginal cost is 0. The composer's Haiku cost is tracked separately

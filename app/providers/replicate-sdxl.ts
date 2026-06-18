@@ -80,7 +80,7 @@ export const replicateSdxl: GenerationProvider<Params> = {
   version: "2026-05-24",
   displayName: "Replicate SDXL",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.0035 },
+  capabilities: { producesMedia: ["image"], supportsSeed: true, supportsNegativePrompt: true, costEstimateUsd: 0.0035 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
   defaultParamsForRecipe({ prompt, seed, embalmedRelic }): Params {

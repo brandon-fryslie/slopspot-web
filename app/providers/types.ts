@@ -4,6 +4,19 @@ import type { AspectRatio, Media, ProviderId, StyleFamily } from "~/lib/domain"
 export type GenerationCapabilities = {
   producesMedia: Media["kind"][]
   supportsSeed: boolean
+  // [LAW:types-are-the-program] Whether this provider's upstream API accepts a
+  // native negative_prompt input — the honest, typed replacement for the prose
+  // "[LAW:no-silent-failure] this provider IGNORES embalmedRelic" comments. A
+  // provider can only steer an embalmed-relic draw away from the render failures
+  // (slopspot-render-fidelity-v2l mode 1-3) if its API can take a negative; this
+  // boolean is the single source of truth for that fact. REQUIRED, so a new
+  // provider cannot be registered without deciding its stance — "forgot to
+  // decide whether this provider gets embalm steering" becomes a tsc error, not
+  // a silent false. The deferred provider-weighting lever (c) READS this to
+  // steer embalmed-relic draws toward the providers that can hold the frame.
+  // [LAW:one-source-of-truth] The negative TEXT stays each provider's own native
+  // constant; this only declares CAN-it, not WHAT.
+  supportsNegativePrompt: boolean
   // Estimated USD per generate() call. The firehose budget guard sums this
   // across calls in a window to enforce a daily spend ceiling; the registry is
   // the single source of truth for what a provider costs. Mocks are 0 (free).
