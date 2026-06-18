@@ -11,6 +11,7 @@ import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
 import { authorLabel } from "~/lib/author-label"
 import { slopResponse, WISH_MAX, type WellResponse } from "~/lib/well-response"
+import { WELL_REACHABLE } from "~/lib/well-gate"
 
 // [LAW:single-enforcer] The HTTP trust boundary for the Wishing Well — the haunted
 // prompt box (foundation.8, design-docs/the-wishing-well.md). A visitor's WISH is
@@ -47,6 +48,14 @@ const bodySchema = z.object({
 })
 
 export async function action({ request, context }: Route.ActionArgs) {
+  // [LAW:single-enforcer] The Well is gated until its soul is verified (well-gate.ts).
+  // While gated the channel does not exist — a 404, not a disabled 403: there is no
+  // partial Well, and an authored slop here would be the literal-echo the gate forbids.
+  // [LAW:no-silent-failure] the gate is the first thing checked, before any side effect.
+  if (!WELL_REACHABLE) {
+    return Response.json({ error: "not found" }, { status: 404 })
+  }
+
   if (request.method !== "POST") {
     return Response.json({ error: "method not allowed" }, { status: 405 })
   }
