@@ -785,6 +785,14 @@ export type ChooserRecipeSubject = Exclude<RecipeSubject, { subjectTemplate: 'T0
 // final prompts. The renderer accepts any RecipeSubject — T00 (single
 // {freeText} slot) renders as just the freeText string with no article
 // rewriting; T01–T40 follow the article rule.
+// [LAW:one-source-of-truth] The a/an choice for a value is one rule with one
+// home. renderTemplate's inline article logic and sceneForWish's embalmed-motif
+// phrases (an `otter`-shaped fixture vs a `cat`-shaped fixture) must agree, so the
+// rule lives here and both read it.
+export function indefiniteArticle(value: string): 'a' | 'an' {
+  return 'aeiou'.includes(value.charAt(0).toLowerCase()) ? 'an' : 'a'
+}
+
 export function renderTemplate(subject: RecipeSubject): string {
   const phrase = TEMPLATE_PHRASES[subject.subjectTemplate]
   const slots = subject.slots as Record<string, string>
@@ -794,11 +802,112 @@ export function renderTemplate(subject: RecipeSubject): string {
   return phrase
     .replace(/\b(a|an)\s+\{(\w+)\}/g, (_match, _article, slot) => {
       const value = slots[slot]
-      const first = value.charAt(0).toLowerCase()
-      const article = 'aeiou'.includes(first) ? 'an' : 'a'
-      return `${article} ${value}`
+      return `${indefiniteArticle(value)} ${value}`
     })
     .replace(/\{(\w+)\}/g, (_match, slot) => slots[slot])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// sceneForWish — move-7 / scene-not-menagerie (slopspot-well-foundation-3aj.13)
+//
+// THE PROBLEM: move-5 re-slotted the recipe subject to be the SCENE a wished relic
+// is mounted in (wish-occasion only). But ~12 of the 40 templates carry an {animal}
+// slot, so move-5 promotes a FAUNA template into the scene and Haiku faithfully
+// renders a LIVE second creature — render-noise that gets promoted on no-negative
+// providers, and a re-opened two-competing-subjects when the recipe subject is
+// itself a creature. The Dilettante's "anything that breathes" PROSE clause got
+// ROUTED AROUND: Haiku kept the creature and narrated it as "background".
+//
+// THE FIX IS THE WIRING, NOT A SENTENCE. Because RecipeSubject is a typed
+// discriminated union, the {animal}-bearing variants are a compile-time-knowable
+// SUBSET (AnimalTemplateId, derived below from TEMPLATE_SLOT_KEYS — never a second
+// hand-kept list). sceneForWish keys on that TYPE (subject.subjectTemplate), not on
+// the {animal} VALUE, and produces the scene string that replaces renderTemplate at
+// the wish-assembly seam in composer.ts. A creature recipe-subject can then never
+// reach the render as a LIVING co-subject — it is embalmed into the setting as an
+// inanimate motif, or it recedes to pure setting.
+// [LAW:types-are-the-program] [LAW:dataflow-not-control-flow] [LAW:one-source-of-truth]
+// ─────────────────────────────────────────────────────────────────────────────
+
+// [LAW:one-source-of-truth] The {animal}-bearing template set is DERIVED from the
+// single source of truth (TEMPLATE_SLOT_KEYS), never re-listed by hand. Add an
+// {animal} slot to a new template and AnimalTemplateId widens automatically — the
+// WISH_ANIMAL_SCENES Record below then fails to compile until the new template is
+// handled, so "an animal template with no wish transform" is an unrepresentable
+// state, not a silent gap. [LAW:types-are-the-program]
+export type AnimalTemplateId = {
+  [K in StoredSubjectTemplateId]: 'animal' extends (typeof TEMPLATE_SLOT_KEYS)[K][number]
+    ? K
+    : never
+}[StoredSubjectTemplateId]
+
+// Each builder receives ONLY its own variant's typed slots, so a phrase can read
+// exactly the non-animal structure (profession/place/occasion) the template paints
+// and embalm-or-drop the animal actor.
+type AnimalWishSceneBuilders = {
+  [K in AnimalTemplateId]: (slots: Extract<RecipeSubject, { subjectTemplate: K }>['slots']) => string
+}
+
+// CD-BLESSED scene mapping — slopspot-well-foundation-3aj.13 (round-12 verdict).
+// The structure (type-keyed dispatch, exhaustive Record, embalm-vs-recede split) and
+// these strings are blessed with four refinements baked in:
+//  (1) the 8 EMBALM scenes: the wished creature is the embalmed/petrified relic in the
+//      scene; the template-animal survives only as an inanimate motif of the setting.
+//  (2) the 4 RECEDE scenes (T02/T08/T22/T29) DROP the animal but land the relic in a
+//      real PLACE — a room, not a mood/fog. An under-specified scene lets the relic
+//      dissolve, so each names a concrete shuttered interior.
+//  (3) the template-animal becomes an OBJECT / FIXTURE, never a second SPECIMEN —
+//      subordinate and small. The WISHED creature is the ONLY embalmed-creature-relic.
+//  (4) the inanimate form is BREADTH-VARIED across templates so the feed does not
+//      rhyme: fixture / finial / bookend / effigy / bust / weathervane / heraldic
+//      device / statue — eight distinct motifs, none reused.
+// "Keep the world, petrify-or-drop the actor."
+const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
+  // EMBALM — a concrete world/occasion survives; the animal is a small inanimate motif.
+  T01: (s) =>
+    `the deserted workplace of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped fixture left among the tools`,
+  T14: (s) =>
+    `a small award ceremony for ${s.abstractConcept}, the empty plinth topped with a brass ${s.animal} finial`,
+  T17: (s) =>
+    `a still reading-nook with ${indefiniteArticle(s.manMadeObject)} ${s.manMadeObject}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped bookend beside it`,
+  T18: (s) =>
+    `the workplace of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped effigy among their things`,
+  T25: (s) =>
+    `an official ${s.era} portrait hall, the frame holding an oil-finished ${s.animal}-shaped bust`,
+  T30: (s) =>
+    `the practice of ${indefiniteArticle(s.profession)} ${s.profession}, a tarnished ${s.animal}-shaped weathervane over the door, the client's chair empty`,
+  T33: (s) =>
+    `a coronation dais for an obscure achievement, the empty throne's crest ${indefiniteArticle(s.animal)} ${s.animal}-shaped heraldic device`,
+  T38: (s) =>
+    `a political chamber, a tarnished ${s.animal}-shaped statue tucked in a niche off the empty floor`,
+  // RECEDE — only an abstract/emotion residue remains; the animal drops and the relic
+  // lands in a concrete shuttered PLACE, never a mood.
+  T02: (s) => `an abandoned room, the residue of ${s.emotion}`,
+  T08: (s) => `a quiet study, ${s.abstractConcept} long contemplated`,
+  T22: () => `a hushed room, the aftermath`,
+  T29: () => `a cleared, shuttered hall, the residue of being forgotten`,
+}
+
+// [LAW:types-are-the-program] The membership guard narrows a StoredSubjectTemplateId
+// to AnimalTemplateId by the SAME object that holds the transforms — one source for
+// "is this an animal template" and "how is it transformed".
+function isAnimalTemplate(id: StoredSubjectTemplateId): id is AnimalTemplateId {
+  return id in WISH_ANIMAL_SCENES
+}
+
+// [LAW:dataflow-not-control-flow] The composer's wish-assembly seam always calls
+// this — there is no animal-vs-not branch in the composer; the variability lives in
+// the VALUE returned here. Non-animal templates (and T00) return renderTemplate
+// verbatim, so the scene is byte-identical to before for them; only the {animal}
+// templates transform.
+export function sceneForWish(subject: RecipeSubject): string {
+  if (!isAnimalTemplate(subject.subjectTemplate)) return renderTemplate(subject)
+  const builder = WISH_ANIMAL_SCENES[subject.subjectTemplate]
+  // [LAW:types-are-the-program] exception: TS cannot correlate the narrowed
+  // discriminator with the matching slots variant across an index access (the
+  // "correlated union" limitation). The key and the slots come from the SAME
+  // subject by construction, so this single localized cast is sound.
+  return (builder as (slots: RecipeSubject['slots']) => string)(subject.slots)
 }
 
 // [LAW:one-source-of-truth] The single derivation of a placard NAME from a recipe
