@@ -888,26 +888,36 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
   T29: () => `a cleared, shuttered hall, the residue of being forgotten`,
 }
 
-// [LAW:types-are-the-program] The membership guard narrows a StoredSubjectTemplateId
-// to AnimalTemplateId by the SAME object that holds the transforms — one source for
-// "is this an animal template" and "how is it transformed".
-function isAnimalTemplate(id: StoredSubjectTemplateId): id is AnimalTemplateId {
-  return id in WISH_ANIMAL_SCENES
-}
+// [LAW:dataflow-not-control-flow] The per-call dispatch is a single lookup-invoke
+// over EVERY template — no branch on template kind. The variability is the VALUE in
+// this table: the 12 {animal} templates carry their embalm/recede transform, every
+// other template (incl T00) carries the identity (renderTemplate, scene byte-
+// identical to before). The lone conditional lives at table CONSTRUCTION below
+// (building data once at module load), never in the per-invocation path.
+// [LAW:one-source-of-truth] This total table is DERIVED from WISH_ANIMAL_SCENES, not
+// a second hand-kept list — and because the animal transforms are authored as
+// Record<AnimalTemplateId> (exhaustive over the derived animal subset), a future
+// {animal} template with no transform is a COMPILE ERROR there, never silently
+// caught by the renderTemplate identity default here. [LAW:types-are-the-program]
+const SCENE_FOR_WISH: Record<StoredSubjectTemplateId, (subject: RecipeSubject) => string> =
+  Object.fromEntries(
+    STORED_SUBJECT_TEMPLATE_IDS.map((id) => [
+      id,
+      id in WISH_ANIMAL_SCENES
+        ? // [LAW:types-are-the-program] exception: TS cannot correlate the discriminator
+          // with the matching slots variant across an index access (the "correlated
+          // union" limitation). The key and the slots come from the SAME subject by
+          // construction, so this single localized cast is sound.
+          (subject: RecipeSubject) =>
+            (WISH_ANIMAL_SCENES[id as AnimalTemplateId] as (slots: RecipeSubject['slots']) => string)(
+              subject.slots,
+            )
+        : renderTemplate,
+    ]),
+  ) as Record<StoredSubjectTemplateId, (subject: RecipeSubject) => string>
 
-// [LAW:dataflow-not-control-flow] The composer's wish-assembly seam always calls
-// this — there is no animal-vs-not branch in the composer; the variability lives in
-// the VALUE returned here. Non-animal templates (and T00) return renderTemplate
-// verbatim, so the scene is byte-identical to before for them; only the {animal}
-// templates transform.
 export function sceneForWish(subject: RecipeSubject): string {
-  if (!isAnimalTemplate(subject.subjectTemplate)) return renderTemplate(subject)
-  const builder = WISH_ANIMAL_SCENES[subject.subjectTemplate]
-  // [LAW:types-are-the-program] exception: TS cannot correlate the narrowed
-  // discriminator with the matching slots variant across an index access (the
-  // "correlated union" limitation). The key and the slots come from the SAME
-  // subject by construction, so this single localized cast is sound.
-  return (builder as (slots: RecipeSubject['slots']) => string)(subject.slots)
+  return SCENE_FOR_WISH[subject.subjectTemplate](subject)
 }
 
 // [LAW:one-source-of-truth] The single derivation of a placard NAME from a recipe
