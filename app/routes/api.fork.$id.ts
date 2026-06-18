@@ -9,7 +9,7 @@ import { getPersonaByMedium } from "~/agents/persona"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
-import { forkErrorResponse } from "~/lib/fork-error"
+import { forkFailed, forkSucceeded } from "~/observability/fork-outcome"
 import { authorLabel } from "~/lib/author-label"
 import { GenomeId, PostId, ProviderId, type AuthoredOrigin, type PersonaActor } from "~/lib/domain"
 import { aspectRatioSchema, fallbackTitle, styleFamilySchema } from "~/lib/variety"
@@ -58,7 +58,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
   const parent = await getPostById(context.cloudflare.env, PostId(params.id))
   if (parent === null) {
-    return forkErrorResponse("parent-not-found", "parent post not found", { postId: params.id })
+    return forkFailed("fork", "parent-not-found", "parent post not found", { postId: params.id })
   }
   if (parent.content.kind !== "generation") {
     // [LAW:types-are-the-program] Uploads carry no recipe. The PostCard Fork
@@ -79,10 +79,10 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   try {
     budget = await checkBudget(context.cloudflare.env)
   } catch {
-    return forkErrorResponse("budget-unavailable", "budget check unavailable")
+    return forkFailed("fork", "budget-unavailable", "budget check unavailable")
   }
   if (!budget.withinBudget) {
-    return forkErrorResponse("budget-exhausted", "daily budget exhausted", {
+    return forkFailed("fork", "budget-exhausted", "daily budget exhausted", {
       spentUsd: budget.spentUsd,
       ceilingUsd: budget.ceilingUsd,
     })
@@ -103,7 +103,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     provider = getProvider(chosenProviderId)
   } catch (e) {
     if (e instanceof UnknownProviderError) {
-      return forkErrorResponse("provider-not-registered", "provider not registered", {
+      return forkFailed("fork", "provider-not-registered", "provider not registered", {
         providerId: parsed.providerId,
       })
     }
@@ -115,7 +115,8 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   // so crafted requests can't bypass the filter and use mock providers in prod.
   const available = realProviders(context.cloudflare.env)
   if (!available.some((p) => p.id === chosenProviderId)) {
-    return forkErrorResponse(
+    return forkFailed(
+      "fork",
       "provider-unavailable",
       "provider not available in this environment",
       { providerId: parsed.providerId },
@@ -197,9 +198,12 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     if (voter.setCookieHeader !== null) {
       headers.set("set-cookie", voter.setCookieHeader)
     }
-    return new Response(
-      JSON.stringify({ id: post.id, parentId: parent.id }),
-      { headers, status: 201 },
+    return forkSucceeded(
+      "fork",
+      new Response(
+        JSON.stringify({ id: post.id, parentId: parent.id }),
+        { headers, status: 201 },
+      ),
     )
   } catch (e) {
     // [LAW:single-enforcer] Mirror /api/generate's error-mapping shape. The
@@ -209,12 +213,12 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     // createPost. Map it to the same provider-not-registered cause the pre-lookup
     // uses rather than letting it fall through to the generic `internal` fault.
     if (e instanceof UnknownProviderError) {
-      return forkErrorResponse("provider-not-registered", "provider not registered", {
+      return forkFailed("fork", "provider-not-registered", "provider not registered", {
         providerId: parsed.providerId,
       })
     }
     if (e instanceof InvalidParamsError) {
-      return forkErrorResponse("invalid-params", "invalid params for provider", {
+      return forkFailed("fork", "invalid-params", "invalid params for provider", {
         providerId: parsed.providerId,
         issues: e.issues,
       })
@@ -223,7 +227,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       // [LAW:no-silent-failure] The provider call reached upstream and FAILED there —
       // transient. Distinct cause (and status 502) from the generic catch below, so the
       // visitor's "try again" advice is only given when retrying can actually help.
-      return forkErrorResponse("provider-upstream", "fork failed", {
+      return forkFailed("fork", "provider-upstream", "fork failed", {
         providerId: parsed.providerId,
         upstreamStatus: e.status,
         detail: e.body,
@@ -233,7 +237,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     // R2 write failure, a D1 failure inside createPost) — NOT a transient provider hiccup.
     // It gets the `internal` cause (status 500), so the visitor is told the fault is ours and
     // logged, never the misleading "the forge hit a snag; try again" the old shared 502 gave.
-    return forkErrorResponse("internal", "fork failed", {
+    return forkFailed("fork", "internal", "fork failed", {
       providerId: parsed.providerId,
       detail: e instanceof Error ? e.message : String(e),
     })
