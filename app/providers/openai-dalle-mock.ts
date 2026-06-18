@@ -23,7 +23,9 @@ export const openAIDalleMock: GenerationProvider<Params> = {
   version: "2026-06-12",
   displayName: "OpenAI DALL-E 3 (mock)",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0 },
+  // supportsNegativePrompt:false — mirrors the real DALL-E 3 images API, which
+  // has no negative_prompt parameter; this mock ignores embalmedRelic too.
+  capabilities: { producesMedia: ["image"], supportsSeed: false, supportsNegativePrompt: false, costEstimateUsd: 0 },
   supportedAspectRatios: ['1:1', '16:9', '9:16'],
   promptMaxLength: 4000,
   defaultParamsForRecipe({ prompt }): Params {

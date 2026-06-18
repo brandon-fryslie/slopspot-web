@@ -129,7 +129,7 @@ export const replicateIdeogram: GenerationProvider<Params> = {
   version: "2026-05-24",
   displayName: "Replicate Ideogram v2 Turbo",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.025 },
+  capabilities: { producesMedia: ["image"], supportsSeed: true, supportsNegativePrompt: true, costEstimateUsd: 0.025 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 1000,
   defaultParamsForRecipe({ prompt, styleFamily, seed, embalmedRelic }): Params {

@@ -80,15 +80,14 @@ export const falFlux: GenerationProvider<Params> = {
   version: "2026-05-24",
   displayName: "fal.ai FLUX schnell",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0.003 },
+  // supportsNegativePrompt:false — the fal-ai/flux/schnell endpoint has NO
+  // negative_prompt input (FluxSchnellInput = FluxDevInput in @fal-ai/client,
+  // verified against the package's endpoints.d.ts), so an embalmed-relic draw
+  // here cannot be steered. The gap is now typed, not prose; the deferred
+  // provider-weighting lever (c) reads supportsNegativePrompt to route around it.
+  capabilities: { producesMedia: ["image"], supportsSeed: false, supportsNegativePrompt: false, costEstimateUsd: 0.003 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 500,
-  // [LAW:no-silent-failure] This provider IGNORES RecipeBuilderInput.embalmedRelic:
-  // FLUX schnell is guidance-distilled and has NO native negative_prompt input, so an
-  // embalmed-relic draw here CANNOT be steered away from the render failures
-  // (slopspot-render-fidelity-v2l mode 1-3). This is not a skip we hide — it is the gap
-  // the DEFERRED provider-weighting lever (c) must close by steering embalmed-relic
-  // draws toward the providers that DO support negatives (sdxl/ideogram).
   defaultParamsForRecipe({ prompt }): Params {
     return { prompt, steps: FIREHOSE_STEPS }
   },

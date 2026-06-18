@@ -48,14 +48,14 @@ export const falFluxDev: GenerationProvider<Params> = {
   version: "2026-06-12",
   displayName: "fal.ai FLUX dev",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0.025 },
+  // supportsNegativePrompt:false — the fal-ai/flux/dev endpoint exposes only
+  // guidance_scale, NO negative_prompt input (FluxDevInput in @fal-ai/client,
+  // verified against the package's endpoints.d.ts), so an embalmed-relic draw
+  // here cannot be steered. The gap is now typed, not prose; the deferred
+  // provider-weighting lever (c) reads supportsNegativePrompt to route around it.
+  capabilities: { producesMedia: ["image"], supportsSeed: true, supportsNegativePrompt: false, costEstimateUsd: 0.025 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 500,
-  // [LAW:no-silent-failure] This provider IGNORES RecipeBuilderInput.embalmedRelic:
-  // fal's FLUX dev endpoint has NO native negative_prompt input (only guidance_scale),
-  // so an embalmed-relic draw here CANNOT be steered away from the render failures
-  // (slopspot-render-fidelity-v2l mode 1-3). The gap the DEFERRED provider-weighting
-  // lever (c) must close — embalmed-relic draws belong on sdxl/ideogram.
   defaultParamsForRecipe({ prompt, seed }): Params {
     return { prompt, steps: FLUX_DEV_DEFAULT_STEPS, guidanceScale: FLUX_DEV_DEFAULT_GUIDANCE, seed }
   },

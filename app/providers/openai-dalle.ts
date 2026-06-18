@@ -59,16 +59,15 @@ export const openAIDalle: GenerationProvider<Params> = {
   version: "2026-06-12",
   displayName: "OpenAI DALL-E 3",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: false, costEstimateUsd: 0.04 },
+  // supportsNegativePrompt:false — DALL-E 3's images API has NO negative_prompt
+  // parameter (only prompt/size/quality/style/n), so an embalmed-relic draw here
+  // cannot be steered. The gap is now typed, not prose; the deferred
+  // provider-weighting lever (c) reads supportsNegativePrompt to route around it.
+  capabilities: { producesMedia: ["image"], supportsSeed: false, supportsNegativePrompt: false, costEstimateUsd: 0.04 },
   // DALL-E 3 only supports square, landscape-16:9, and portrait-9:16. The chooser
   // samples within this set; generate() never receives 4:3 or 3:4.
   supportedAspectRatios: ['1:1', '16:9', '9:16'],
   promptMaxLength: 4000,
-  // [LAW:no-silent-failure] This provider IGNORES RecipeBuilderInput.embalmedRelic:
-  // DALL-E 3's images API has NO negative_prompt parameter, so an embalmed-relic draw
-  // here CANNOT be steered away from the render failures (slopspot-render-fidelity-v2l
-  // mode 1-3). The gap the DEFERRED provider-weighting lever (c) must close — embalmed-
-  // relic draws belong on sdxl/ideogram.
   defaultParamsForRecipe({ prompt }): Params {
     return { prompt, quality: DEFAULT_QUALITY }
   },

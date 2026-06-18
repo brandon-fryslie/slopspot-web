@@ -29,7 +29,9 @@ export const falFluxDevMock: GenerationProvider<Params> = {
   version: "2026-06-12",
   displayName: "fal.ai FLUX dev (mock)",
   paramsSchema: params,
-  capabilities: { producesMedia: ["image"], supportsSeed: true, costEstimateUsd: 0 },
+  // supportsNegativePrompt:false — mirrors the real fal-flux dev endpoint, which
+  // has no negative_prompt input; this mock ignores embalmedRelic too.
+  capabilities: { producesMedia: ["image"], supportsSeed: true, supportsNegativePrompt: false, costEstimateUsd: 0 },
   supportedAspectRatios: ASPECT_RATIOS,
   promptMaxLength: 500,
   defaultParamsForRecipe({ prompt, seed }): Params {
