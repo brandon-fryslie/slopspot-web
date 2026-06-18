@@ -32,7 +32,17 @@ import { authorBredSlop, BredMediumUnavailableError } from "~/agents/generator"
 import { InvalidParamsError } from "~/db/posts"
 import { UnknownProviderError } from "~/providers"
 import { ProviderId } from "~/lib/domain"
+import { resetCountersForTesting, snapshotCountersForTesting } from "~/observability/metrics"
 import { z } from "zod"
+
+// [LAW:behavior-not-structure] The breed action's OUTCOME contract: every terminal result —
+// success or any cause — increments slopspot.fork.outcome{surface:breed, outcome} exactly once
+// (the server-authoritative success-ratio source the client pause beacon cannot give).
+function breedOutcomes(): Array<{ surface: string; outcome: string; value: number }> {
+  return [...snapshotCountersForTesting().values()]
+    .filter((e) => e.name === "slopspot.fork.outcome")
+    .map((e) => ({ surface: String(e.labels.surface), outcome: String(e.labels.outcome), value: e.value }))
+}
 
 // A minimal authored generation parent — authorBredSlop is mocked, so only the breedable() guards
 // read these fields (content.kind, origin.kind/author); the genome is passed straight through.
@@ -111,6 +121,7 @@ describe("api.breed.$id — trust boundary", () => {
 describe("api.breed.$id — the breed-authoring catch arms emit unambiguous causes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetCountersForTesting()
     // Both parents are valid authored generations; budget is within cap — so the action reaches
     // the authorBredSlop call, where each failure type is injected below.
     vi.mocked(getPostById).mockResolvedValue(genParent)
@@ -126,7 +137,16 @@ describe("api.breed.$id — the breed-authoring catch arms emit unambiguous caus
     expect(res.status).toBe(status)
     const json = (await res.json()) as { cause?: string }
     expect(json.cause).toBe(cause)
+    // The outcome label IS the cause — one emission, surface breed, value 1.
+    expect(breedOutcomes()).toEqual([{ surface: "breed", outcome: cause, value: 1 }])
   }
+
+  it("authorBredSlop succeeds → 201 and emits fork.outcome success", async () => {
+    vi.mocked(authorBredSlop).mockResolvedValue({ id: "child1" } as Awaited<ReturnType<typeof authorBredSlop>>)
+    const res = await run(post("a", { mateId: "b" }), "a")
+    expect(res.status).toBe(201)
+    expect(breedOutcomes()).toEqual([{ surface: "breed", outcome: "success", value: 1 }])
+  })
 
   it("over budget → 429 budget-exhausted", async () => {
     vi.mocked(checkBudget).mockResolvedValue({

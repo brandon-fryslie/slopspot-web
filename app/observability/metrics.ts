@@ -20,6 +20,7 @@
 import type { RiteLens } from '~/lib/domain'
 import type { BreedPauseReason } from '~/lib/breed-failure'
 import type { TraitAxis } from '~/lib/traits'
+import type { ForkErrorCause } from '~/lib/fork-error'
 
 // The puller (homelab-side) parses log lines that start with `[metric]`. Changing
 // this prefix without coordinating with the puller will drop metrics silently.
@@ -221,6 +222,21 @@ export type MetricLabels = {
   'slopspot.fork.pause': {
     surface: 'fork' | 'breed'
     reason: BreedPauseReason
+  }
+  // [LAW:effects-at-boundaries] The SERVER-AUTHORITATIVE outcome of a fork/breed attempt, emitted
+  // at the route action where the result is actually decided — NOT reconstructed from the browser.
+  // Distinct from slopspot.fork.pause above: that is the VISITOR-classified pause beaconed from the
+  // client (it spans the muse/rewrite phase and client network failures, and counts FAILURES ONLY).
+  // This counts every attempt the action completes, success included, so it is the ONE source for a
+  // fork SUCCESS RATIO — which a pauses-only metric structurally cannot provide. [LAW:one-source-of-truth]
+  // the two are complementary, not redundant: pause = what the visitor experienced, outcome = what
+  // the server did. app/observability/fork-outcome.ts is the sole emitter. [LAW:single-enforcer]
+  // [LAW:types-are-the-program] outcome is a SINGLE discriminator — the closed ForkErrorCause union
+  // on failure, or the 'success' literal. A `result: success|error` field is DERIVABLE from it
+  // (error ⟺ outcome !== 'success'), so it is omitted: no second field that can disagree.
+  'slopspot.fork.outcome': {
+    surface: 'fork' | 'breed'
+    outcome: ForkErrorCause | 'success'
   }
   // [LAW:verifiable-goals] The breadth directive's concrete "done" shape made queryable: the per-axis
   // dispersion (population stddev, in the axis's [0,1] units) of what is GENERATED vs what SURVIVES
