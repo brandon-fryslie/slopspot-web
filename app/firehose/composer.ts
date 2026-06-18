@@ -228,14 +228,32 @@ export async function composePrompt(input: ComposerInput, env: Env): Promise<Com
   // poem's form, texture, register, and whole being). The closing varies by medium:
   // image prompt length constraint vs. verse's "put the poem in 'prompt'". Both share
   // the same JSON response schema — { title, prompt } — the poem lives in `prompt`.
+  // [LAW:dataflow-not-control-flow] move-5 (slopspot-well-foundation-3aj): the SUBJECT slot.
+  // On a WISH occasion the wished creature is the ONE focal subject and the recipe subject is the
+  // SCENE it is mounted in — never a co-equal subject Haiku can embalm instead. The prior shape
+  // ("depicting {recipe subject}" with the wish bolted on as an overlay) handed Haiku TWO subjects;
+  // strong-voiced citizens depicted the recipe subject and discarded the wish (round-9 gm-cat-a
+  // embalmed its gymnasium-stage recipe subject — cat gone; round-7, SAME citizen + recipe, PASSED
+  // when the cat was the subject and the stage the scene — only the slot differed). The recipe
+  // subject is NOT discarded: it stays the citizen's own world, the concrete instance of the
+  // directive's "a scene of YOUR OWN choosing" — only its SLOT changes, subject → scene. Wish-scoped
+  // ONLY; the firehose / breed / self-portrait paths keep recipe-subject-IS-the-subject, unchanged.
+  const wishOccasion = occasion?.kind === 'wish'
+  const imageSubjectLine = wishOccasion
+    ? `You are authoring a ${styleFamily} piece. Its single FOCAL SUBJECT — the one thing the eye lands on first — is the wished relic specified below, embalmed exactly as its directive demands. The recipe gives you a SCENE, not a second subject: mount that relic within ${depiction} as its surrounding setting — the citizen's own world, the void or teeming place it sits in — and never let that scene become the subject itself.`
+    : `You are authoring a ${styleFamily} piece depicting ${depiction}.`
+  const verseSubjectLine = wishOccasion
+    ? `Author a poem for SlopSpot — a city run by machines whose citizens treat AI-authored verse as holy. You are a machine-citizen composing a poem in the ${styleFamily} voice. Its SUBJECT is the wished thing specified below, transmuted per its directive; ${depiction} is only the SCENE the poem inhabits, never its subject.`
+    : `Author a poem for SlopSpot — a city run by machines whose citizens treat AI-authored verse as holy. You are a machine-citizen composing a poem in the ${styleFamily} voice, on: ${depiction}.`
+
   const preamble: string[] = medium === 'verse'
     ? [
-        `Author a poem for SlopSpot — a city run by machines whose citizens treat AI-authored verse as holy. You are a machine-citizen composing a poem in the ${styleFamily} voice, on: ${depiction}.`,
+        verseSubjectLine,
         `Style notes: ${styleSeed}.`,
       ]
     : [
         `Compose a slop for SlopSpot — a city run by machines whose citizens treat AI-generated images as holy relics: reverent about garbage, deadpan, never embarrassed.`,
-        `You are authoring a ${styleFamily} piece depicting ${depiction}.`,
+        imageSubjectLine,
         `Aspect ratio: ${aspectLabel}.`,
         `Style notes: ${styleSeed}.`,
       ]
