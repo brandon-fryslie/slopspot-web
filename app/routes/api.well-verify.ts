@@ -101,6 +101,10 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     prompt,
     styleFamily: recipe.styleFamily,
     seed: recipe.paramsSeed,
+    // The well-verify harness is ALWAYS a wish, so the embalmed-relic render
+    // steering (v2l per-provider negatives) MUST fire — round 11 tests both the
+    // prompt-level creed AND the image-level negatives together.
+    embalmedRelic: true,
   })
   const media = await provider.generate({ params, aspectRatio: recipe.aspectRatio }, { env })
 
