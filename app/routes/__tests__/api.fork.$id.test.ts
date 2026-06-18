@@ -35,6 +35,17 @@ import { getPersonaByMedium } from "~/agents/persona"
 import { getProvider, realProviders, UnknownProviderError } from "~/providers"
 import { createPost, InvalidParamsError } from "~/db/posts"
 import { ProviderId } from "~/lib/domain"
+import { resetCountersForTesting, snapshotCountersForTesting } from "~/observability/metrics"
+
+// [LAW:behavior-not-structure] The fork action's OUTCOME contract: every terminal result — success
+// or any cause — increments slopspot.fork.outcome{surface:fork, outcome} exactly once, so the
+// server-authoritative counter (the success-ratio source the client pause beacon cannot give) can
+// never drift from what the visitor received. Read the real emit() counter, not a mock of it.
+function forkOutcomes(): Array<{ surface: string; outcome: string; value: number }> {
+  return [...snapshotCountersForTesting().values()]
+    .filter((e) => e.name === "slopspot.fork.outcome")
+    .map((e) => ({ surface: String(e.labels.surface), outcome: String(e.labels.outcome), value: e.value }))
+}
 
 const PROVIDER = "fal-flux"
 
@@ -76,6 +87,8 @@ async function expectCause(res: Response, status: number, cause: string) {
   expect(res.status).toBe(status)
   const json = (await res.json()) as { cause?: string }
   expect(json.cause).toBe(cause)
+  // The outcome label IS the cause — one emission, surface fork, value 1.
+  expect(forkOutcomes()).toEqual([{ surface: "fork", outcome: cause, value: 1 }])
 }
 
 // Past the parent + budget guards, into the provider/createPost section, with a happy provider.
@@ -88,7 +101,18 @@ function reachCreatePost() {
 }
 
 describe("api.fork.$id — each failure emits an unambiguous cause", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetCountersForTesting()
+  })
+
+  it("createPost succeeds → 201 and emits fork.outcome success", async () => {
+    reachCreatePost()
+    vi.mocked(createPost).mockResolvedValue({ id: "child1" } as Awaited<ReturnType<typeof createPost>>)
+    const res = await run()
+    expect(res.status).toBe(201)
+    expect(forkOutcomes()).toEqual([{ surface: "fork", outcome: "success", value: 1 }])
+  })
 
   it("parent missing → 404 parent-not-found", async () => {
     vi.mocked(getPostById).mockResolvedValue(null)
