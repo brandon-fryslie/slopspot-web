@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "smoke": "vitest run --workspace vitest.smoke.workspace.ts smoke/liveness.smoke.ts",
     "smoke:write": "vitest run --workspace vitest.smoke.workspace.ts smoke/write.smoke.ts",
+    "smoke:ceremonies": "vitest run --workspace vitest.smoke.workspace.ts smoke/ceremonies.smoke.ts",
     "smoke:prober": "node smoke/prober.mjs",
     "bootstrap": "tsx scripts/bootstrap-seed.ts",
     "gen:routes": "tsx scripts/gen-route-patterns.ts",
