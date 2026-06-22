@@ -28,6 +28,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -607,6 +608,30 @@ export const foundSubmissionQuota = sqliteTable(
   (t) => [primaryKey({ columns: [t.voterId, t.date] })],
 )
 
+// [LAW:single-enforcer] app/db/metric-counters.ts is the only reader/writer of
+// this table — the ONE durable owner of metric counter state (slopspot-observability-gtz).
+// [LAW:one-source-of-truth] The per-isolate in-memory accumulator in
+// app/observability/metrics.ts is now a write-back BUFFER of deltas-since-last-flush,
+// not a second source: every isolate (fetch/scheduled/queue) drains its buffer here, so
+// the /metrics scrape reads a COMPLETE, monotonic, cold-start-proof view regardless of
+// which isolate serves it. Cron/queue-emitted metrics (slopspot.post.created,
+// slopspot.firehose.fire, ceremonies) were structurally invisible to the scrape before
+// this because they accumulated in a different isolate than the one a /metrics fetch hit.
+//
+// `key` = metricKey(name, labels) — the stable dedup PK. `name` + `labels` (JSON) are
+// stored explicitly rather than re-parsed from the composite key: the key's `name;k=v,k=v`
+// shape is ambiguous to parse (a label value may contain `;` or `,`), so the structured
+// columns are the honest representation the Prometheus formatter reads. `value` is REAL,
+// not INTEGER, because cost_usd (0.003) and latency_ms sums are non-integer.
+// [LAW:dataflow-not-control-flow] The flush upserts `value = value + delta`, so the
+// counter is globally monotonic — exactly what VictoriaMetrics rate()/increase() expect.
+export const metricCounters = sqliteTable('metric_counters', {
+  key: text('key').primaryKey(),
+  name: text('name').notNull(),
+  labels: text('labels').notNull(),
+  value: real('value').notNull(),
+})
+
 export type DbUser = typeof users.$inferSelect
 export type NewDbUser = typeof users.$inferInsert
 export type DbPost = typeof posts.$inferSelect
@@ -627,6 +652,8 @@ export type DbChallengeQuota = typeof challengeQuota.$inferSelect
 export type NewDbChallengeQuota = typeof challengeQuota.$inferInsert
 export type DbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferSelect
 export type NewDbFoundSubmissionQuota = typeof foundSubmissionQuota.$inferInsert
+export type DbMetricCounter = typeof metricCounters.$inferSelect
+export type NewDbMetricCounter = typeof metricCounters.$inferInsert
 export type DbPersona = typeof personas.$inferSelect
 export type NewDbPersona = typeof personas.$inferInsert
 export type DbBacking = typeof backings.$inferSelect

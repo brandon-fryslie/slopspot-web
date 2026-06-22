@@ -1,19 +1,21 @@
-// [LAW:single-enforcer] The one place in-process counters exit into the scrape world.
-// formatPrometheusMetrics() is the single formatter — this route calls it and returns
-// the result. No reformatting, no second accumulator, no parallel path.
+// [LAW:single-enforcer] The one place the durable counter store exits into the scrape world.
+// readDurableCounters (app/db/metric-counters.ts) is the single read of the metric_counters
+// table; formatPrometheus (app/observability/metrics.ts) is the single formatter. This route
+// composes them — no second accumulator, no parallel path, no reformatting.
 //
-// NOTE: This endpoint returns PER-ISOLATE counters. Cloudflare Workers may run multiple
-// isolates simultaneously across edge PoPs; each isolate accumulates its own slice of
-// traffic. The homelab scraper will observe one isolate's data per scrape — appropriate
-// for rate/trend signals on a low-traffic service, not a globally aggregated fleet view.
-// The batch-log path (console.log → puller → VM) remains the authoritative global record;
-// this endpoint adds real-time visibility into the active serving isolate.
+// [LAW:one-source-of-truth] This endpoint reads the DURABLE D1 view, not a per-isolate
+// in-memory map. Every invocation (fetch/scheduled/queue) flushes its delta buffer to D1, so
+// the scrape is COMPLETE regardless of which isolate serves it and the counters survive cold
+// starts (slopspot-observability-gtz). The homelab slopspot-metrics-puller scrapes this
+// endpoint over its existing outbound pull — unchanged; only the backing moved to D1.
 
 import type { Route } from './+types/metrics'
-import { formatPrometheusMetrics } from '~/observability/metrics'
+import { formatPrometheus } from '~/observability/metrics'
+import { readDurableCounters } from '~/db/metric-counters'
 
-export async function loader(_: Route.LoaderArgs) {
-  return new Response(formatPrometheusMetrics(), {
+export async function loader({ context }: Route.LoaderArgs) {
+  const entries = await readDurableCounters(context.cloudflare.env)
+  return new Response(formatPrometheus(entries), {
     headers: { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' },
   })
 }

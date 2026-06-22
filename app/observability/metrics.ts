@@ -1,9 +1,13 @@
 // [LAW:single-enforcer] One module emits all metrics; every call site in the app
 // goes through `emit`. There is no alternate console.log('metric.…') shape elsewhere
-// in the codebase. The puller in ~/code/home-infra reads Cloudflare Logs filtered
-// by the `[metric]` prefix. `formatPrometheusMetrics()` exposes the same data as
-// Prometheus text for the /metrics scrape endpoint — same emission boundary, second
-// output channel.
+// in the codebase. `emit` writes two output channels from one boundary: a console.log
+// line the home-infra Cloudflare-Logs puller reads (filtered by the `[metric]` prefix),
+// and an in-process accumulator that is the DELTA BUFFER for the durable /metrics scrape
+// path (slopspot-observability-gtz). The buffer is drained to the metric_counters D1
+// table by flushMetrics (app/db/metric-counters.ts) at each invocation boundary; the
+// /metrics route reads that durable, complete, monotonic view via readDurableCounters +
+// formatPrometheus. [LAW:one-source-of-truth] the D1 table is the source the scrape reads;
+// this Map is a write-back buffer of counts-not-yet-flushed, never a second source.
 //
 // [LAW:types-are-the-program] Each metric has a fixed label shape. `emit` is
 // typed so the label record for `FIREHOSE_FIRE` (channel + outcome) cannot
@@ -26,12 +30,14 @@ import type { ForkErrorCause } from '~/lib/fork-error'
 // this prefix without coordinating with the puller will drop metrics silently.
 const LOG_PREFIX = '[metric]' as const
 
-// [LAW:one-source-of-truth] Single accumulator for both the console-log path (existing)
-// and the Prometheus scrape path (new). Per-isolate in-memory state — resets on cold start.
-// For SlopSpot's traffic pattern, the primary active isolate holds most metrics;
-// scrape intervals under Cloudflare's ~30s idle timeout reliably hit a warm instance.
-// VM push (InfluxDB line protocol) is blocked on a public write ingress — see wrangler.jsonc.
-type MetricEntry = { name: string; labels: Record<string, string | number>; value: number }
+// [LAW:effects-at-boundaries] The in-process DELTA BUFFER. emit() accumulates here
+// synchronously (no env/ctx needed, so every pure call site can emit without threading a
+// binding through it); flushMetrics drains it to D1 at the invocation boundary where
+// bindings exist. Per-isolate and resets on cold start — which is exactly why it is NOT
+// the source of truth: a count only becomes durable once flushed. It holds the deltas
+// accumulated since the last flush, so draining (snapshot + clear) and re-merging on a
+// failed flush keep every count exactly once. [LAW:one-source-of-truth]
+export type MetricEntry = { name: string; labels: Record<string, string | number>; value: number }
 const counters: Map<string, MetricEntry> = new Map()
 
 // [LAW:types-are-the-program] The shape that makes illegal emission unrepresentable:
@@ -275,8 +281,10 @@ export function emitAccountHealth(account: string, payload: AccountHealthPayload
   }
 }
 
-// Stable key for a (name, labels) pair — used to deduplicate counter entries.
-function metricKey(name: string, labels: Record<string, string | number>): string {
+// Stable key for a (name, labels) pair — used to deduplicate counter entries. Shared
+// with the durable store (app/db/metric-counters.ts) so the buffer key and the D1 primary
+// key are computed the same way and round-trip identically across flush + scrape.
+export function metricKey(name: string, labels: Record<string, string | number>): string {
   const sorted = Object.entries(labels)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`)
@@ -296,18 +304,46 @@ export function emit<K extends MetricName>(
   // structured field. The puller reads `message[0]` for the prefix+name and
   // `message[1]` for the labels+value object, so the shape here is the API.
   console.log(`${LOG_PREFIX} ${name}`, { ...labels, value })
-  // Accumulate into the in-process counter store — feeds /metrics scrape endpoint.
-  const key = metricKey(name, labels as Record<string, string | number>)
-  const existing = counters.get(key)
-  counters.set(key, existing ? { ...existing, value: existing.value + value } : { name, labels: labels as Record<string, string | number>, value })
+  // Accumulate into the in-process delta buffer — drained to D1 by flushMetrics.
+  accumulate(name, labels as Record<string, string | number>, value)
 }
 
-// Formats accumulated counters as Prometheus text exposition format (version 0.0.4).
-// Metric names use underscores (Prometheus convention); label values are quoted strings.
-// Called by the /metrics resource route.
-export function formatPrometheusMetrics(): string {
+// [LAW:single-enforcer] The one merge rule for a (name, labels, delta) into the buffer.
+// Used by emit (new counts) and remergePending (deltas a failed flush returned), so both
+// paths fold into the same monotonic accumulation — a re-merged delta lands exactly where
+// a fresh emit would. [LAW:dataflow-not-control-flow] same code every call.
+function accumulate(name: string, labels: Record<string, string | number>, value: number): void {
+  const key = metricKey(name, labels)
+  const existing = counters.get(key)
+  counters.set(key, existing ? { ...existing, value: existing.value + value } : { name, labels, value })
+}
+
+// [LAW:effects-at-boundaries] Snapshot-and-clear the buffer in ONE synchronous step so no
+// emit can interleave between the read and the clear: every accumulated delta leaves the
+// buffer exactly once. The caller (flushMetrics) owns applying these to D1; on failure it
+// hands the unapplied entries back via remergePending so nothing is lost. [LAW:no-silent-failure]
+export function drainPending(): MetricEntry[] {
+  const drained = [...counters.values()]
+  counters.clear()
+  return drained
+}
+
+// [LAW:no-silent-failure] Return deltas to the buffer after a failed flush. Additive merge
+// (not overwrite), so deltas that emitted while the flush was in flight are preserved and
+// the returned deltas are picked up by the next flush — counts survive a transient D1 outage.
+export function remergePending(entries: MetricEntry[]): void {
+  for (const e of entries) accumulate(e.name, e.labels, e.value)
+}
+
+// [LAW:effects-at-boundaries] Pure formatter: counter entries → Prometheus text exposition
+// format (version 0.0.4). Takes the entries as input rather than reading the buffer, so the
+// /metrics route feeds it the DURABLE view (readDurableCounters) and tests feed it synthetic
+// entries — the scrape-format contract the home-infra puller depends on is verified without
+// touching storage. Metric names use underscores (Prometheus convention); label values are
+// quoted strings.
+export function formatPrometheus(entries: readonly MetricEntry[]): string {
   const lines: string[] = []
-  for (const { name, labels, value } of counters.values()) {
+  for (const { name, labels, value } of entries) {
     const promName = name.replace(/\./g, '_')
     const labelPairs = Object.entries(labels)
       .map(([k, v]) => `${k}="${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
