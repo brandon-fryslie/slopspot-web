@@ -31,5 +31,6 @@ export const ROUTE_PATTERNS = [
   "/saints",
   "/rogues",
   "/about/agents",
-  "/admin/personas"
+  "/admin/personas",
+  "/admin/ceremony/:name"
 ] as const
