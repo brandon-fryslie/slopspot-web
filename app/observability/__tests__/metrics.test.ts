@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  drainPending,
   emit,
-  formatPrometheusMetrics,
+  formatPrometheus,
+  metricKey,
+  remergePending,
   resetCountersForTesting,
   snapshotCountersForTesting,
+  type MetricEntry,
   type MetricLabels,
 } from '~/observability/metrics'
 
@@ -87,41 +91,97 @@ describe('emit', () => {
   })
 })
 
-describe('formatPrometheusMetrics', () => {
-  afterEach(() => {
-    resetCountersForTesting()
-  })
-
-  it('returns empty string when no metrics have been emitted', () => {
-    expect(formatPrometheusMetrics()).toBe('')
+// [LAW:behavior-not-structure] The scrape-format contract the home-infra puller depends on.
+// formatPrometheus is pure — it takes counter entries (the durable view fed by the /metrics
+// route) and renders Prometheus text — so these assert the FORMAT without any storage or
+// buffer coupling.
+describe('formatPrometheus', () => {
+  it('returns empty string when there are no entries', () => {
+    expect(formatPrometheus([])).toBe('')
   })
 
   it('converts dots in metric names to underscores', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
-    emit('slopspot.http.request', { route: 'home', status: '200' }, 5)
-    spy.mockRestore()
-    const output = formatPrometheusMetrics()
+    const output = formatPrometheus([
+      { name: 'slopspot.http.request', labels: { route: 'home', status: '200' }, value: 5 },
+    ])
     expect(output).toContain('slopspot_http_request{')
     expect(output).not.toContain('slopspot.http.request')
   })
 
   it('includes label key=value pairs and the counter value', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
-    emit('slopspot.http.request', { route: 'home', status: '200' }, 42)
-    spy.mockRestore()
-    const output = formatPrometheusMetrics()
+    const output = formatPrometheus([
+      { name: 'slopspot.http.request', labels: { route: 'home', status: '200' }, value: 42 },
+    ])
     expect(output).toContain('route="home"')
     expect(output).toContain('status="200"')
     expect(output).toContain('} 42')
   })
 
   it('escapes double quotes in label values', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
-    // Synthesize a metric with a label value that contains a quote
-    emit('slopspot.http.request', { route: 'tricky"route', status: '200' }, 1)
-    spy.mockRestore()
-    const output = formatPrometheusMetrics()
+    const output = formatPrometheus([
+      { name: 'slopspot.http.request', labels: { route: 'tricky"route', status: '200' }, value: 1 },
+    ])
     expect(output).toContain('route="tricky\\"route"')
+  })
+
+  it('renders one line per entry', () => {
+    const output = formatPrometheus([
+      { name: 'slopspot.http.request', labels: { route: 'home', status: '200' }, value: 1 },
+      { name: 'slopspot.http.request', labels: { route: 'home', status: '404' }, value: 2 },
+    ])
+    expect(output.split('\n')).toHaveLength(2)
+  })
+})
+
+// The delta buffer's drain/re-merge contract — the half of the durable-flush mechanism that
+// lives in this module (the D1 half is app/db/__tests__/metric-counters.test.ts). [LAW:no-silent-failure]
+describe('drainPending / remergePending', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    logSpy.mockRestore()
+    resetCountersForTesting()
+  })
+
+  it('drains accumulated deltas and empties the buffer (each delta leaves exactly once)', () => {
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 1)
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 1)
+    emit('slopspot.firehose.fire', { channel: 'c', outcome: 'fired' }, 1)
+
+    const drained = drainPending()
+    const byKey = new Map(drained.map((e) => [metricKey(e.name, e.labels), e.value]))
+    expect(byKey.get(metricKey('slopspot.http.request', { route: 'home', status: '200' }))).toBe(2)
+    expect(byKey.get(metricKey('slopspot.firehose.fire', { channel: 'c', outcome: 'fired' }))).toBe(1)
+
+    // Buffer is empty after a drain — a second drain yields nothing.
+    expect(drainPending()).toEqual([])
+  })
+
+  it('re-merges returned deltas additively with deltas that arrived after the drain', () => {
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 3)
+    const drained = drainPending()
+
+    // A new emit lands in the (now empty) buffer while the "flush" was in flight.
+    emit('slopspot.http.request', { route: 'home', status: '200' }, 4)
+    // The flush failed, so the drained deltas come back — they must ADD, not overwrite.
+    remergePending(drained)
+
+    const snap = snapshotCountersForTesting()
+    const entry = [...snap.values()].find((e) => e.name === 'slopspot.http.request')
+    expect(entry?.value).toBe(7)
+  })
+
+  it('round-trips a re-merged delta into a value identical to a fresh emit', () => {
+    const entries: MetricEntry[] = [
+      { name: 'slopspot.provider.cost_usd', labels: { provider_id: 'fal-flux' }, value: 0.003 },
+    ]
+    remergePending(entries)
+    const snap = snapshotCountersForTesting()
+    expect([...snap.values()][0]?.value).toBe(0.003)
   })
 })
 
