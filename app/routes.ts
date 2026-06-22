@@ -57,4 +57,9 @@ export default [
   layout("routes/admin.tsx", [
     route("admin/personas", "routes/admin.personas.tsx"),
   ]),
+  // The staging ceremony actuator (slopspot-ceremony-test-0zy.4) — an action-only resource
+  // route, NOT under the admin layout: it carries the prod-404 SLOPSPOT_ENV gate as its
+  // OUTERMOST check (the layout enforces auth but not env), and a resource route has no UI to
+  // render through the layout's Outlet. It self-gates env + requireAdmin in its own action.
+  route("admin/ceremony/:name", "routes/admin.ceremony.$name.ts"),
 ] satisfies RouteConfig
