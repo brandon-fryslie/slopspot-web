@@ -14,11 +14,24 @@ import { db } from '~/db/client'
 import { lineageEdges } from '~/db/schema'
 import { DYNASTY_THRESHOLD } from '~/lib/genealogy'
 import { GenomeId, PostId } from '~/lib/domain'
-import { seedPost } from './helpers'
+import { seedPost, seedVote } from './helpers'
 
 // A second parent edge (seedPost's parentId seeds ONE; a bred node needs two).
 async function breedEdge(child: PostId, parent: PostId) {
   await db(env).insert(lineageEdges).values({ childGenomeId: child, parentGenomeId: parent })
+}
+
+// The chronicle reads standing over a 14-day window pair anchored on the loader's clock; the tests
+// pass a fixed NOW so the recent/prior split is deterministic, never the wall clock.
+const NOW = new Date('2026-03-01T00:00:00Z').getTime()
+const DAY = 24 * 60 * 60 * 1000
+
+// `n` upvotes on a post at a fixed time, each from a distinct voter (the votes PK is (post_id, voter_id)),
+// the same shape standing.test uses — net votes RECEIVED, the bloodline's reception currency.
+async function upvotes(postId: PostId, n: number, at: Date, tag: string) {
+  for (let i = 0; i < n; i++) {
+    await seedVote(env, { postId, voterId: `voter:${tag}:${i}`, value: 1, createdAt: at })
+  }
 }
 
 // The city's skeptic (agent:skeptic) — the Gremlin — is seeded by the persona migrations, so
@@ -47,11 +60,13 @@ describe('getDynastyChronicle — the bloodline long game (genome-p6z.6)', () =>
     const out = await seedPost(env, { id: G('out'), content: { kind: 'generation', parentId: p1 } })
     await breedEdge(out, q) // OUT bred from P1 × Q (FAR) → three genes apart, a healthy cross
 
-    const chronicle = await getDynastyChronicle(env, f)
+    const chronicle = await getDynastyChronicle(env, f, NOW)
 
-    // 1. FOUNDER HONOR — F is the one root, weighted by a line past the dynasty threshold.
+    // 1. FOUNDER HONOR — F is the one root, weighted by a line past the dynasty threshold. With no votes
+    // seeded, the bloodline's reception arc is the honest STEADY (zero recent, zero prior — no drama).
     expect(chronicle.founders.map((x) => x.postId)).toEqual([f])
     expect(chronicle.founders[0]!.descendantCount).toBeGreaterThanOrEqual(DYNASTY_THRESHOLD)
+    expect(chronicle.founders[0]!.standing).toBe('steady')
 
     // 2. DRIFT ACROSS GENERATIONS — every bloodline node carries a speciation verdict; the FAR descendant D
     // has drifted three genes from F and reads as a new species (deterministic values, no LLM).
@@ -78,7 +93,43 @@ describe('getDynastyChronicle — the bloodline long game (genome-p6z.6)', () =>
   })
 
   it('an unknown post (no genome) yields an empty chronicle, not a throw', async () => {
-    const chronicle = await getDynastyChronicle(env, PostId('dc-nonexistent'))
+    const chronicle = await getDynastyChronicle(env, PostId('ds-nonexistent'), NOW)
     expect(chronicle).toEqual({ founders: [], drift: [], inbred: [] })
+  })
+
+  // genome-p6z.7 — the bloodline's reception arc. Standing is read over the founder's WHOLE line (the
+  // founder + its descendants, the same scope descendantCount measures), split into the recent window
+  // against the prior. A line whose reception surges reads ASCENDANT; one that collapses reads FADING —
+  // the SAME arc the roll call gives a citizen, voiced for a dynasty. [LAW:behavior-not-structure] the
+  // assertion is on the derived Standing, not on how it was folded.
+  it('reads a bloodline ASCENDANT when its recent reception outpaces the prior window', async () => {
+    const S = (id: string) => `ds-asc-${id}`
+    const f = await seedPost(env, { id: S('f'), content: { kind: 'generation' } })
+    const a = await seedPost(env, { id: S('a'), content: { kind: 'generation', parentId: f } })
+
+    // The line drew 1 vote in the prior window and 7 in the recent — a clear surge (delta 6 clears the
+    // floor of 3). Votes land across the founder AND its descendant, so the arc is the LINE's, not one post's.
+    await upvotes(f, 1, new Date(NOW - 20 * DAY), 'asc-prior')
+    await upvotes(f, 4, new Date(NOW - 3 * DAY), 'asc-recent-f')
+    await upvotes(a, 3, new Date(NOW - 2 * DAY), 'asc-recent-a')
+
+    const chronicle = await getDynastyChronicle(env, f, NOW)
+    expect(chronicle.founders.map((x) => x.postId)).toEqual([f])
+    expect(chronicle.founders[0]!.standing).toBe('ascendant')
+  })
+
+  it('reads a bloodline FADING when its recent reception collapses below the prior window', async () => {
+    const S = (id: string) => `ds-fade-${id}`
+    const f = await seedPost(env, { id: S('f'), content: { kind: 'generation' } })
+    const a = await seedPost(env, { id: S('a'), content: { kind: 'generation', parentId: f } })
+
+    // The mirror: 8 votes in the prior window, 1 in the recent — a collapse (delta -7 clears the floor).
+    await upvotes(f, 5, new Date(NOW - 22 * DAY), 'fade-prior-f')
+    await upvotes(a, 3, new Date(NOW - 18 * DAY), 'fade-prior-a')
+    await upvotes(f, 1, new Date(NOW - 2 * DAY), 'fade-recent')
+
+    const chronicle = await getDynastyChronicle(env, f, NOW)
+    expect(chronicle.founders.map((x) => x.postId)).toEqual([f])
+    expect(chronicle.founders[0]!.standing).toBe('fading')
   })
 })
