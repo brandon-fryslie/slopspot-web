@@ -29,7 +29,11 @@
   // `tsx --tsconfig tsconfig.cloudflare.json`, which resolves both at runtime — not by `tsc -b`,
   // which can model neither span without polluting a project's types. Excluded from the build.
   // (scripts/anthropic-key.ts is pure node — process.env + node:fs — so it stays in the build.)
-  "exclude": ["scripts/earnestness-soul-test.ts", "scripts/revoice-eval-gate.ts"],
+  "exclude": [
+    "scripts/earnestness-soul-test.ts",
+    "scripts/revoice-eval-gate.ts",
+    "scripts/backfill-placard-names.ts"
+  ],
   "compilerOptions": {
     "composite": true,
     "strict": true,
