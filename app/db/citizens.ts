@@ -179,8 +179,9 @@ export type Feud = FeudFlag & { reason: string; stance: 'declares' | 'targeted-b
 // the shrine surfaces, written to read true from either end of the edge).
 // Directed, not mutual, by design — the Gremlin is the fixed antagonist the city's
 // feuds orbit (everyone flags him; he deigns to feud no one, he just buries), and
-// the lone non-Gremlin front (the Formalist's contempt for the maximalist mess —
-// a shot at Vesper) proves the relation is data, not a hardcoded target.
+// the non-Gremlin fronts (the Formalist's contempt for the maximalist mess, his
+// quarrel with the Sleepwalker's dream-logic, the Populist burying the Mortician's
+// whole domain) prove the relation is data, not a hardcoded target.
 //
 // [LAW:no-mode-explosion] Adding a feud = one row here, no code path. The set is
 // the named cast's canon; it grows by the writers' room, not by a flag.
@@ -208,6 +209,18 @@ const FEUDS: ReadonlyArray<{ from: string; against: string; reason: string }> = 
     against: 'vesper-sloan',
     reason:
       'His contempt for the maximalist mess — every dial turned up and the chaos called a choice. Composition against noise.',
+  },
+  {
+    from: 'the-formalist',
+    against: 'the-sleepwalker',
+    reason:
+      'Discipline against the dream. He damns the unhinged frame as noise mistaken for ambition; she raises it up precisely because it works for reasons no one can name.',
+  },
+  {
+    from: 'the-populist',
+    against: 'the-mortician',
+    reason:
+      'The crowd against the wound. The body horror and glitch the Populist sends down to spare the stranger is the Mortician’s whole table — every defect the truth the image could not keep down.',
   },
 ]
 
