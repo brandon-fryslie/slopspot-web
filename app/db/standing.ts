@@ -19,7 +19,10 @@ import { standingOf, type Momentum, type Standing } from '~/lib/standing'
 // The width of each reception window. Standing compares the most-recent window against
 // the one before it, so the arc spans twice this — a four-week read of whether a citizen
 // is rising or fading. Wide enough that a quiet day or two does not flip the verdict.
-const WINDOW_MS = 14 * 24 * 60 * 60 * 1000
+// [LAW:one-source-of-truth] Exported because dynasty standing (dynasty-chronicle.ts) reads
+// a bloodline's reception over the SAME span — so "ascendant" names the same time-scale on
+// the Cast page and the dynasty page; one window policy, never two that could disagree.
+export const STANDING_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
 // Reception per citizen, split into the two windows. A citizen absent from a result
 // (no votes touched them in the span) is the honest zero — never a dropped row.
@@ -29,10 +32,13 @@ type Windowed = Map<string, Momentum>
 // the windowed votes tallies BOTH windows per citizen via a CASE in the SUM. recentStart
 // splits the span; priorStart bounds it. The same two-window split serves every guild, so
 // the shape is written once and the per-guild query only varies the currency it sums.
-function recentSum(recentStartMs: number): SQL<number> {
+// [LAW:one-source-of-truth] Exported: dynasty standing (dynasty-chronicle.ts) sums the SAME
+// net-votes-received currency over the SAME two-window split, only grouped by genome instead
+// of by attributed citizen — so the window-split SQL is defined once here, never re-derived.
+export function recentSum(recentStartMs: number): SQL<number> {
   return sql<number>`coalesce(sum(case when ${votes.createdAt} >= ${recentStartMs} then ${votes.value} else 0 end), 0)`
 }
-function priorSum(recentStartMs: number, priorStartMs: number): SQL<number> {
+export function priorSum(recentStartMs: number, priorStartMs: number): SQL<number> {
   return sql<number>`coalesce(sum(case when ${votes.createdAt} >= ${priorStartMs} and ${votes.createdAt} < ${recentStartMs} then ${votes.value} else 0 end), 0)`
 }
 function recentCount(recentStartMs: number): SQL<number> {
@@ -129,8 +135,8 @@ export async function getStandings(
   personas: readonly Persona[],
   nowMs: number,
 ): Promise<Map<string, Standing>> {
-  const recentStartMs = nowMs - WINDOW_MS
-  const priorStartMs = nowMs - 2 * WINDOW_MS
+  const recentStartMs = nowMs - STANDING_WINDOW_MS
+  const priorStartMs = nowMs - 2 * STANDING_WINDOW_MS
 
   // Critics are bounded to the loaded cast; the two received-reception reads group over
   // the windowed votes regardless of caller, so the window itself is their bound.
