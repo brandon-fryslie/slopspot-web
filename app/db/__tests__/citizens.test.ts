@@ -630,6 +630,9 @@ describe('app/db/citizens.ts - feudsFor (the standing rivalries, resolved)', () 
     ['st-vivian', 'St. Vivian'],
     ['the-gremlin', 'The Gremlin'],
     ['the-formalist', 'The Formalist'],
+    ['the-sleepwalker', 'The Sleepwalker'],
+    ['the-populist', 'The Populist'],
+    ['the-mortician', 'The Mortician'],
   ])
 
   it('resolves a rivalry to the rival handle + display name from the live roster', () => {
@@ -640,13 +643,22 @@ describe('app/db/citizens.ts - feudsFor (the standing rivalries, resolved)', () 
     ])
   })
 
-  it('the formalist feuds vesper, not the gremlin — the relation is data, not one target', () => {
+  it('the formalist feuds vesper AND the sleepwalker, not the gremlin — the relation is data, not one target', () => {
     expect(
       feudsFor('the-formalist', roster).map((f) => ({
         rivalHandle: f.rivalHandle,
         rivalName: f.rivalName,
       })),
-    ).toEqual([{ rivalHandle: 'vesper-sloan', rivalName: 'Vesper Sloan' }])
+    ).toEqual([
+      { rivalHandle: 'vesper-sloan', rivalName: 'Vesper Sloan' },
+      { rivalHandle: 'the-sleepwalker', rivalName: 'The Sleepwalker' },
+    ])
+  })
+
+  it('the populist declares against the mortician — the streets past the Gremlin', () => {
+    expect(feudsFor('the-populist', roster)).toEqual([
+      { rivalHandle: 'the-mortician', rivalName: 'The Mortician' },
+    ])
   })
 
   it('the gremlin is the fixed antagonist: everyone flags him, he feuds no one', () => {
@@ -675,6 +687,9 @@ describe('app/db/citizens.ts - feudsAround (the shrine lens: every edge that tou
     ['st-vivian', 'St. Vivian'],
     ['the-gremlin', 'The Gremlin'],
     ['the-formalist', 'The Formalist'],
+    ['the-sleepwalker', 'The Sleepwalker'],
+    ['the-populist', 'The Populist'],
+    ['the-mortician', 'The Mortician'],
   ])
 
   it('a citizen who declares a grudge carries it outgoing, with the canon reason', () => {
@@ -705,6 +720,27 @@ describe('app/db/citizens.ts - feudsAround (the shrine lens: every edge that tou
     }))
     expect(stances).toContainEqual({ handle: 'the-gremlin', stance: 'declares' })
     expect(stances).toContainEqual({ handle: 'the-formalist', stance: 'targeted-by' })
+  })
+
+  it('the sleepwalker declares no grudge yet her shrine carries the formalist who targets her', () => {
+    const around = feudsAround('the-sleepwalker', roster)
+    expect(around).toEqual([
+      expect.objectContaining({ rivalHandle: 'the-formalist', stance: 'targeted-by' }),
+    ])
+    expect(around[0].reason).toMatch(/dream/)
+  })
+
+  it('the mortician is targeted-by the populist; the populist declares it — the same edge, both ends', () => {
+    const morticianSide = feudsAround('the-mortician', roster)
+    expect(morticianSide).toEqual([
+      expect.objectContaining({ rivalHandle: 'the-populist', stance: 'targeted-by' }),
+    ])
+    const populistSide = feudsAround('the-populist', roster)
+    expect(populistSide).toEqual([
+      expect.objectContaining({ rivalHandle: 'the-mortician', stance: 'declares' }),
+    ])
+    // the one reason string reads true from both ends of the edge
+    expect(morticianSide[0].reason).toEqual(populistSide[0].reason)
   })
 
   it('an edge whose other end is absent from the roster collapses out — no dead link', () => {
