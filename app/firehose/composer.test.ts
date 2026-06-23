@@ -280,6 +280,21 @@ describe('composePrompt', () => {
     expect(capturedBody).toContain(WISH_DIRECTIVE)
   })
 
+  // [LAW:behavior-not-structure] slopspot-render-fidelity-g5e: the round-11 CD verdict surfaced a
+  // FOURTH failure pole — VANISH/BURY: an embalmed relic dissolved into its OWN dense scene even when
+  // the prompt is clean (Vesper's teeming baroque eats its own subject). The CD's A ruling names VANISH
+  // distinctly ALONGSIDE the three existing poles rather than folding it into IGNORE (where the
+  // anti-vanish clause had been losing the priority fight to a baroque voice). This guard asserts the
+  // failure TAXONOMY stays complete — the four named poles are the doctrine's contract, so a reword
+  // that silently drops one fails here. It does not pin the surrounding wording.
+  it('the wish directive names the complete four-pole failure taxonomy (incl. VANISH)', () => {
+    expect(WISH_DIRECTIVE).toContain('DECORATE-THE-INTRUSION')
+    expect(WISH_DIRECTIVE).toContain('IGNORE-THE-INTRUSION')
+    expect(WISH_DIRECTIVE).toContain('VANISH-THE-INTRUSION')
+    // The creature-specific SWAP pole is named by its verb, not a "-THE-INTRUSION" token.
+    expect(WISH_DIRECTIVE).toContain('SWAPPED, not kept')
+  })
+
   // [LAW:behavior-not-structure] move-5 (slopspot-well-foundation-3aj): the SUBJECT slot. On a wish
   // occasion the recipe subject is demoted from the thing DEPICTED to the SCENE the wished relic is
   // mounted in. The two-competing-subjects shape (recipe-subject-as-primary + wish-overlay) let
