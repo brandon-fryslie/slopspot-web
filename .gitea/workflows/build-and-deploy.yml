@@ -1,0 +1,68 @@
+# Builds slopspot-voter + slopspot-discoverer at one dated tag, then *declares*
+# both tags into home-infra's service-versions deploy contract in a single PR.
+# Atlantis plans that PR; a merge rolls both periodic jobs on their next tick.
+# CI never runs `nomad job run` — Atlantis is the sole enforcer of what runs
+# (epic home-ci-workflows-2g4, pilot migration #5 = .13).
+#
+# voter + discoverer build and declare in lockstep (one tag, one PR) — the
+# happy-server/happy-expo multi-service pattern. Each is a self-contained
+# per-service Docker context. The smoke-prober is NOT version-managed and keeps
+# its own :latest build workflow.
+
+name: build-and-deploy
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'services/voter/**'
+      - 'services/discoverer/**'
+      - '.gitea/workflows/build-and-deploy.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: 192.168.7.208:5000
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Canonical YYYY.MM.DD.N tag, shared by both images — the value declared
+      # into the contract. Full-URL `uses:` so the runner pulls the action from
+      # gitea, not the GitHub fallback (home-ci-workflows-2g4.5 lesson).
+      - name: Generate image tag
+        id: tag
+        uses: https://gitea.sanctuary.gdn/brandon-fryslie/homelab-infra/.gitea/actions/gen-image-tag@master
+
+      # [LAW:dataflow-not-control-flow] Both services run the identical build at
+      # the same tag; voter/discoverer is a value iterated, not a branch. Lockstep
+      # tags by construction — they can never drift to different versions.
+      - name: Build and push both images
+        env:
+          TAG: ${{ steps.tag.outputs.image-tag }}
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse --short HEAD)
+          for svc in voter discoverer; do
+            IMAGE="$REGISTRY/slopspot-$svc"
+            docker build --tag "$IMAGE:$TAG" --tag "$IMAGE:$SHA" "services/$svc/"
+            docker push "$IMAGE:$TAG"
+            docker push "$IMAGE:$SHA"
+            echo "Pushed slopspot-$svc (:$TAG and :$SHA)"
+          done
+
+      # Declare both tags in home-infra's service-versions contract — one PR,
+      # both keys, atomic. Atlantis plans it; a merge rolls both jobs.
+      # [LAW:single-enforcer] CI only *declares*; Atlantis is the one and only
+      # thing that makes these services run.
+      - name: Declare deploy
+        uses: https://gitea.sanctuary.gdn/brandon-fryslie/homelab-infra/.gitea/actions/update-service-version@master
+        with:
+          versions: >-
+            {"slopspot-voter": "${{ steps.tag.outputs.image-tag }}",
+             "slopspot-discoverer": "${{ steps.tag.outputs.image-tag }}"}
+          token: ${{ secrets.DEPLOY_GITEA_TOKEN }}
