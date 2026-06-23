@@ -24,9 +24,11 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   if (post === null || post.content.kind !== "generation") {
     throw new Response("dynasty not found", { status: 404 })
   }
+  // [LAW:no-ambient-temporal-coupling] The standing window edge is the request's clock, taken once here at
+  // the boundary and handed to the chronicle fold — never reached for inside the read.
   const [dynasty, chronicle] = await Promise.all([
     getDynasty(env, postId),
-    getDynastyChronicle(env, postId),
+    getDynastyChronicle(env, postId, Date.now()),
   ])
   return { dynasty, chronicle }
 }

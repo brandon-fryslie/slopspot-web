@@ -1,6 +1,7 @@
 import { Link } from "react-router"
 import type { Dynasty, Genealogy, GenealogyNode, Media } from "~/lib/domain"
 import type { DriftEntry, DynastyChronicle, FounderHonor, InbredEntry } from "~/db/dynasty-chronicle"
+import { StandingBadge } from "~/components/standing-badge"
 import type { Utterance } from "~/lib/voice"
 
 // [LAW:dataflow-not-control-flow] The family tree renders by the DATA the read boundary derived
@@ -84,6 +85,7 @@ function FoundersHonored({ founders }: { founders: readonly FounderHonor[] }) {
               p:{f.postId.slice(0, 8)}
             </Link>
             <span className="text-ash/70">rooted {f.descendantCount}</span>
+            <StandingBadge standing={f.standing} />
             <Link to="/saints" className="text-ash hover:text-gold/80" title="the Calendar of Saints — where Relics are venerated">
               relic candidate →
             </Link>

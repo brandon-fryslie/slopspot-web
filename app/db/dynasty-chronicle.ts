@@ -10,9 +10,14 @@
 // epic blessed for single-post/dynasty PAGES) and folds it; nothing here is persisted.
 // [LAW:effects-at-boundaries] the only I/O is the DAG read + the Gremlin persona read; the verdicts are pure.
 
+import { gte } from 'drizzle-orm'
 import { getLineageDag } from '~/db/genome-dag'
+import { db } from '~/db/client'
+import { votes } from '~/db/schema'
+import { STANDING_WINDOW_MS, priorSum, recentSum } from '~/db/standing'
 import {
   ancestralFounders,
+  bloodlineFitness,
   descendants,
   founders as allFounders,
   generationDepth,
@@ -24,6 +29,7 @@ import {
 import { gremlinInbreedingRemark } from '~/lib/inbreeding-voice'
 import { getPersona } from '~/agents/persona'
 import { GenomeId, PostId } from '~/lib/domain'
+import { standingOf, type Standing } from '~/lib/standing'
 import { withheld, type Utterance, type VoicedPersonaRef } from '~/lib/voice'
 import type { GeneticDistance } from '~/lib/genome-distance'
 
@@ -33,8 +39,11 @@ import type { GeneticDistance } from '~/lib/genome-distance'
 const GREMLIN = 'agent:skeptic'
 
 // A founder of this bloodline, honored by the size of the line it rooted — a Relic candidate (the Wednesday
-// rite resurrects old roots; the Calendar of Saints venerates the crowned Relics).
-export type FounderHonor = { postId: PostId; descendantCount: number }
+// rite resurrects old roots; the Calendar of Saints venerates the crowned Relics). `standing` is the
+// bloodline's reception ARC (genome-p6z.7): the SAME ascendant/steady/fading the roll call gives a citizen,
+// read over this founder's whole line instead of over one citizen's deeds — net votes the line drew in the
+// recent window against the prior. [LAW:one-type-per-behavior] one arc, two subjects (citizen, bloodline).
+export type FounderHonor = { postId: PostId; descendantCount: number; standing: Standing }
 
 // One generation's drift: its depth from the founder(s) and the speciation verdict — the distance it has
 // wandered from every root it descends from. Ordered founder→leaf, this is the drift you can scroll.
@@ -67,7 +76,43 @@ async function loadGremlin(env: Env): Promise<VoicedPersonaRef | null> {
       }
 }
 
-export async function getDynastyChronicle(env: Env, postId: PostId): Promise<DynastyChronicle> {
+// [LAW:effects-at-boundaries] The bloodline's reception, gathered at the storage boundary into the two
+// adjacent windows standingOf compares — net votes RECEIVED per genome (a slop's reception is the votes
+// its post drew, the same maker currency standing.ts sums), split recent-vs-prior by when each was cast.
+// Grouped by post_id because a genome IS its post, so NO attribution predicate is needed — the genome key
+// is the join, sidestepping the json_extract/index discipline citizen standing requires. Windowed to the
+// two-window span (a page read, not the hot feed); a genome with no votes in the span is the honest absent
+// key, which bloodlineFitness reads as zero — the same way getStandings treats an unvoted citizen.
+// [LAW:one-source-of-truth] window width + the window-split SQL come from db/standing.ts; this is the
+// citizen read's genome-grouped sibling, not a second windowing policy.
+async function votesByGenomeWindowed(
+  env: Env,
+  nowMs: number,
+): Promise<{ recent: ReadonlyMap<GenomeId, number>; prior: ReadonlyMap<GenomeId, number> }> {
+  const recentStartMs = nowMs - STANDING_WINDOW_MS
+  const priorStartMs = nowMs - 2 * STANDING_WINDOW_MS
+  const rows = await db(env)
+    .select({
+      genome: votes.postId,
+      recent: recentSum(recentStartMs),
+      prior: priorSum(recentStartMs, priorStartMs),
+    })
+    .from(votes)
+    .where(gte(votes.createdAt, new Date(priorStartMs)))
+    .groupBy(votes.postId)
+  const recent = new Map<GenomeId, number>()
+  const prior = new Map<GenomeId, number>()
+  for (const r of rows) {
+    recent.set(GenomeId(r.genome), r.recent)
+    prior.set(GenomeId(r.genome), r.prior)
+  }
+  return { recent, prior }
+}
+
+// `nowMs` is the request boundary's clock (the loader's Date.now()), passed in so the window edge is an
+// argument the reader is given, never a clock the fold reaches for. [LAW:no-ambient-temporal-coupling] —
+// the same discipline getStandings uses, and it keeps the two-window split deterministic under test.
+export async function getDynastyChronicle(env: Env, postId: PostId, nowMs: number): Promise<DynastyChronicle> {
   const dag = await getLineageDag(env)
   const root = GenomeId(postId)
   // A non-generation or unknown id has no genome in the DAG and thus no bloodline to chronicle.
@@ -87,10 +132,21 @@ export async function getDynastyChronicle(env: Env, postId: PostId): Promise<Dyn
   // stats, never a Map-then-rejoin with a `?? 0` fallback that would hide a missing founder behind a
   // plausible zero. allFounders already pairs each 0-parent node with its descendant count; this bloodline's
   // founders are exactly those in the ancestral set, so a filter (not a lookup that can miss) yields the
-  // honor list. Most-founding first.
+  // honor list. Each founder's STANDING is its line's reception arc: bloodlineFitness sums the votes the
+  // founder + its whole descendant subtree drew in each window (the SAME scope descendantCount measures),
+  // and standingOf reads the arc — a genome with no votes folds to zero by the absent-key, no branch.
+  // Most-founding first.
+  const { recent: recentVotes, prior: priorVotes } = await votesByGenomeWindowed(env, nowMs)
   const founders: FounderHonor[] = allFounders(dag)
     .filter((f) => founderSet.has(f.id))
-    .map((f) => ({ postId: PostId(f.id), descendantCount: f.descendantCount }))
+    .map((f) => ({
+      postId: PostId(f.id),
+      descendantCount: f.descendantCount,
+      standing: standingOf({
+        recent: bloodlineFitness(dag, recentVotes, f.id),
+        prior: bloodlineFitness(dag, priorVotes, f.id),
+      }),
+    }))
     .sort((a, b) => b.descendantCount - a.descendantCount || a.postId.localeCompare(b.postId))
 
   // Drift — every bloodline node's speciation verdict, ordered founder→leaf (depth, then id for stability).
