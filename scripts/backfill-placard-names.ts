@@ -138,9 +138,16 @@ async function nameRow(row: LegacyRow, env: Env): Promise<Outcome> {
   return { kind: 'named', row, title: composed.title }
 }
 
-// Concurrency-limited map — a small pool so 300+ paid calls don't run one-at-a-time, while
-// staying well under Haiku rate limits. Order of results is not relied upon.
-async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+// [LAW:effects-at-boundaries] A PURE concurrency-limited map — a small pool so 300+ paid calls
+// don't run one-at-a-time, while staying well under Haiku rate limits. It performs no I/O: progress
+// is an effect lifted to the caller via onProgress (fired per completed item), so the limiter stays
+// a combinator any caller can drop in, with or without reporting. Order of results is not relied upon.
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let next = 0
   let done = 0
@@ -150,7 +157,7 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: num
         const i = next++
         results[i] = await fn(items[i]!, i)
         done++
-        if (done % 25 === 0 || done === items.length) process.stdout.write(`  composed ${done}/${items.length}\n`)
+        onProgress?.(done, items.length)
       }
     }),
   )
@@ -173,7 +180,10 @@ async function main() {
     return
   }
 
-  const outcomes = await mapPool(rows, CONCURRENCY, (row) => nameRow(row, env))
+  // The progress-reporting policy (cadence + stdout) lives here at the boundary, not in the limiter.
+  const outcomes = await mapPool(rows, CONCURRENCY, (row) => nameRow(row, env), (done, total) => {
+    if (done % 25 === 0 || done === total) process.stdout.write(`  composed ${done}/${total}\n`)
+  })
   const named = outcomes.filter((o): o is Extract<Outcome, { kind: 'named' }> => o.kind === 'named')
   const fellBack = outcomes.filter((o) => o.kind === 'fallback')
   const errored = outcomes.filter((o): o is Extract<Outcome, { kind: 'error' }> => o.kind === 'error')
