@@ -119,14 +119,20 @@ type Outcome =
   | { kind: 'error'; row: LegacyRow; message: string }
 
 async function nameRow(row: LegacyRow, env: Env): Promise<Outcome> {
+  // [LAW:decomposition] EVERY per-row validation lands in the {error} outcome, so one drifted row
+  // is isolated as a reported error, never an escaped throw that sinks the whole Promise.all batch.
+  // All three storage-boundary parses (subject, style_family, aspect_ratio) share the one guard.
+  // (composePrompt does NOT throw — it catches internally and returns a fallback — so it stays outside.)
   let subject: RecipeSubject
+  let styleFamily: ReturnType<typeof styleFamilySchema.parse>
+  let aspectRatio: ReturnType<typeof aspectRatioSchema.parse>
   try {
     subject = reconstructSubject(row)
+    styleFamily = styleFamilySchema.parse(row.style_family)
+    aspectRatio = aspectRatioSchema.parse(row.aspect_ratio)
   } catch (err) {
     return { kind: 'error', row, message: err instanceof Error ? err.message : String(err) }
   }
-  const styleFamily = styleFamilySchema.parse(row.style_family)
-  const aspectRatio = aspectRatioSchema.parse(row.aspect_ratio)
 
   const composed = await composePrompt({ styleFamily, subject, aspectRatio, traits: NEUTRAL_TRAITS }, env)
   // [LAW:no-silent-failure] composePrompt returns the deterministic fallback on a Haiku failure;
