@@ -18,6 +18,8 @@ import {
 import { CastAtWork } from "~/components/cast-at-work"
 import { FeastProclamation } from "~/components/feast-proclamation"
 import { PulseStrip } from "~/components/pulse-strip"
+import { Arrivals } from "~/components/arrivals"
+import { useHum } from "~/lib/use-hum"
 import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
 import { WELL_REACHABLE } from "~/lib/well-gate"
@@ -216,6 +218,18 @@ export default function Home({ loaderData }: Route.ComponentProps) {
     return () => io.disconnect()
   }, [loadMore, cursor])
 
+  // THE HUM — the city's live heartbeat (the-haunted-gallery.md move F). [LAW:no-ambient-temporal-coupling]
+  // useHum is the ONE owner of the live poll; it returns the live Pulse (the loader's at first, then each
+  // poll's fresh stream) and the genuinely-new arrivals to hang at the top. It also revalidates when the
+  // Rite turns over while the page is open — RiteHero is keyed by the crown id below, so the gold-settle
+  // replays on the new saint. The hook self-gates on reduced-motion and tab visibility; nothing here does.
+  const { pulse: livePulse, arrivals } = useHum({
+    loaderPulse: pulse,
+    initialItems: firstPage,
+    extraItems,
+    currentCrownId: excludeId,
+  })
+
   const items = [...firstPage, ...extraItems]
   // [LAW:dataflow-not-control-flow] The chrome (the sign, the Pulse, the sort, the
   // tagline) holds a readable centered column; the WALL goes full-bleed to fill the
@@ -277,7 +291,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             </Link>
           </div>
         </header>
-        <PulseStrip events={pulse} />
+        <PulseStrip events={livePulse} />
         <div className="mb-6">
           <SortSelector current={sort} />
         </div>
@@ -307,12 +321,18 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           discriminator is handled inside RiteHero, never a caller-side guard on the clock.
           The gold Saint (or the day's rite, in its mark) above — or, 2–3am, the held breath;
           the votive loudest-now leads the wall below. Two kinds of glory, never two gilt. */}
-      <RiteHero phase={phase} />
+      {/* [LAW:no-ambient-temporal-coupling] Keyed by the crown id: when the Rite turns over live (the
+          Hum revalidates on a crown change), the new saint's id remounts RiteHero and its `crown-settle`
+          gold-fade replays — the gold SETTLING in, not a content swap with no motion. */}
+      <RiteHero key={excludeId ?? phase.phase} phase={phase} />
+      {/* The firehose feeding the wall — new slop settling in at the top, above the ranked relics. */}
+      <Arrivals items={arrivals} />
       {/* [LAW:dataflow-not-control-flow] Presence of slop decides what shows: a full
           wall, or the Proprietor's honest quiet. The empty copy speaks only when the
-          room is truly bare — no wall AND the altar empty (no banner of any kind) — so a
-          lone crowned relic or the held breath never hangs beside a "nobody's here" sign. */}
-      {items.length === 0 && phase.phase === "empty" ? (
+          room is truly bare — no wall, no live arrivals, AND the altar empty (no banner of
+          any kind) — so a lone crowned relic, the held breath, or a fresh arrival never hangs
+          beside a "nobody's here" sign. */}
+      {items.length === 0 && arrivals.length === 0 && phase.phase === "empty" ? (
         <div className="mx-auto max-w-5xl">
           <p className="rounded-lg border border-dashed border-ash/30 px-4 py-16 text-center font-terminal text-sm text-ash">
             {PROPRIETOR.emptyFeed}

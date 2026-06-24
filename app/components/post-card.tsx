@@ -219,6 +219,11 @@ function VoteControls({
   const [score, setScore] = useState(initialScore)
   const [myVote, setMyVote] = useState<VoteValue | null>(initialMyVote)
   const [pending, setPending] = useState(false)
+  // [LAW:dataflow-not-control-flow] The vote-tick (the-haunted-gallery.md move F, CD ruling q3:
+  // OWN-vote only, a DRY increment). Bumped only inside castVote, so it fires for the viewer's own
+  // vote and never for the city's votes (those live in the Pulse). It re-keys the score below so its
+  // one-shot `score-tick` animation replays; starting at 0 keeps the first paint still.
+  const [ticks, setTicks] = useState(0)
   // [LAW:single-enforcer] Synchronous re-entrancy guard. `setPending(true)` is
   // queued for the next render, so a rapid second click inside the same
   // microtask would still see `pending === false` from React state. The ref is
@@ -252,6 +257,7 @@ function VoteControls({
     // one has both confirmed/rolled-back and cleared the flag.
     setScore(score + (direction - oldValue))
     setMyVote(direction)
+    setTicks((t) => t + 1)
     setPending(true)
 
     try {
@@ -292,7 +298,12 @@ function VoteControls({
       >
         ▲
       </button>
-      <span className="rounded bg-votive/10 px-1.5 py-0.5 font-terminal text-votive/90">
+      <span
+        key={ticks}
+        className={`rounded bg-votive/10 px-1.5 py-0.5 font-terminal text-votive/90 tabular-nums${
+          ticks > 0 ? " score-tick" : ""
+        }`}
+      >
         {score}
       </span>
       <button

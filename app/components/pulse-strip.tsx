@@ -3,6 +3,7 @@ import type { PulseEvent } from "~/db/pulse"
 import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { markFor } from "~/lib/rite"
+import { pulseEventKey } from "~/lib/pulse-key"
 
 // The Pulse strip — "the city breathing". A slow ambient crawl of recent civic
 // events below the masthead. font-terminal, votive glow, on the void.
@@ -71,21 +72,6 @@ const reasoningOf = (e: PulseEvent): string | undefined =>
 // /p/:id to point at — the renderer reads `undefined` and draws a plain span instead of an anchor.
 const hrefOf = (e: PulseEvent): string | undefined => (e.kind === "born" ? undefined : `/p/${e.postId}`)
 
-// [LAW:no-silent-failure] Each kind keys on its own stable identity: a born event is post-less
-// (key by ts); a feast is stamped with a constant nowMs ts and a post can feast twice in a day,
-// so it keys on rite_day (the crown's globally-unique day) — a postId+ts key would collide and
-// React would silently drop the second saint. The post-act events key by post + their real ts.
-const keyOf = (e: PulseEvent) => {
-  switch (e.kind) {
-    case "born":
-      return `born:${e.ts}`
-    case "feast":
-      return `feast:${e.postId}:${e.riteDay}`
-    default:
-      return `${e.kind}:${e.postId}:${e.ts}`
-  }
-}
-
 // `duplicate` marks the second copy that exists ONLY to make the crawl seamless
 // (the -50% loop needs two identical groups). Under reduced motion the crawl is
 // off, so the copy has no purpose — the same flag hides it (motion-reduce:hidden)
@@ -102,7 +88,7 @@ function EventGroup({ events, duplicate }: { events: PulseEvent[]; duplicate?: b
       {events.map((e) => {
         const href = hrefOf(e)
         return (
-          <li key={keyOf(e)} className="flex items-center gap-2 whitespace-nowrap">
+          <li key={pulseEventKey(e)} className="flex items-center gap-2 whitespace-nowrap">
             <span aria-hidden className="text-votive/40">
               ✦
             </span>
@@ -121,18 +107,27 @@ function EventGroup({ events, duplicate }: { events: PulseEvent[]; duplicate?: b
   )
 }
 
+// THE PULSE — the city breathing. Made PRESENT (the-haunted-gallery.md move F, CD ruling q4): a
+// live heartbeat dot leads the strip, contrast and type raised so it reads as the city's pulse and
+// not the faint gray line it was — but HELD below ticker-tape, subordinate to the Wall and the Rite.
 export function PulseStrip({ events }: { events: PulseEvent[] }) {
   return (
     <section
       aria-label="recent activity"
-      className="mb-6 overflow-hidden border-y border-votive/15 bg-panel/40 py-2 font-terminal text-xs text-votive/80"
+      className="mb-6 flex items-center gap-3 border-y border-votive/25 bg-panel/60 py-2 pl-3 font-terminal text-[13px] text-votive/95"
     >
+      {/* [LAW:no-ambient-temporal-coupling] The heartbeat dot — CSS-owned pulse (.pulse-live-dot,
+          app.css), no JS clock, held steady under @media reduced-motion. It marks the strip LIVE:
+          the Pulse beats whether or not an event has just crawled past. */}
+      <span aria-hidden className="pulse-live-dot inline-block size-2 shrink-0 rounded-full bg-votive" />
       {events.length === 0 ? (
-        <p className="px-1 text-ash">{PROPRIETOR.emptyPulse}</p>
+        <p className="text-ash">{PROPRIETOR.emptyPulse}</p>
       ) : (
-        <div className="pulse-crawl flex w-max motion-reduce:w-full motion-reduce:flex-col">
-          <EventGroup events={events} />
-          <EventGroup events={events} duplicate />
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="pulse-crawl flex w-max motion-reduce:w-full motion-reduce:flex-col">
+            <EventGroup events={events} />
+            <EventGroup events={events} duplicate />
+          </div>
         </div>
       )}
     </section>

@@ -263,3 +263,65 @@
     transform: none;
   }
 }
+
+/*
+  THE HUM — the city is alive (the-haunted-gallery.md move F). Ambient motion tied to REAL events,
+  never decorative loops: a new slop SETTLING onto the wall, the Pulse's heartbeat, the own-vote tick.
+  All slow and present, never a bounce or a pop. Under reduced-motion each falls back to its settled
+  end-state, lit and still — the static fallback the move requires everywhere.
+*/
+
+/* A new arrival fades and settles down into place — like the crown, opacity-led with a short drop. */
+@keyframes slop-arriving {
+  0% { opacity: 0; transform: translateY(-8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.slop-arriving {
+  animation: slop-arriving 0.9s ease-out 1 both;
+}
+
+/* The live heartbeat dot beside the Pulse — a slow breath of opacity and votive glow, never a blink. */
+@keyframes pulse-live-dot {
+  0%, 100% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 0 rgb(var(--votive-rgb) / 0);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 6px 1px rgb(var(--votive-rgb) / 0.55);
+  }
+}
+
+.pulse-live-dot {
+  animation: pulse-live-dot 2.4s ease-in-out infinite;
+}
+
+/* The own-vote tick — a DRY increment: a quick, shallow scale with a votive flash, once. No bounce. */
+@keyframes score-tick {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.16); color: var(--color-votive); }
+  100% { transform: scale(1); }
+}
+
+.score-tick {
+  animation: score-tick 0.5s ease-out 1 both;
+  display: inline-block;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slop-arriving {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .pulse-live-dot {
+    animation: none;
+    opacity: 1;
+  }
+  .score-tick {
+    animation: none;
+    transform: none;
+  }
+}

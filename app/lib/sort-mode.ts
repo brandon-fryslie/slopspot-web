@@ -22,6 +22,11 @@ export type SortMode = { mode: 'top'; window: 'day' | 'week' | 'all' } | { mode:
 // [LAW:single-enforcer] The canonical default — Hot for lively first-time experience.
 export const defaultSortMode: SortMode = { mode: 'hot' }
 
+// [LAW:single-enforcer] The newest-first ordering, named once. The live Hum poll reads page-0 of
+// THIS ordering (not the wall's current sort) so arrivals are the firehose's genuine new output,
+// surfaced regardless of how the visitor has the wall sorted (the-haunted-gallery.md move F).
+export const newestSortMode: SortMode = { mode: 'new' }
+
 // [LAW:one-source-of-truth] Window durations in ms. 'hour' is Tier-2 (future epic).
 export const TOP_WINDOW_MS = {
   day: 24 * 60 * 60 * 1000,

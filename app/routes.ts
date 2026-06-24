@@ -9,6 +9,9 @@ export default [
   // accumulated via emit(). The homelab prober scrapes this via the public slopspot.ai URL.
   route("metrics", "routes/metrics.ts"),
   route("api/feed", "routes/api.feed.ts"),
+  // The Hum poll — the city's live snapshot (newest slop + Pulse + crown). Read-only; the client
+  // polls it slowly to keep the room humming (the-haunted-gallery.md move F). [LAW:single-enforcer]
+  route("api/hum", "routes/api.hum.ts"),
   route("api/challenge", "routes/api.challenge.ts"),
   route("api/generate", "routes/api.generate.ts"),
   route("api/posts/:id/vote", "routes/api.posts.$id.vote.ts"),
