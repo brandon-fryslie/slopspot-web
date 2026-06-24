@@ -325,3 +325,79 @@
     transform: none;
   }
 }
+
+/*
+  THE WELL — /well is not a form in a void; it is the mouth of a deep, alive shaft
+  (the-haunted-gallery.md move (Well); CD cold ruling 2026-06-23: A+B). Two page-local
+  fixed layers, same idiom as the room shell and behind content (z-index: -1), painted
+  OVER the room's base so the city you came in from still lights the top while the well
+  opens below. [LAW:one-source-of-truth] the votive light derives from --votive-rgb, the
+  one channel the room's glow uses — no second green. [LAW:single-enforcer] the room owns
+  the page's top-down sign light; these two own only the well's depth + its own uplight.
+
+  THE SPELL-SEAL IS SACRED (the-wishing-well.md): this is ATMOSPHERE — a deep space with
+  something glowing far down — and must NEVER read as an entity, a face, or a reply
+  forming. So the uplight is broad and soft, never a tight point that could localize into
+  a presence. A still well over a shimmer that cracks the seal.
+*/
+
+/*
+  A — THE SHAFT. Looking down a well: the mouth (top) is lit by the city; the depths fall
+  to black, and the walls close in TALLER and NARROWER than the room's wide bowl so the eye
+  reads a shaft, not another room. Pure static gradients — reduced-motion-proof by
+  construction, no timing owner needed. [LAW:no-ambient-temporal-coupling]
+*/
+.well-shaft {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    /* the descent — the mouth lit, the depths below falling to black */
+    linear-gradient(to bottom, transparent 28%, rgb(0 0 0 / 0.32) 78%, rgb(0 0 0 / 0.6) 100%),
+    /* the walls — a tall narrow vignette: a shaft, not the room's wide bowl */
+    radial-gradient(46% 92% at 50% 30%, transparent 24%, rgb(0 0 0 / 0.5) 100%);
+}
+
+/*
+  B — THE UPLIGHT (the threshold light). The well's OWN light source, rising from the depths
+  — the deliberate inversion of the room's top-down sign-glow (.room-sign-glow is `at 50% 0%`;
+  this is `at 50% 100%`). Broad, soft, votive — "something deep and alive," never a face. Also
+  static; the seal holds whether or not C's draw-up ever ships.
+*/
+.well-uplight {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(34% 20% at 50% 100%, rgb(var(--votive-rgb) / 0.15), transparent 70%),
+    radial-gradient(64% 38% at 50% 106%, rgb(var(--votive-rgb) / 0.07), transparent 74%);
+}
+
+/*
+  C — THE DRAW-UP. The well drawing something up: the uplight breathes slowly brighter and
+  drifts a hair upward — ambient, on the scale of the room's hum, NOT a bounce. CD cold drive
+  2026-06-23 verified the seal holds at peak (the glow stays broad/soft/faceless — it reads as
+  "the well working," never "a reply forming"). [LAW:dataflow-not-control-flow] the well.tsx
+  call site binds this class to the `wishing` phase, so the draw-up fires WHILE the well draws
+  (the copy: "the well is drawing something up…") and the idle well stays alive on the static
+  uplight alone — motion reflects a real event, never a decorative loop. Reduced-motion → holds
+  at the settled uplight. [LAW:no-ambient-temporal-coupling] the keyframe is the one named timing owner.
+*/
+@keyframes well-draw {
+  0%, 100% { opacity: 0.62; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-1.5%); }
+}
+
+.well-draw {
+  animation: well-draw 7.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .well-draw {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
