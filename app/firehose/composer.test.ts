@@ -398,19 +398,22 @@ describe('composePrompt', () => {
     expect(firehoseBody).toContain(`depicting ${renderTemplate(input.subject)}`)
   })
 
-  // move-7 polish (slopspot-well-foundation-3aj.13.1): T29 ("captured in the act of forgetting") was a
-  // pure RECEDE that DROPPED the animal; the CD's ratified reading embalms it as a faded mural instead.
-  // The wording-invariant signature of embalm-vs-recede is whether the animal VALUE survives in the
-  // scene — embalm keeps it as an inanimate motif, recede drops it entirely. This pins T29's SET
-  // membership (now embalm) against the genuine receders (T02/T08/T22) without coupling to any scene
-  // wording, so it survives a CD rewording. (The concealed-vs-prominent quality of T18's effigy is a
-  // RENDER property, not a text property — it is judged at the CD cold re-fire, not asserted here.)
-  // [LAW:behavior-not-structure]
-  it('move-7 polish: T29 embalms its animal as a motif; T02/T08/T22 still recede (animal dropped)', () => {
-    const t29 = recipeSubjectSchema.parse({ subjectTemplate: 'T29', slots: { animal: 'raven' } })
-    expect(sceneForWish(t29), 'T29 now embalms — animal survives as a motif').toContain('raven')
+  // move-7 polish (slopspot-well-foundation-3aj.13.1): the final embalm-vs-recede split for the two
+  // templates this ticket touched, settled by two CD cold re-fires. T18 ("secretly a {animal}") EMBALMS
+  // the animal as a soft effigy motif in an intimate workshop. T29 ("captured in the act of forgetting")
+  // RECEDES — its animal-embalm (a faded mural) proved unbuildable on the vesper+sdxl+embalmedRelic
+  // stack (n=10: the subordinate background motif blanks and forcing it drops the relic; parked as a
+  // future-revisit), so the animal drops and the relic lands on a concrete cleared hall. The wording-
+  // invariant signature of embalm-vs-recede is whether the animal VALUE survives in the scene — embalm
+  // keeps it as a motif, recede drops it. This pins the SET membership without coupling to scene wording,
+  // so it survives a re-wording. (The effigy's render legibility is a soft RENDER property judged cold,
+  // never asserted here.) [LAW:behavior-not-structure]
+  it('move-7 polish: T18 embalms its animal as a soft effigy; T29 recedes (animal dropped)', () => {
+    const t18 = recipeSubjectSchema.parse({ subjectTemplate: 'T18', slots: { profession: 'clerk', animal: 'raven' } })
+    expect(sceneForWish(t18), 'T18 embalms — animal survives as an effigy motif').toContain('raven')
 
     const receders = [
+      { subjectTemplate: 'T29', slots: { animal: 'raven' } },
       { subjectTemplate: 'T02', slots: { animal: 'raven', emotion: 'grief' } },
       { subjectTemplate: 'T08', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
       { subjectTemplate: 'T22', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },

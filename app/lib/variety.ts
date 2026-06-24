@@ -851,16 +851,16 @@ type AnimalWishSceneBuilders = {
 // CD-BLESSED scene mapping — slopspot-well-foundation-3aj.13 (round-12 verdict).
 // The structure (type-keyed dispatch, exhaustive Record, embalm-vs-recede split) and
 // these strings are blessed with four refinements baked in:
-//  (1) the 9 EMBALM scenes: the wished creature is the embalmed/petrified relic in the
+//  (1) the 8 EMBALM scenes: the wished creature is the embalmed/petrified relic in the
 //      scene; the template-animal survives only as an inanimate motif of the setting.
-//  (2) the 3 RECEDE scenes (T02/T08/T22) DROP the animal but land the relic in a
+//  (2) the 4 RECEDE scenes (T02/T08/T22/T29) DROP the animal but land the relic in a
 //      real PLACE — a room, not a mood/fog. An under-specified scene lets the relic
 //      dissolve, so each names a concrete shuttered interior.
 //  (3) the template-animal becomes an OBJECT / FIXTURE, never a second SPECIMEN —
 //      subordinate and small. The WISHED creature is the ONLY embalmed-creature-relic.
 //  (4) the inanimate form is BREADTH-VARIED across templates so the feed does not
 //      rhyme: fixture / finial / bookend / effigy / bust / weathervane / heraldic
-//      device / statue / faded mural — nine distinct motifs, none reused.
+//      device / statue — eight distinct motifs, none reused.
 // "Keep the world, petrify-or-drop the actor."
 const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
   // EMBALM — a concrete world/occasion survives; the animal is a small inanimate motif.
@@ -870,8 +870,12 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
     `a small award ceremony for ${s.abstractConcept}, the empty plinth topped with a brass ${s.animal} finial`,
   T17: (s) =>
     `a still reading-nook with ${indefiniteArticle(s.manMadeObject)} ${s.manMadeObject}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped bookend beside it`,
+  // T18 "secretly a {animal}": the must-have is the relic in an INTIMATE cluttered workshop (a grand
+  // gallery swallows the relic — CD-LOCKED on the round-2 re-fire). The {animal}-shaped effigy is a SOFT
+  // background detail, never PUSHED: forcing its legibility cost the relic in the re-fire, so it lands
+  // when sdxl cooperates and is harmlessly absent when it doesn't. [LAW:carrying-cost]
   T18: (s) =>
-    `the cramped, cluttered workshop of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped effigy tucked on a shelf among the clutter, small and worn but unmistakably the ${s.animal} on a second look`,
+    `the cramped, cluttered workshop of ${indefiniteArticle(s.profession)} ${s.profession}, a small worn ${s.animal}-shaped effigy among the clutter`,
   T25: (s) =>
     `an official ${s.era} portrait hall, the frame holding an oil-finished ${s.animal}-shaped bust`,
   T30: (s) =>
@@ -880,18 +884,18 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
     `a coronation dais for an obscure achievement, the empty throne's crest ${indefiniteArticle(s.animal)} ${s.animal}-shaped heraldic device`,
   T38: (s) =>
     `a political chamber, a tarnished ${s.animal}-shaped statue tucked in a niche off the empty floor`,
-  // T29 is "captured in the act of FORGETTING" — embalmed as a faded mural: the animal survives as a
-  // LARGE wall-painting gone cracked and dim with age, forgetting rendered as fading, NOT erasure. The
-  // motif must stay legible against the now-live g5e foreground clause, which on this low-density scene
-  // otherwise strips the wall to a blank plane (the round-12 re-fire failure this wording counters —
-  // "faded/peeling/half-erased" overshot into gone; "large" + "still legible" is the counter).
-  T29: (s) =>
-    `a shuttered hall, a large faded ${s.animal} mural on the far wall, its paint cracked and dimmed but the ${s.animal} still legible`,
   // RECEDE — only an abstract/emotion residue remains; the animal drops and the relic
   // lands in a concrete shuttered PLACE, never a mood.
   T02: (s) => `an abandoned room, the residue of ${s.emotion}`,
   T08: (s) => `a quiet study, ${s.abstractConcept} long contemplated`,
   T22: () => `a hushed room, the aftermath`,
+  // T29 "captured in the act of FORGETTING" recedes: the {animal}-embalm (a faded mural) proved
+  // UNBUILDABLE on the vesper+sdxl+embalmedRelic stack — n=10 across two CD cold re-fires, the
+  // subordinate background motif blanks and forcing it DROPS THE RELIC (parked as a future-revisit;
+  // mechanism folded into the g5e.1 density-thinning watch). So the animal drops and the relic lands on
+  // a CONCRETE cleared hall — bare/shuttered, never a void or a mood. [LAW:carrying-cost] idea survives,
+  // build waits for a stack that holds subordinate background detail.
+  T29: () => `a cleared, shuttered hall of bare plaster walls and furniture under dust sheets`,
 }
 
 // [LAW:dataflow-not-control-flow] The per-call dispatch is a single lookup-invoke
