@@ -398,6 +398,31 @@ describe('composePrompt', () => {
     expect(firehoseBody).toContain(`depicting ${renderTemplate(input.subject)}`)
   })
 
+  // move-7 polish (slopspot-well-foundation-3aj.13.1): the embalm-vs-recede split for the two templates
+  // this ticket touched. T18 ("secretly a {animal}") EMBALMS the animal as an effigy motif; T29
+  // ("captured in the act of forgetting") RECEDES it (the faded-mural embalm was unbuildable on the
+  // render stack — see the rationale at the T29 entry in variety.ts). The wording-invariant signature of
+  // embalm-vs-recede is whether the animal VALUE survives in the scene — embalm keeps it as a motif,
+  // recede drops it — so this pins the SET membership without coupling to scene wording.
+  // [LAW:behavior-not-structure]
+  it('move-7 polish: T18 embalms its animal as a soft effigy; T29 recedes (animal dropped)', () => {
+    const t18 = recipeSubjectSchema.parse({ subjectTemplate: 'T18', slots: { profession: 'clerk', animal: 'raven' } })
+    expect(sceneForWish(t18), 'T18 embalms — animal survives as an effigy motif').toContain('raven')
+
+    const receders = [
+      { subjectTemplate: 'T29', slots: { animal: 'raven' } },
+      { subjectTemplate: 'T02', slots: { animal: 'raven', emotion: 'grief' } },
+      { subjectTemplate: 'T08', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T22', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+    ]
+    for (const raw of receders) {
+      const subject = recipeSubjectSchema.parse(raw)
+      expect(sceneForWish(subject), `${raw.subjectTemplate} recedes — animal dropped`).not.toContain(
+        'raven',
+      )
+    }
+  })
+
   it('a wish never reaches the recipe-only fallback when Haiku is unavailable', async () => {
     const wish = 'a cozy cottage by a quiet lake at dawn'
     vi.mocked(fetch).mockRejectedValueOnce(new Error('down'))

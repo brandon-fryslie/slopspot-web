@@ -870,8 +870,12 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
     `a small award ceremony for ${s.abstractConcept}, the empty plinth topped with a brass ${s.animal} finial`,
   T17: (s) =>
     `a still reading-nook with ${indefiniteArticle(s.manMadeObject)} ${s.manMadeObject}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped bookend beside it`,
+  // T18 "secretly a {animal}": the relic must sit in an INTIMATE cluttered workshop — a grand gallery
+  // swallows it. The {animal}-shaped effigy is a SOFT background detail, never forced: pushing it to
+  // render legibly costs the relic, so it lands when the provider cooperates and is harmlessly absent
+  // otherwise. [LAW:carrying-cost] the effigy's intrinsic appeal isn't worth the relic it carries off.
   T18: (s) =>
-    `the workplace of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped effigy among their things`,
+    `the cramped, cluttered workshop of ${indefiniteArticle(s.profession)} ${s.profession}, a small worn ${s.animal}-shaped effigy among the clutter`,
   T25: (s) =>
     `an official ${s.era} portrait hall, the frame holding an oil-finished ${s.animal}-shaped bust`,
   T30: (s) =>
@@ -885,7 +889,12 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
   T02: (s) => `an abandoned room, the residue of ${s.emotion}`,
   T08: (s) => `a quiet study, ${s.abstractConcept} long contemplated`,
   T22: () => `a hushed room, the aftermath`,
-  T29: () => `a cleared, shuttered hall, the residue of being forgotten`,
+  // T29 "captured in the act of FORGETTING" recedes rather than embalming its animal as a faded mural:
+  // a subordinate background motif is unbuildable on the current render stack — it blanks, and forcing
+  // it drops the relic. So the animal drops and the relic lands on a CONCRETE cleared hall (bare and
+  // shuttered, never a void or a mood). The mural idea is parked, not wrong — see the revisit ticket;
+  // [LAW:carrying-cost] the idea survives, the build waits for a stack that holds background detail.
+  T29: () => `a cleared, shuttered hall of bare plaster walls and furniture under dust sheets`,
 }
 
 // [LAW:dataflow-not-control-flow] The per-call dispatch is a single lookup-invoke
