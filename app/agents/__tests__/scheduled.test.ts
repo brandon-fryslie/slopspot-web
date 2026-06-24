@@ -15,10 +15,10 @@
 // reads (the slopspot-observability-gtz path, exercised end-to-end here).
 //
 // Outcomes are emergent, not asserted-into-existence: on a fresh migration-seeded corpus grace is
-// `barren`, first-poet is `no-poet`, the Rite is an `unmoved` day, and birth is `skipped-indistinct`
-// (portrait writes art first, which shifts the midwife into gap-regime — the dispatch ORDER producing a
-// real outcome). We assert the observable outcome, never the internal that produced it.
-// [LAW:behavior-not-structure]
+// `barren`, first-poet is `no-poet`, and the Rite is an `unmoved` day. Birth `born`s a citizen: with
+// the wall full (roll-call-f7n) the portrait pass writes 13 self-portraits first, and that richer
+// taste-landscape gives the midwife a gap to fill — the dispatch ORDER producing a real outcome. We
+// assert the observable outcome, never the internal that produced it. [LAW:behavior-not-structure]
 
 import { env, createScheduledController, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -115,7 +115,10 @@ describe('scheduled - the real 0 3 cron dispatch, in-isolate', () => {
     const counters = await readDurableCounters(devEnv)
 
     // Every ceremony in the registry ran (each emits at least its own outcome metric).
-    expect(named(counters, 'slopspot.portrait.render').length).toBe(3)
+    // The wall is full (roll-call-f7n): 13 medium-having faces render — the 3 makers plus
+    // the 10 critics + scavengers migration 0046 gave a portrait medium. The Gremlin
+    // ('refused') and the Proprietor ('declined') stay off the wall by their data.
+    expect(named(counters, 'slopspot.portrait.render').length).toBe(13)
     expect(named(counters, 'slopspot.rite.outcome')).toHaveLength(1)
     expect(named(counters, 'slopspot.birth.outcome')).toHaveLength(1)
     expect(named(counters, 'slopspot.grace.outcome')).toHaveLength(1)
@@ -151,15 +154,24 @@ describe('scheduled - the real 0 3 cron dispatch, in-isolate', () => {
     const devEnv = { ...env, SLOPSPOT_ENV: 'dev' } as Env
     await remediumToMock(devEnv)
 
+    // [LAW:no-ambient-temporal-coupling] The invariant under test is that the DAY-KEYED ceremonies do
+    // not double-write on a same-scheduledTime re-fire (a retry): birth's per-day citizen id, the Rite's
+    // crowning, the decree, the announce. The portrait pass is NOT day-keyed — it is DRIFT-based, and a
+    // citizen BORN in fire 1 (a generator with a medium, no face yet) is a legitimately-new portrait
+    // target on fire 2, exactly as it would be on the next day's pass. That catch-up is correct, not a
+    // double-write — its own re-fire semantics (the drift guard) live in portrait.test.ts. We skip the
+    // portrait pass here so the day-key idempotency is tested in isolation, not entangled with the
+    // birth→portrait order. (Before the wall filled, birth happened to SKIP, hiding this entirely.)
+    portraitCtl.mode = 'skip'
+
     await fireCron(devEnv)
     const after1 = await rowCounts(devEnv)
 
     await fireCron(devEnv) // same scheduledTime
     const after2 = await rowCounts(devEnv)
 
-    // Each ceremony's day-key / drift guard holds across the dispatch: portrait sees freshly-rendered
-    // faces (not due), birth sees the settled day, the Rite/grace/first-poet their settled keys — so the
-    // re-fire adds zero rows in every table the cron writes. [LAW:no-ambient-temporal-coupling]
+    // Birth sees the settled day, the Rite/grace/first-poet their settled keys — so the re-fire adds
+    // zero rows in every table the cron writes. [LAW:no-ambient-temporal-coupling]
     expect(after2).toEqual(after1)
   })
 

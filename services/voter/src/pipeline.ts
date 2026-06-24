@@ -43,6 +43,14 @@ const voterConfigSchema = z
     // z.unknown so it tolerates the string forms ('declined'/'refused') AND the
     // rendered object the makers' configs carry.
     portrait: z.unknown().optional(),
+    // The citizen's portrait MEDIUM — the provider its self-portrait renders in
+    // (roll-call-f7n). A critic given a face carries `medium` on this VOTER config so
+    // the Worker's portrait pass can render it; the voter does not consume it, but
+    // .strict() would reject the key the moment that face is seeded — the same
+    // cross-service break the creed/portrait admits above prevent (the 0023 precedent).
+    // z.unknown: this boundary tolerates it, never validates it — the registry that
+    // owns provider ids lives in the Worker.
+    medium: z.unknown().optional(),
   })
   .strict()
   .refine((d) => d.downvoteThreshold < d.upvoteThreshold, {
