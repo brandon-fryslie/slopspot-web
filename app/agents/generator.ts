@@ -74,7 +74,11 @@ const aspectRatioBiasSchema = z
 // firehose derives the slop's provider from it; the chooser never picks one.
 // Validated against the registry below (getProvider throws on an unknown id), so
 // a typo'd medium fails loud on first fire, not as a silent wrong-provider post.
-const generatorPersonaConfigSchema = z.object({
+// [LAW:one-source-of-truth] The generator-relevant config FIELDS, defined once and
+// shared by the two parses below. Both the strict write gate and the tolerant
+// authoring view validate a known key to the SAME strength — they differ ONLY in how
+// they treat keys OUTSIDE this set, never in how a known key is checked.
+const generatorConfigShape = {
   medium: z.string(),
   styleFamilyBias: styleFamilyBiasSchema,
   aspectRatioBias: aspectRatioBiasSchema,
@@ -91,7 +95,13 @@ const generatorPersonaConfigSchema = z.object({
   // malformed portrait degrades the FRAME to a placeholder and never fails-loud the
   // firehose. [LAW:locality-or-seam] the portrait cannot break slop generation.
   portrait: z.unknown().optional(),
-}).strict()
+}
+
+// [LAW:single-enforcer] The generator WRITE GATE: a citizen written AS a generator —
+// the midwife's newborn, a migration-seeded maker — carries EXACTLY these keys.
+// .strict() rejects a stray/legacy key (the 0008 `providerBias` footgun) at write /
+// first fire, so a typo'd generator config fails loud rather than silently neutered.
+const generatorPersonaConfigSchema = z.object(generatorConfigShape).strict()
 
 export type GeneratorPersonaConfig = z.infer<typeof generatorPersonaConfigSchema>
 
@@ -103,6 +113,35 @@ export function parseGeneratorConfig(raw: Record<string, unknown>, agentId: stri
   if (!result.success) {
     throw new Error(
       `generator persona ${agentId}: config_json failed validation — ${result.error.message}`,
+    )
+  }
+  return result.data
+}
+
+// [LAW:decomposition] The GENERATION VIEW of ANY citizen — the projection a slop's
+// authoring CONSUMES (medium, biases, voice), validated to the SAME strength as the
+// write gate above. A self-portrait is authored for EVERY citizen who sits for one
+// (roll-call-f7n: the critics and scavengers, not only the makers), and a critic's or
+// scavenger's config legitimately carries keys owned by ANOTHER role boundary — the
+// voter's thresholds, the scavenger's seedUrls. Those keys are validated at THAT
+// boundary [LAW:single-enforcer] and are OUT OF SCOPE here, so this parse tolerates
+// (strips) them rather than asserting the now-false theorem "only generator keys."
+// [LAW:types-are-the-program] the strongest TRUE theorem for authoring is "a valid
+// medium + well-typed steering," not "exactly a generator." NOT .strict(): enumerating
+// every foreign key would cascade this boundary on every voter/discoverer schema change
+// [LAW:locality-or-seam], so the open set is tolerated by construction.
+const authoringConfigSchema = z.object(generatorConfigShape)
+
+// [LAW:single-enforcer] The one parse authorSlop uses to read its steering from a
+// persona of any role. Returns the SAME GeneratorPersonaConfig shape — strip vs strict
+// changes the tolerated input, never the inferred output — so every downstream caller
+// is unchanged. A missing/mistyped `medium` or a bad bias key still fails loud here
+// (the consumed keys keep the write gate's strength); only foreign keys pass through.
+export function parseAuthoringConfig(raw: Record<string, unknown>, agentId: string): GeneratorPersonaConfig {
+  const result = authoringConfigSchema.safeParse(raw)
+  if (!result.success) {
+    throw new Error(
+      `persona ${agentId}: authoring config_json failed validation — ${result.error.message}`,
     )
   }
   return result.data
@@ -167,7 +206,11 @@ export async function authorSlop(
   occasion?: AuthoringOccasion,
 ): Promise<Post> {
   const recent = await getRecentRecipes(env, RECENT_WINDOW)
-  const config = parseGeneratorConfig(persona.config, persona.agentId)
+  // [LAW:decomposition] authorSlop authors for ANY citizen who sits for a self-portrait
+  // (roll-call-f7n), not only generators, so it reads the GENERATION VIEW — the consumed
+  // steering, validated; the persona's own-role keys (a critic's voter thresholds) out of
+  // scope. The strict write gate stays the midwife's birth check; this is the read.
+  const config = parseAuthoringConfig(persona.config, persona.agentId)
 
   // [RECONCILE C] The provider IS the author-persona's medium. getProvider
   // throws UnknownProviderError on a bad medium, so a misconfigured row fails
