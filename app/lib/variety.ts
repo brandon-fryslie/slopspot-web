@@ -871,7 +871,7 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
   T17: (s) =>
     `a still reading-nook with ${indefiniteArticle(s.manMadeObject)} ${s.manMadeObject}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped bookend beside it`,
   T18: (s) =>
-    `the dim workplace of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped effigy half-hidden in the clutter, barely glimpsed`,
+    `the cramped, cluttered workshop of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped effigy tucked on a shelf among the clutter, small and worn but unmistakably the ${s.animal} on a second look`,
   T25: (s) =>
     `an official ${s.era} portrait hall, the frame holding an oil-finished ${s.animal}-shaped bust`,
   T30: (s) =>
@@ -880,10 +880,13 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
     `a coronation dais for an obscure achievement, the empty throne's crest ${indefiniteArticle(s.animal)} ${s.animal}-shaped heraldic device`,
   T38: (s) =>
     `a political chamber, a tarnished ${s.animal}-shaped statue tucked in a niche off the empty floor`,
-  // T29 is "captured in the act of FORGETTING" — embalmed as a faded mural the wall is losing:
-  // the animal survives only as paint peeling off the plaster, the act of forgetting made literal.
+  // T29 is "captured in the act of FORGETTING" — embalmed as a faded mural: the animal survives as a
+  // LARGE wall-painting gone cracked and dim with age, forgetting rendered as fading, NOT erasure. The
+  // motif must stay legible against the now-live g5e foreground clause, which on this low-density scene
+  // otherwise strips the wall to a blank plane (the round-12 re-fire failure this wording counters —
+  // "faded/peeling/half-erased" overshot into gone; "large" + "still legible" is the counter).
   T29: (s) =>
-    `a shuttered hall, a faded ${s.animal} mural peeling and half-erased on the far wall`,
+    `a shuttered hall, a large faded ${s.animal} mural on the far wall, its paint cracked and dimmed but the ${s.animal} still legible`,
   // RECEDE — only an abstract/emotion residue remains; the animal drops and the relic
   // lands in a concrete shuttered PLACE, never a mood.
   T02: (s) => `an abandoned room, the residue of ${s.emotion}`,
