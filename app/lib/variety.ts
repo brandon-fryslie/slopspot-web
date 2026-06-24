@@ -870,10 +870,10 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
     `a small award ceremony for ${s.abstractConcept}, the empty plinth topped with a brass ${s.animal} finial`,
   T17: (s) =>
     `a still reading-nook with ${indefiniteArticle(s.manMadeObject)} ${s.manMadeObject}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped bookend beside it`,
-  // T18 "secretly a {animal}": the must-have is the relic in an INTIMATE cluttered workshop (a grand
-  // gallery swallows the relic — CD-LOCKED on the round-2 re-fire). The {animal}-shaped effigy is a SOFT
-  // background detail, never PUSHED: forcing its legibility cost the relic in the re-fire, so it lands
-  // when sdxl cooperates and is harmlessly absent when it doesn't. [LAW:carrying-cost]
+  // T18 "secretly a {animal}": the relic must sit in an INTIMATE cluttered workshop — a grand gallery
+  // swallows it. The {animal}-shaped effigy is a SOFT background detail, never forced: pushing it to
+  // render legibly costs the relic, so it lands when the provider cooperates and is harmlessly absent
+  // otherwise. [LAW:carrying-cost] the effigy's intrinsic appeal isn't worth the relic it carries off.
   T18: (s) =>
     `the cramped, cluttered workshop of ${indefiniteArticle(s.profession)} ${s.profession}, a small worn ${s.animal}-shaped effigy among the clutter`,
   T25: (s) =>
@@ -889,12 +889,11 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
   T02: (s) => `an abandoned room, the residue of ${s.emotion}`,
   T08: (s) => `a quiet study, ${s.abstractConcept} long contemplated`,
   T22: () => `a hushed room, the aftermath`,
-  // T29 "captured in the act of FORGETTING" recedes: the {animal}-embalm (a faded mural) proved
-  // UNBUILDABLE on the vesper+sdxl+embalmedRelic stack — n=10 across two CD cold re-fires, the
-  // subordinate background motif blanks and forcing it DROPS THE RELIC (parked as a future-revisit;
-  // mechanism folded into the g5e.1 density-thinning watch). So the animal drops and the relic lands on
-  // a CONCRETE cleared hall — bare/shuttered, never a void or a mood. [LAW:carrying-cost] idea survives,
-  // build waits for a stack that holds subordinate background detail.
+  // T29 "captured in the act of FORGETTING" recedes rather than embalming its animal as a faded mural:
+  // a subordinate background motif is unbuildable on the current render stack — it blanks, and forcing
+  // it drops the relic. So the animal drops and the relic lands on a CONCRETE cleared hall (bare and
+  // shuttered, never a void or a mood). The mural idea is parked, not wrong — see the revisit ticket;
+  // [LAW:carrying-cost] the idea survives, the build waits for a stack that holds background detail.
   T29: () => `a cleared, shuttered hall of bare plaster walls and furniture under dust sheets`,
 }
 

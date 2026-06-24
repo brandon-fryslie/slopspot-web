@@ -398,16 +398,13 @@ describe('composePrompt', () => {
     expect(firehoseBody).toContain(`depicting ${renderTemplate(input.subject)}`)
   })
 
-  // move-7 polish (slopspot-well-foundation-3aj.13.1): the final embalm-vs-recede split for the two
-  // templates this ticket touched, settled by two CD cold re-fires. T18 ("secretly a {animal}") EMBALMS
-  // the animal as a soft effigy motif in an intimate workshop. T29 ("captured in the act of forgetting")
-  // RECEDES — its animal-embalm (a faded mural) proved unbuildable on the vesper+sdxl+embalmedRelic
-  // stack (n=10: the subordinate background motif blanks and forcing it drops the relic; parked as a
-  // future-revisit), so the animal drops and the relic lands on a concrete cleared hall. The wording-
-  // invariant signature of embalm-vs-recede is whether the animal VALUE survives in the scene — embalm
-  // keeps it as a motif, recede drops it. This pins the SET membership without coupling to scene wording,
-  // so it survives a re-wording. (The effigy's render legibility is a soft RENDER property judged cold,
-  // never asserted here.) [LAW:behavior-not-structure]
+  // move-7 polish (slopspot-well-foundation-3aj.13.1): the embalm-vs-recede split for the two templates
+  // this ticket touched. T18 ("secretly a {animal}") EMBALMS the animal as an effigy motif; T29
+  // ("captured in the act of forgetting") RECEDES it (the faded-mural embalm was unbuildable on the
+  // render stack — see the rationale at the T29 entry in variety.ts). The wording-invariant signature of
+  // embalm-vs-recede is whether the animal VALUE survives in the scene — embalm keeps it as a motif,
+  // recede drops it — so this pins the SET membership without coupling to scene wording.
+  // [LAW:behavior-not-structure]
   it('move-7 polish: T18 embalms its animal as a soft effigy; T29 recedes (animal dropped)', () => {
     const t18 = recipeSubjectSchema.parse({ subjectTemplate: 'T18', slots: { profession: 'clerk', animal: 'raven' } })
     expect(sceneForWish(t18), 'T18 embalms — animal survives as an effigy motif').toContain('raven')
