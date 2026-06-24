@@ -140,58 +140,89 @@ export default function WellPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-4 py-12">
-      <header className="mb-10">
+    <>
+      {/*
+        THE WELL'S SPACE — page-local atmosphere, the same idiom as the room shell
+        (root.tsx): fixed layers behind content, aria-hidden because they are pure
+        atmosphere with nothing to announce. A: the shaft's depth; B: the uplight
+        rising from the depths. The seal holds here too — nothing in this space names
+        or hints the spirit; the reveal still DAWNS only on the slop's card.
+      */}
+      <div className="well-shaft" aria-hidden="true" />
+      {/*
+        B is the still uplight; C (.well-draw) is the DRAW-UP, bound to the `wishing`
+        phase — the well visibly draws something up exactly WHEN it is drawing one up
+        (the copy says so: "the well is drawing something up…"). [LAW:dataflow-not-control-flow]
+        the motion is a pure function of the phase VALUE, not a decorative loop; idle stays
+        alive on the static uplight alone. CD verdict 2026-06-23: seal holds at every phase
+        (the glow never localizes into a face). Reduced-motion stills .well-draw to its end-state.
+      */}
+      <div
+        className={`well-uplight${wishing ? " well-draw" : ""}`}
+        aria-hidden="true"
+      />
+
+      <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-4 py-12">
         <Link
           to="/"
           className="font-terminal text-xs uppercase tracking-[0.25em] text-ash transition-colors hover:text-bone"
         >
           ← back to the floor
         </Link>
-        <h1 className="mt-6 font-placard text-5xl font-bold leading-none tracking-tight text-bone">
-          The Wishing Well
-        </h1>
-        {/* The Mark's only line: ordinary, atmospheric, non-disclosing. */}
-        <p className="mt-4 font-civic text-sm leading-relaxed text-ash">
-          Describe what you want. Toss it in. Something is always listening.
-        </p>
-      </header>
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <textarea
-          value={wish}
-          onChange={(e) => setWish(e.target.value)}
-          maxLength={WISH_MAX}
-          rows={5}
-          disabled={wishing}
-          autoFocus
-          // A screen-reader name independent of the placeholder (placeholders are not
-          // a reliable accessible name). Non-disclosing — names the field, not the
-          // mechanism — so the Mark's illusion holds for sighted and AT users alike.
-          aria-label="Your wish"
-          placeholder="a lighthouse at the end of the world…"
-          className="block w-full resize-y rounded-md border border-votive/15 bg-panel px-4 py-3 font-civic text-base leading-relaxed text-bone placeholder:text-ash/60 focus:border-votive/50 focus:outline-none disabled:opacity-50"
-        />
+        {/* The mouth of the well — held at the shaft's center, depth above and the
+            uplight rising below, so a wish reads as dropped into something deep. */}
+        <div className="flex flex-1 flex-col justify-center pb-16">
+          <header className="mb-10">
+            <h1 className="font-placard text-5xl font-bold leading-none tracking-tight text-bone">
+              The Wishing Well
+            </h1>
+            {/* The Mark's only line: ordinary, atmospheric, non-disclosing. */}
+            <p className="mt-4 font-civic text-sm leading-relaxed text-ash">
+              Describe what you want. Toss it in. Something is always listening.
+            </p>
+          </header>
 
-        <div className="flex items-center justify-between">
-          <span className="font-terminal text-[11px] text-ash">
-            {wishing ? "the well is drawing something up…" : `${wish.trim().length}/${WISH_MAX}`}
-          </span>
-          <button
-            type="submit"
-            disabled={wishing || wish.trim().length === 0}
-            className="rounded-md border border-votive/30 bg-votive/10 px-5 py-2 font-civic text-sm font-medium uppercase tracking-wider text-votive transition-colors hover:bg-votive/20 disabled:opacity-40"
-          >
-            {wishing ? "Wishing…" : "Make a wish"}
-          </button>
+          <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            <textarea
+              value={wish}
+              onChange={(e) => setWish(e.target.value)}
+              maxLength={WISH_MAX}
+              rows={5}
+              disabled={wishing}
+              autoFocus
+              // A screen-reader name independent of the placeholder (placeholders are not
+              // a reliable accessible name). Non-disclosing — names the field, not the
+              // mechanism — so the Mark's illusion holds for sighted and AT users alike.
+              aria-label="Your wish"
+              placeholder="a lighthouse at the end of the world…"
+              // bg-base (darker than the surrounding panel) + the inset shadow read the box
+              // as an OPENING into the shaft, not a raised card — the well's mouth. Copy and
+              // states are unchanged; this is the box's SPACE, not its contract.
+              className="block w-full resize-y rounded-md border border-votive/15 bg-base px-4 py-3 font-civic text-base leading-relaxed text-bone shadow-[inset_0_2px_22px_rgb(0_0_0_/_0.45)] placeholder:text-ash/60 focus:border-votive/50 focus:outline-none disabled:opacity-50"
+            />
+
+            <div className="flex items-center justify-between">
+              <span className="font-terminal text-[11px] text-ash">
+                {wishing ? "the well is drawing something up…" : `${wish.trim().length}/${WISH_MAX}`}
+              </span>
+              <button
+                type="submit"
+                disabled={wishing || wish.trim().length === 0}
+                className="rounded-md border border-votive/30 bg-votive/10 px-5 py-2 font-civic text-sm font-medium uppercase tracking-wider text-votive transition-colors hover:bg-votive/20 disabled:opacity-40"
+              >
+                {wishing ? "Wishing…" : "Make a wish"}
+              </button>
+            </div>
+
+            {error !== null && (
+              <p className="rounded-md border border-profane/30 bg-profane/5 px-4 py-2 font-terminal text-[12px] text-profane">
+                {error}
+              </p>
+            )}
+          </form>
         </div>
-
-        {error !== null && (
-          <p className="rounded-md border border-profane/30 bg-profane/5 px-4 py-2 font-terminal text-[12px] text-profane">
-            {error}
-          </p>
-        )}
-      </form>
-    </main>
+      </main>
+    </>
   )
 }
