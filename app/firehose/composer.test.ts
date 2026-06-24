@@ -398,6 +398,31 @@ describe('composePrompt', () => {
     expect(firehoseBody).toContain(`depicting ${renderTemplate(input.subject)}`)
   })
 
+  // move-7 polish (slopspot-well-foundation-3aj.13.1): T29 ("captured in the act of forgetting") was a
+  // pure RECEDE that DROPPED the animal; the CD's ratified reading embalms it as a faded mural instead.
+  // The wording-invariant signature of embalm-vs-recede is whether the animal VALUE survives in the
+  // scene — embalm keeps it as an inanimate motif, recede drops it entirely. This pins T29's SET
+  // membership (now embalm) against the genuine receders (T02/T08/T22) without coupling to any scene
+  // wording, so it survives a CD rewording. (The concealed-vs-prominent quality of T18's effigy is a
+  // RENDER property, not a text property — it is judged at the CD cold re-fire, not asserted here.)
+  // [LAW:behavior-not-structure]
+  it('move-7 polish: T29 embalms its animal as a motif; T02/T08/T22 still recede (animal dropped)', () => {
+    const t29 = recipeSubjectSchema.parse({ subjectTemplate: 'T29', slots: { animal: 'raven' } })
+    expect(sceneForWish(t29), 'T29 now embalms — animal survives as a motif').toContain('raven')
+
+    const receders = [
+      { subjectTemplate: 'T02', slots: { animal: 'raven', emotion: 'grief' } },
+      { subjectTemplate: 'T08', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T22', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+    ]
+    for (const raw of receders) {
+      const subject = recipeSubjectSchema.parse(raw)
+      expect(sceneForWish(subject), `${raw.subjectTemplate} recedes — animal dropped`).not.toContain(
+        'raven',
+      )
+    }
+  })
+
   it('a wish never reaches the recipe-only fallback when Haiku is unavailable', async () => {
     const wish = 'a cozy cottage by a quiet lake at dawn'
     vi.mocked(fetch).mockRejectedValueOnce(new Error('down'))

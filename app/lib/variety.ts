@@ -851,16 +851,16 @@ type AnimalWishSceneBuilders = {
 // CD-BLESSED scene mapping — slopspot-well-foundation-3aj.13 (round-12 verdict).
 // The structure (type-keyed dispatch, exhaustive Record, embalm-vs-recede split) and
 // these strings are blessed with four refinements baked in:
-//  (1) the 8 EMBALM scenes: the wished creature is the embalmed/petrified relic in the
+//  (1) the 9 EMBALM scenes: the wished creature is the embalmed/petrified relic in the
 //      scene; the template-animal survives only as an inanimate motif of the setting.
-//  (2) the 4 RECEDE scenes (T02/T08/T22/T29) DROP the animal but land the relic in a
+//  (2) the 3 RECEDE scenes (T02/T08/T22) DROP the animal but land the relic in a
 //      real PLACE — a room, not a mood/fog. An under-specified scene lets the relic
 //      dissolve, so each names a concrete shuttered interior.
 //  (3) the template-animal becomes an OBJECT / FIXTURE, never a second SPECIMEN —
 //      subordinate and small. The WISHED creature is the ONLY embalmed-creature-relic.
 //  (4) the inanimate form is BREADTH-VARIED across templates so the feed does not
 //      rhyme: fixture / finial / bookend / effigy / bust / weathervane / heraldic
-//      device / statue — eight distinct motifs, none reused.
+//      device / statue / faded mural — nine distinct motifs, none reused.
 // "Keep the world, petrify-or-drop the actor."
 const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
   // EMBALM — a concrete world/occasion survives; the animal is a small inanimate motif.
@@ -871,7 +871,7 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
   T17: (s) =>
     `a still reading-nook with ${indefiniteArticle(s.manMadeObject)} ${s.manMadeObject}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped bookend beside it`,
   T18: (s) =>
-    `the workplace of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped effigy among their things`,
+    `the dim workplace of ${indefiniteArticle(s.profession)} ${s.profession}, ${indefiniteArticle(s.animal)} ${s.animal}-shaped effigy half-hidden in the clutter, barely glimpsed`,
   T25: (s) =>
     `an official ${s.era} portrait hall, the frame holding an oil-finished ${s.animal}-shaped bust`,
   T30: (s) =>
@@ -880,12 +880,15 @@ const WISH_ANIMAL_SCENES: AnimalWishSceneBuilders = {
     `a coronation dais for an obscure achievement, the empty throne's crest ${indefiniteArticle(s.animal)} ${s.animal}-shaped heraldic device`,
   T38: (s) =>
     `a political chamber, a tarnished ${s.animal}-shaped statue tucked in a niche off the empty floor`,
+  // T29 is "captured in the act of FORGETTING" — embalmed as a faded mural the wall is losing:
+  // the animal survives only as paint peeling off the plaster, the act of forgetting made literal.
+  T29: (s) =>
+    `a shuttered hall, a faded ${s.animal} mural peeling and half-erased on the far wall`,
   // RECEDE — only an abstract/emotion residue remains; the animal drops and the relic
   // lands in a concrete shuttered PLACE, never a mood.
   T02: (s) => `an abandoned room, the residue of ${s.emotion}`,
   T08: (s) => `a quiet study, ${s.abstractConcept} long contemplated`,
   T22: () => `a hushed room, the aftermath`,
-  T29: () => `a cleared, shuttered hall, the residue of being forgotten`,
 }
 
 // [LAW:dataflow-not-control-flow] The per-call dispatch is a single lookup-invoke
