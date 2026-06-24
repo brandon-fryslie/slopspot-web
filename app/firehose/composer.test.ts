@@ -55,9 +55,17 @@ function jsonResponse(title: string, prompt: string): Response {
 }
 
 function expectedFallback(input: ComposerInput) {
+  // Independently mirror the composer's depiction seam: a wish renders the embalmed/receded
+  // SCENE (sceneForWish), otherwise the raw recipe template. Because the Haiku-down fallback
+  // reads the same depiction value, the wish's no-live-creature invariant (move-7) holds on the
+  // FAILURE path too — not only when Haiku succeeds (3aj.13.2). For a non-animal template
+  // sceneForWish === renderTemplate, so the non-wish callers are byte-for-byte unchanged.
+  const depiction =
+    input.occasion?.kind === 'wish' ? sceneForWish(input.subject) : renderTemplate(input.subject)
+  const styleSeed = STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]
   const raw = input.promptPrefix
-    ? `${input.promptPrefix}, ${renderTemplate(input.subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]}`
-    : `${renderTemplate(input.subject)}, ${STYLE_FAMILY_PROMPT_SEEDS[input.styleFamily]}`
+    ? `${input.promptPrefix}, ${depiction}, ${styleSeed}`
+    : `${depiction}, ${styleSeed}`
   // Mirror the composer: the fallback prompt respects maxLength too, not only the
   // Haiku-success path.
   const prompt =
@@ -434,6 +442,50 @@ describe('composePrompt', () => {
     // the fallback is recipe-only, so the human's words cannot leak verbatim.
     expect(result.prompt).not.toContain(wish)
     expect(result).toEqual(expectedFallback(input))
+  })
+
+  // [LAW:behavior-not-structure] move-7's invariant (a creature recipe-subject can never reach the
+  // render as a LIVING co-subject) was previously verified ONLY on the Haiku-success path (the test
+  // above on the meta-prompt body). On a Haiku OUTAGE the recipe-only fallback authored the depiction
+  // from renderTemplate — the RAW live-actor phrase — silently re-opening the menagerie precisely when
+  // the system is already degraded (3aj.13.2). The fix routes the wish fallback depiction through
+  // sceneForWish too. This pins the WIRING property on the composed FALLBACK output (not the body),
+  // wording-invariant: the raw live-actor phrase is absent, the embalmed/receded scene is what reaches
+  // the prompt — the same two legal outcomes as the success-path sibling above.
+  it('a Haiku outage still never lets an {animal} recipe-subject reach the fallback as a live co-creature', async () => {
+    const animalSubjects = [
+      { subjectTemplate: 'T01', slots: { animal: 'raven', profession: 'clerk' } },
+      { subjectTemplate: 'T02', slots: { animal: 'raven', emotion: 'grief' } },
+      { subjectTemplate: 'T08', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T14', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T17', slots: { animal: 'raven', manMadeObject: 'ledger' } },
+      { subjectTemplate: 'T18', slots: { profession: 'clerk', animal: 'raven' } },
+      { subjectTemplate: 'T22', slots: { animal: 'raven', abstractConcept: 'bureaucracy' } },
+      { subjectTemplate: 'T25', slots: { era: 'Victorian', animal: 'raven' } },
+      { subjectTemplate: 'T29', slots: { animal: 'raven' } },
+      { subjectTemplate: 'T30', slots: { profession: 'clerk', animal: 'raven' } },
+      { subjectTemplate: 'T33', slots: { animal: 'raven' } },
+      { subjectTemplate: 'T38', slots: { animal: 'raven' } },
+    ]
+
+    for (const raw of animalSubjects) {
+      const subject = recipeSubjectSchema.parse(raw)
+      vi.mocked(fetch).mockRejectedValueOnce(new Error('down'))
+
+      const result = await composePrompt(
+        makeInput({ subject, occasion: { kind: 'wish', wish: 'a cat' } }),
+        mockEnv('test-key'),
+      )
+
+      // The raw LIVE-actor render ("a raven working as a clerk") never reaches the fallback prompt.
+      expect(result.prompt, `${raw.subjectTemplate}: raw live-actor phrase absent from fallback`).not.toContain(
+        renderTemplate(subject),
+      )
+      // The embalmed/receded scene IS what the degraded fallback renders.
+      expect(result.prompt, `${raw.subjectTemplate}: transformed scene present in fallback`).toContain(
+        sceneForWish(subject),
+      )
+    }
   })
 
   it('caps an over-long wish before embedding it in the Haiku request', async () => {
