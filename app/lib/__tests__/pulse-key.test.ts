@@ -7,7 +7,9 @@ import { describe, expect, it } from "vitest"
 import type { PulseEvent } from "~/db/pulse"
 import { pulseEventKey } from "~/lib/pulse-key"
 
-const ev = (e: Partial<PulseEvent> & { kind: PulseEvent["kind"] }) => e as unknown as PulseEvent
+// The fixtures carry plain-string ids where the domain brands them (PostId); the cast is the test
+// boundary asserting "this is a Pulse event shape", not a production launder.
+const ev = (e: Record<string, unknown>): PulseEvent => e as unknown as PulseEvent
 
 describe("pulseEventKey", () => {
   it("distinguishes two citizens blessing the SAME post at the SAME ts (the dropped-event bug)", () => {
