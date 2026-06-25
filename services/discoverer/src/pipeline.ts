@@ -34,6 +34,14 @@ const personaConfigSchema = z
     // cross-service break the creed admit above prevents. z.unknown so it tolerates
     // both the string forms ('declined'/'refused') and the rendered object.
     portrait: z.unknown().optional(),
+    // The citizen's portrait MEDIUM — the provider its self-portrait renders in
+    // (roll-call-f7n). A scavenger given a face carries `medium` on this DISCOVERER
+    // config so the Worker's portrait pass can render it; the discoverer does not
+    // consume it, but .strict() would reject the key the moment that face is seeded —
+    // exactly the scavenger case the portrait admit above already anticipated. z.unknown:
+    // this boundary tolerates it, never validates it — the provider registry lives in
+    // the Worker.
+    medium: z.unknown().optional(),
   })
   .strict()
 
