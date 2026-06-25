@@ -21,7 +21,11 @@ jobs:
       - name: Set up SSH deploy key for Gitea
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.GITEA_DEPLOY_KEY }}" > ~/.ssh/gitea_deploy
+          # [FRAMING:representation] The key is stored base64-encoded (single line) and
+          # decoded here — a multi-line OpenSSH private key passed raw through a secret +
+          # `echo` mangles into an invalid key (the silent auth failure that froze this
+          # sync). base64 carries it as opaque bytes until this one decode.
+          echo "${{ secrets.GITEA_DEPLOY_KEY }}" | base64 -d > ~/.ssh/gitea_deploy
           chmod 600 ~/.ssh/gitea_deploy
           # [LAW:one-source-of-truth] Host key pinned from ssh-keyscan at setup time —
           # the one place the Gitea host identity is declared; CI never accepts a TOFU
@@ -39,4 +43,8 @@ jobs:
       - name: Push master to Gitea
         run: |
           git remote add gitea ssh://git@gitea.sanctuary.gdn:2222/brandon-fryslie/slopspot-web.git
-          git push gitea HEAD:master
+          # [LAW:one-source-of-truth] GitHub is authoritative; Gitea is a derived mirror.
+          # Force so the mirror always reflects GitHub — a non-force push silently REJECTS
+          # the moment anything is committed directly to Gitea (which froze this sync for
+          # ~10 days). Never commit to the Gitea mirror; this push reasserts GitHub as truth.
+          git push --force gitea HEAD:master
