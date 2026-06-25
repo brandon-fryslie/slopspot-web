@@ -1,6 +1,17 @@
-# Builds and pushes the slopspot-voter Docker image to the homelab registry.
-# Triggers on any change under services/voter/. The Nomad periodic job pulls
-# :latest on each alloc start — no tag management needed for a batch job.
+# Builds, pushes, and DECLARES the slopspot-voter image for deployment.
+#
+# [LAW:no-silent-failure] This used to only `docker push :latest` and stop — but the
+# voter Nomad job pins an immutable ${var.image_tag} (no force_pull), so a fresh
+# :latest never reached the running job: a services/voter change LOOKED deployed but
+# silently no-op'd, freezing prod at the last hand-bootstrapped tag (2026.06.23.13).
+# This wires the GitOps deploy contract (home-infra docs/service-versions.md):
+#   build at a dated YYYY.MM.DD.N tag -> push -> declare that tag via a PR against
+#   home-infra's service-versions contract -> Atlantis plans -> a human merge rolls it.
+# CI never touches Nomad; the contract PR is the single surface from build to deploy.
+#
+# REQUIRES the repo Actions secret DEPLOY_GITEA_TOKEN (the shared `ci`-owned,
+# write:repository-scoped Gitea token from Vault secret/gitea-users:deploy_token) so
+# update-service-version can open the home-infra PR. See home-infra docs/service-versions.md.
 
 name: voter-docker-build
 
@@ -22,7 +33,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # home-infra's own composite actions MUST be referenced by full URL — a bare
+      # `uses:` resolves against github.com and fails (see the action README).
+      - name: Generate image tag
+        id: tag
+        uses: https://gitea.sanctuary.gdn/brandon-fryslie/homelab-infra/.gitea/actions/gen-image-tag@master
+
+      # The dated tag is the version record the job pins; :latest stays for break-glass
+      # (`nomad job run` with no -var) and the smoke-prober-style force_pull consumers.
       - name: Build and push
         run: |
-          docker build -t "${{ env.IMAGE }}:latest" services/voter/
+          docker build \
+            -t "${{ env.IMAGE }}:${{ steps.tag.outputs.image-tag }}" \
+            -t "${{ env.IMAGE }}:latest" \
+            services/voter/
+          docker push "${{ env.IMAGE }}:${{ steps.tag.outputs.image-tag }}"
           docker push "${{ env.IMAGE }}:latest"
+
+      - name: Declare deploy
+        uses: https://gitea.sanctuary.gdn/brandon-fryslie/homelab-infra/.gitea/actions/update-service-version@master
+        with:
+          versions: '{"slopspot-voter": "${{ steps.tag.outputs.image-tag }}"}'
+          token: ${{ secrets.DEPLOY_GITEA_TOKEN }}
