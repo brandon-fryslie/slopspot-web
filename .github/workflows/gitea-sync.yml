@@ -40,6 +40,11 @@ jobs:
             IdentitiesOnly yes
           EOF
 
+      - name: Join tailnet
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
       - name: Push master to Gitea
         run: |
           git remote add gitea ssh://git@gitea.sanctuary.gdn:2222/brandon-fryslie/slopspot-web.git
