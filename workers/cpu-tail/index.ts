@@ -12,8 +12,15 @@ import { nowNs, pushLines, toInfluxLine } from './push'
 import { samplesForItem } from './sample'
 
 type TailEnv = {
-  // Mirrors the homelab jobs' VICTORIA_METRICS_ENDPOINT — the full :8428/write URL.
+  // The full public InfluxDB-line write URL: https://vm-ingest.sanctuary.gdn/write
+  // (the Cloudflare-Tunnel ingress fronting VM). A `var` in wrangler.jsonc.
   VICTORIA_METRICS_ENDPOINT: string
+  // [LAW:single-enforcer] The Cloudflare Access service-token pair — WORKER SECRETS
+  // (`wrangler secret put`), NOT vars. Cloudflare Access validates these at the edge
+  // BEFORE the request enters the tunnel; VM itself stays internally auth-less. This
+  // is the one authentication enforcer on the public write boundary.
+  CF_ACCESS_CLIENT_ID: string
+  CF_ACCESS_CLIENT_SECRET: string
 }
 
 export default {
@@ -25,6 +32,9 @@ export default {
     // An all-event-null / empty batch yields no lines; pushing an empty body would be a
     // wasted subrequest, so the dataflow naturally short-circuits on the empty list.
     if (lines.length === 0) return
-    await pushLines(env.VICTORIA_METRICS_ENDPOINT, lines)
+    await pushLines(env.VICTORIA_METRICS_ENDPOINT, lines, {
+      'CF-Access-Client-Id': env.CF_ACCESS_CLIENT_ID,
+      'CF-Access-Client-Secret': env.CF_ACCESS_CLIENT_SECRET,
+    })
   },
 } satisfies ExportedHandler<TailEnv>
