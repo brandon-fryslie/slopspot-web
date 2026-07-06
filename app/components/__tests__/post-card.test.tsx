@@ -209,3 +209,94 @@ describe('app/components/post-card.tsx - lineage scalars (gen N / N bred)', () =
     expect(html).not.toMatch(/\d+ bred/)
   })
 })
+
+// [LAW:behavior-not-structure] The feed→object click target (slopspot-post-detail-sei.1). A
+// card hung as a PREVIEW (any frame but standalone) opens its /p/:id object through obvious,
+// keyboard-reachable doors; the STANDALONE permalink — the object itself — links to nothing.
+// The affordance is DERIVED from the frame viewpoint, so these pin the emitted href, not internals.
+describe('app/components/post-card.tsx - post-detail click target', () => {
+  const gen = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'authored', author: { kind: 'agent', agentId: AgentId('agent:maker') } },
+      content: {
+        kind: 'generation',
+        title: 'A Placard Title',
+        genome: {
+          id: GenomeId(id),
+          genes: { species: 'photoreal', form: { subjectTemplate: 'T00', slots: { freeText: 'x' } }, frame: '1:1', medium: ProviderId('fal-flux') },
+          utterance: 'a prompt',
+          traits: NEUTRAL_TRAITS,
+          lineage: { kind: 'founder' },
+        },
+        render: { providerVersion: '1', params: {} },
+        status: { kind: 'succeeded', output: { kind: 'image', url: '/media/relic-image', w: 1, h: 1 }, completedAt: new Date('2026-01-01T00:00:00Z') },
+      },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  const found = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'found', finder: { kind: 'agent', agentId: AgentId('agent:scout') } },
+      content: {
+        kind: 'found',
+        url: 'https://example.com/original-slop',
+        title: 'A Found Slop',
+        thumbnail: { kind: 'image', url: '/media/thumb', w: 1, h: 1 },
+      },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  it('a PREVIEW generation card opens its /p/:id object (relic + placard), keyboard-reachable', () => {
+    const html = renderToStaticMarkup(<PostCard {...gen('sei-gen')} frame={{ kind: 'study' }} />)
+    // Both textual/visual doors point at the object; the relic link carries an accessible name
+    // and a visible cue so pointer AND keyboard users can find it.
+    expect(html).toContain('href="/p/sei-gen"')
+    expect(html).toContain('aria-label="open this slop"')
+    expect(html).toContain('open ↗')
+  })
+
+  it('the STANDALONE permalink card never links to itself — the object is not a preview', () => {
+    const html = renderToStaticMarkup(<PostCard {...gen('sei-gen')} frame={{ kind: 'standalone' }} />)
+    expect(html).not.toContain('href="/p/sei-gen"')
+    expect(html).not.toContain('aria-label="open this slop"')
+    // The placard still renders — only its LINK is gone, the title text is unchanged.
+    expect(html).toContain('A Placard Title')
+  })
+
+  it('the detail door does not steal the card’s own controls — vote and fork still act', () => {
+    const html = renderToStaticMarkup(<PostCard {...gen('sei-gen')} frame={{ kind: 'study' }} />)
+    // Existing controls remain their own separate targets (not swallowed by the detail link).
+    expect(html).toContain('aria-label="upvote"')
+    expect(html).toContain('href="/fork/sei-gen"')
+  })
+
+  it('a found preview keeps its relic OUTBOUND; its detail door is the permalink timestamp', () => {
+    const html = renderToStaticMarkup(<PostCard {...found('sei-found')} frame={{ kind: 'study' }} />)
+    // The relic (thumbnail + title) links to the source — a link-post's whole purpose — NOT to /p/:id.
+    expect(html).toContain('href="https://example.com/original-slop"')
+    // The object is still reachable: the timestamp is the found card's detail door.
+    expect(html).toContain('href="/p/sei-found"')
+    // Found's relic is NOT re-wrapped in the object anchor.
+    expect(html).not.toContain('aria-label="open this slop"')
+  })
+})
