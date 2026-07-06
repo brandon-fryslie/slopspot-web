@@ -9,6 +9,7 @@ import {
   ForkLink,
   BreedLink,
   LineageStatBadge,
+  PlacardTitle,
   RecipeDrawer,
   relativeTime,
   SignedRemark,
@@ -75,9 +76,7 @@ export function PostDetail({
               the title is guaranteed on that arm. On the object it is plain text at page scale (the
               biggest thing on the label), never a self-link. */}
           {post.content.kind === "generation" && (
-            <h2 className="font-placard text-3xl font-black leading-tight text-bone sm:text-4xl">
-              {post.content.title}
-            </h2>
+            <PlacardTitle className="text-3xl font-black sm:text-4xl">{post.content.title}</PlacardTitle>
           )}
           <Byline origin={post.origin} viewerIsModifier={viewerIsModifier} />
           {/* [LAW:dataflow-not-control-flow] The wish-gap + signed remark render iff the snapshot is
