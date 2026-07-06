@@ -33,8 +33,6 @@ describe('app/components/post-detail.tsx - the object page', () => {
     myVote: null,
     commentCount: 3,
     viewerIsModifier: false,
-    verdicts: [],
-    exchange: [],
     generationDepth: 0,
     descendantCount: 0,
   })
@@ -50,8 +48,6 @@ describe('app/components/post-detail.tsx - the object page', () => {
     myVote: null,
     commentCount: 0,
     viewerIsModifier: false,
-    verdicts: [],
-    exchange: [],
     generationDepth: 0,
     descendantCount: 0,
   })
@@ -72,8 +68,6 @@ describe('app/components/post-detail.tsx - the object page', () => {
     myVote: null,
     commentCount: 0,
     viewerIsModifier: false,
-    verdicts: [],
-    exchange: [],
     generationDepth: 0,
     descendantCount: 0,
   })

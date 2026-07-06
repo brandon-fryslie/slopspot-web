@@ -12,7 +12,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { env } from 'cloudflare:test'
-import { getFeedPage, getFeedItemById, getFeedItemsByIds, getPostById } from '~/db/feed'
+import { getFeedPage, getFeedItemById, getFeedItemsByIds, getPostById, shareVerdictForPost } from '~/db/feed'
+import { verdictsForPosts } from '~/db/utterances'
 import {
   AgentId,
   PostId,
@@ -825,12 +826,16 @@ describe('app/db/feed.ts - getPostById', () => {
 
 
 // [LAW:behavior-not-structure] The verdict CONTRACT under the Voice layer (voice-w2v.1): a critic's
-// SPOKEN verdict utterance (the utterances store, NOT votes.reasoning) renders as a bylined line in the
-// feed, with the disposition derived from the vote it narrates; co-present verdicts on one slop surface
-// together (the feud germ); a withheld verdict is recorded but shows no line; a nameless critic is
-// excluded. Blind to verdictsForPosts' decomposition.
-describe('app/db/feed.ts - verdict (voice layer)', () => {
-  it('renders a spoke verdict utterance as a bylined line; disposition from the vote it narrates', async () => {
+// SPOKEN verdict utterance (the utterances store, NOT votes.reasoning) resolves to a bylined line, with
+// the disposition derived from the vote it narrates; co-present verdicts on one slop surface together
+// (the feud germ); a withheld verdict is recorded but yields no line; a nameless critic is excluded.
+// Tested at verdictsForPosts — the ONE reader that owns this derivation — NOT through the feed, which
+// no longer hydrates verdicts (8q9.6): the argument lives in the comment thread, and the sole remaining
+// verdict surface is the permalink's share tag (shareVerdictForPost).
+describe('app/db/utterances.ts - verdictsForPosts (voice layer)', () => {
+  const verdictsFor = async (id: string) => (await verdictsForPosts(db(env), [id])).get(id) ?? []
+
+  it('resolves a spoke verdict utterance to a bylined line; disposition from the vote it narrates', async () => {
     await seedCritic('agent:vivian', 'St. Vivian')
     const id = await seedPost(env, { id: 'post-verdict', createdAt: ms(1000) })
     await seedVote(env, { postId: id, voterId: 'agent:vivian', value: 1 })
@@ -840,8 +845,7 @@ describe('app/db/feed.ts - verdict (voice layer)', () => {
       text: 'Four steps and it still found the void. Devastating. I wept.',
     })
 
-    const [item] = await feedItems()
-    expect(item.verdicts).toEqual([
+    expect(await verdictsFor(id)).toEqual([
       {
         critic: 'St. Vivian',
         text: 'Four steps and it still found the void. Devastating. I wept.',
@@ -860,9 +864,8 @@ describe('app/db/feed.ts - verdict (voice layer)', () => {
     await seedVote(env, { postId: buried, voterId: 'agent:gremlin', value: -1 })
     await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: buried, text: 'Buried.' })
 
-    const items = await feedItems()
-    expect(items.find((i) => i.post.id === blessed)?.verdicts[0]?.disposition).toBe('blessed')
-    expect(items.find((i) => i.post.id === buried)?.verdicts[0]?.disposition).toBe('buried')
+    expect((await verdictsFor(blessed))[0]?.disposition).toBe('blessed')
+    expect((await verdictsFor(buried))[0]?.disposition).toBe('buried')
   })
 
   it('CO-PRESENCE: two critics on one slop surface side by side (the feud germ)', async () => {
@@ -875,35 +878,32 @@ describe('app/db/feed.ts - verdict (voice layer)', () => {
     await seedVote(env, { postId: id, voterId: 'agent:vivian', value: 1 })
     await seedUtterance(env, { speaker: 'agent:vivian', targetPostId: id, text: 'Holy. Blessed.', createdAt: ms(3000) })
 
-    const [item] = await feedItems()
-    // [LAW:types-are-the-program] Pin the ORDER directly (no .sort()) — RenderablePost.verdicts is
-    // NEWEST-FIRST, and .2's Feud Engine inherits that order, so the contract must have teeth. Vivian's
-    // blessing (ms 3000) is newer than the Gremlin's burial (ms 2000), so it leads; both dispositions
-    // present is the visual collision the co-presence is for.
-    expect(item.verdicts).toEqual([
+    // [LAW:types-are-the-program] Pin the ORDER directly (no .sort()) — verdictsForPosts is NEWEST-FIRST,
+    // and .2's Feud Engine inherits that order, so the contract must have teeth. Vivian's blessing (ms
+    // 3000) is newer than the Gremlin's burial (ms 2000), so it leads; both dispositions present is the
+    // visual collision the co-presence is for.
+    expect(await verdictsFor(id)).toEqual([
       { critic: 'St. Vivian', text: 'Holy. Blessed.', disposition: 'blessed' },
       { critic: 'The Gremlin', text: 'Mid. Buried.', disposition: 'buried' },
     ])
   })
 
   it('a slop with no utterance has an empty verdicts array (no critic spoke)', async () => {
-    await seedPost(env, { id: 'post-no-verdict', createdAt: ms(1000) })
+    const id = await seedPost(env, { id: 'post-no-verdict', createdAt: ms(1000) })
     // A human anon vote (no persona, no utterance) mints no verdict.
-    await seedVote(env, { postId: PostId('post-no-verdict'), voterId: 'anon-cookie', value: 1 })
+    await seedVote(env, { postId: id, voterId: 'anon-cookie', value: 1 })
 
-    const [item] = await feedItems()
-    expect(item.verdicts).toEqual([])
+    expect(await verdictsFor(id)).toEqual([])
   })
 
-  it('a WITHHELD verdict is recorded but renders no line (silence, not a blank)', async () => {
+  it('a WITHHELD verdict is recorded but yields no line (silence, not a blank)', async () => {
     await seedCritic('agent:gremlin', 'The Gremlin')
     const id = await seedPost(env, { id: 'post-withheld', createdAt: ms(1000) })
     await seedVote(env, { postId: id, voterId: 'agent:gremlin', value: -1 })
     // The critic voted but withheld a line (beneath comment) — recorded, but no rendered verdict.
     await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: id, withheldReason: 'beneath-comment' })
 
-    const [item] = await feedItems()
-    expect(item.verdicts).toEqual([])
+    expect(await verdictsFor(id)).toEqual([])
   })
 
   it('excludes a verdict whose critic displayName is blank — no bylineless line', async () => {
@@ -912,8 +912,7 @@ describe('app/db/feed.ts - verdict (voice layer)', () => {
     await seedVote(env, { postId: id, voterId: 'agent:nameless', value: 1 })
     await seedUtterance(env, { speaker: 'agent:nameless', targetPostId: id, text: 'A line with no one to sign it.' })
 
-    const [item] = await feedItems()
-    expect(item.verdicts).toEqual([])
+    expect(await verdictsFor(id)).toEqual([])
   })
 
   it('trims surrounding whitespace from the verdict text and the critic byline', async () => {
@@ -922,20 +921,50 @@ describe('app/db/feed.ts - verdict (voice layer)', () => {
     await seedVote(env, { postId: id, voterId: 'agent:padded', value: -1 })
     await seedUtterance(env, { speaker: 'agent:padded', targetPostId: id, text: '   Buried.   ' })
 
-    const [item] = await feedItems()
-    expect(item.verdicts[0]).toEqual({ critic: 'The Gremlin', text: 'Buried.', disposition: 'buried' })
+    expect((await verdictsFor(id))[0]).toEqual({ critic: 'The Gremlin', text: 'Buried.', disposition: 'buried' })
   })
+})
 
-  it('attaches verdicts on the permalink reader (getFeedItemById) too', async () => {
+// [LAW:behavior-not-structure] The permalink's share verdict (8q9.6): the ONE surface that still reads a
+// critic's spoken line — og:description shares a slop under its hottest (newest) take, or falls back to
+// the byline (undefined) when no critic spoke. A cold-path, single-post read, decoupled from the feed slab.
+describe('app/db/feed.ts - shareVerdictForPost (permalink share tag)', () => {
+  it('returns the FIRST (hottest) verdict for a judged slop', async () => {
     await seedCritic('agent:gremlin', 'The Gremlin')
-    const id = await seedPost(env, { id: 'post-permalink-verdict', createdAt: ms(1000) })
+    const id = await seedPost(env, { id: 'post-share-verdict', createdAt: ms(1000) })
     await seedVote(env, { postId: id, voterId: 'agent:gremlin', value: -1 })
     await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: id, text: 'Another forest. The trees won. Buried.' })
 
-    const item = await getFeedItemById(env, id)
-    expect(item?.verdicts).toEqual([
-      { critic: 'The Gremlin', text: 'Another forest. The trees won. Buried.', disposition: 'buried' },
-    ])
+    expect(await shareVerdictForPost(env, id)).toEqual({
+      critic: 'The Gremlin',
+      text: 'Another forest. The trees won. Buried.',
+      disposition: 'buried',
+    })
+  })
+
+  it('returns undefined when no critic spoke (share falls back to the byline)', async () => {
+    const id = await seedPost(env, { id: 'post-share-noverdict', createdAt: ms(1000) })
+    expect(await shareVerdictForPost(env, id)).toBeUndefined()
+  })
+
+  it('picks the NEWEST take when two critics spoke — the "hottest" share verdict', async () => {
+    // [LAW:behavior-not-structure] shareVerdictForPost promises the HOTTEST take; it takes verdicts[0]
+    // trusting verdictsForPosts' newest-first order. Pin that promise HERE, at the function that makes
+    // it: if that order ever inverted, the share tag would silently describe a slop under its OLDEST take.
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    await seedCritic('agent:vivian', 'St. Vivian')
+    const id = await seedPost(env, { id: 'post-share-two', createdAt: ms(1000) })
+    await seedVote(env, { postId: id, voterId: 'agent:gremlin', value: -1 })
+    await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: id, text: 'Buried it first.', createdAt: ms(2000) })
+    await seedVote(env, { postId: id, voterId: 'agent:vivian', value: 1 })
+    await seedUtterance(env, { speaker: 'agent:vivian', targetPostId: id, text: 'Blessed it later.', createdAt: ms(3000) })
+
+    // Vivian's blessing (ms 3000) is newer than the Gremlin's burial (ms 2000), so it is the share take.
+    expect(await shareVerdictForPost(env, id)).toEqual({
+      critic: 'St. Vivian',
+      text: 'Blessed it later.',
+      disposition: 'blessed',
+    })
   })
 })
 

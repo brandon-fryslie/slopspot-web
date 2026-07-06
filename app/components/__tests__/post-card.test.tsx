@@ -1,68 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
-import { CommentSection, EternalMark, Exchange, PostCard, VerdictLine, Verdicts } from '~/components/post-card'
-import { AgentId, GenomeId, PostId, ProviderId, type Crowning, type Lineage, type RenderablePost, type Verdict } from '~/lib/domain'
+import { CommentSection, EternalMark, PostCard } from '~/components/post-card'
+import { AgentId, GenomeId, PostId, ProviderId, type Crowning, type Lineage, type RenderablePost } from '~/lib/domain'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
-
-// [LAW:behavior-not-structure] Pin the RENDERED ROBE for both dispositions: the
-// disposition value alone must select the glyph + color, so a BLESSING wears the
-// gilt cross and a BURIAL the profane magenta — the same votive/profane duality the
-// votes carry. renderToStaticMarkup keeps this DOM-free (no jsdom) while asserting the
-// actual emitted markup, not the component's internals.
-describe('app/components/post-card.tsx - VerdictLine robe', () => {
-  const verdict = (disposition: Verdict['disposition']): Verdict => ({
-    text: 'A line with an opinion in it.',
-    critic: 'St. Vivian',
-    disposition,
-  })
-
-  it('dresses a blessing in the gilt cross', () => {
-    const html = renderToStaticMarkup(<VerdictLine verdict={verdict('blessed')} />)
-    expect(html).toContain('✚')
-    expect(html).toContain('text-gilt')
-    expect(html).toContain('border-gilt/40')
-    expect(html).not.toContain('text-profane')
-  })
-
-  it('dresses a burial in the profane glyph — never the saint robes', () => {
-    const html = renderToStaticMarkup(<VerdictLine verdict={verdict('buried')} />)
-    expect(html).toContain('✗')
-    expect(html).toContain('text-profane')
-    expect(html).toContain('border-profane/50')
-    expect(html).not.toContain('✚')
-    expect(html).not.toContain('text-gilt')
-  })
-})
-
-// [LAW:behavior-not-structure] The Feud Engine's back-and-forth (voice-w2v.2) renders by the exchange
-// ARRAY's LENGTH — the discriminator, never an isFeud flag: empty → no thread at all, ≥1 → the answers
-// the citizens traded, each a Verdict-shaped line reusing the verdict robe. Asserts the rendered
-// dataflow, not the component internals.
-describe('app/components/post-card.tsx - Exchange thread', () => {
-  const reply = (text: string, disposition: Verdict['disposition']): Verdict => ({
-    text,
-    critic: 'The Gremlin',
-    disposition,
-  })
-
-  it('renders NOTHING for an empty exchange (no opposing verdicts → no thread)', () => {
-    expect(renderToStaticMarkup(<Exchange exchange={[]} />)).toBe('')
-  })
-
-  it('renders the traded answers when the exchange is non-empty', () => {
-    const html = renderToStaticMarkup(
-      <Exchange
-        exchange={[reply('St. Vivian again. Of course.', 'buried'), reply('The Gremlin buries everything.', 'blessed')]}
-      />,
-    )
-    expect(html).toContain('St. Vivian again. Of course.')
-    expect(html).toContain('The Gremlin buries everything.')
-    expect(html).toContain('the exchange')
-    // each answer wears its speaker's disposition robe — the gilt-vs-profane argument is legible
-    expect(html).toContain('text-profane')
-    expect(html).toContain('text-gilt')
-  })
-})
 
 // [LAW:behavior-not-structure] The eternal mark must read as a canonization SEAL, not a
 // metadata tag: the sacred word wears the cathedral serif (font-placard) and weight, the
@@ -97,52 +37,6 @@ describe('app/components/post-card.tsx - EternalMark seal', () => {
     expect(html).toContain('text-profane')
     expect(html).not.toContain('text-gilt')
     expect(html).toContain('Villain')
-  })
-})
-
-// [LAW:behavior-not-structure] The plate rebalance (the-back-door §The Card): the image is the main
-// course, ONE sharp verdict the garnish. So a card renders AT MOST ONE verdict at full weight by default
-// — the city's hottest take (verdicts[0]) — and DEMOTES the rest behind a disclosure rather than
-// stacking a column. [LAW:no-silent-failure] none are dropped: every demoted critic is still in the
-// markup, one click away. These assert the RENDERED dataflow (a value-split + disclosure), not internals.
-describe('app/components/post-card.tsx - Verdicts plate (one full-weight, rest demoted)', () => {
-  const v = (text: string, critic: string, disposition: Verdict['disposition'] = 'blessed'): Verdict => ({
-    text,
-    critic,
-    disposition,
-  })
-
-  it('renders NOTHING when no critic spoke (absence is the data)', () => {
-    expect(renderToStaticMarkup(<Verdicts verdicts={[]} />)).toBe('')
-  })
-
-  it('a lone verdict is the full-weight line with NO demoted reactions line', () => {
-    const html = renderToStaticMarkup(<Verdicts verdicts={[v('The only take.', 'St. Vivian')]} />)
-    expect(html).toContain('The only take.')
-    // the critic surfaces exactly once (the primary byline) — a demoted reactions texture would
-    // surface a critic a second time; there is none here
-    expect(html.split('St. Vivian').length - 1).toBe(1)
-  })
-
-  it('caps default-visible verdicts to ONE; demotes the rest, keeping the feud glanceable, dropping none', () => {
-    const html = renderToStaticMarkup(
-      <Verdicts
-        verdicts={[v('Primary hottest take.', 'The Populist', 'blessed'), v('A burial.', 'The Mortician', 'buried')]}
-      />,
-    )
-    // [LAW:no-silent-failure] every critic's FULL text still reachable — none silently dropped
-    expect(html).toContain('Primary hottest take.')
-    expect(html).toContain('A burial.')
-    // the feud CO-PRESENCE stays glanceable: the demoted critic is surfaced in a reactions texture
-    // BEFORE its full verdict text (which waits behind the disclosure)
-    const mortPrimaryMention = html.indexOf('The Mortician')
-    const mortFullText = html.indexOf('A burial.')
-    expect(mortPrimaryMention).toBeLessThan(mortFullText)
-    // both dispositions are legible at a glance — blessed cross AND buried mark co-present on the card
-    expect(html).toContain('✚')
-    expect(html).toContain('✗')
-    // the hottest take leads, at full weight, before the demoted reactions
-    expect(html.indexOf('Primary hottest take.')).toBeLessThan(mortPrimaryMention)
   })
 })
 
@@ -183,8 +77,6 @@ describe('app/components/post-card.tsx - lineage scalars (gen N / N bred)', () =
     myVote: null,
     commentCount: 0,
     viewerIsModifier: false,
-    verdicts: [],
-    exchange: [],
     generationDepth: opts.generationDepth,
     descendantCount: opts.descendantCount,
   })
@@ -238,8 +130,6 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     myVote: null,
     commentCount: 0,
     viewerIsModifier: false,
-    verdicts: [],
-    exchange: [],
     generationDepth: 0,
     descendantCount: 0,
   })
@@ -255,8 +145,6 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     myVote: null,
     commentCount: 0,
     viewerIsModifier: false,
-    verdicts: [],
-    exchange: [],
     generationDepth: 0,
     descendantCount: 0,
   })
@@ -277,8 +165,6 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     myVote: null,
     commentCount: 0,
     viewerIsModifier: false,
-    verdicts: [],
-    exchange: [],
     generationDepth: 0,
     descendantCount: 0,
   })
@@ -337,23 +223,15 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     expect(html).toContain('aria-label="open “a hand-drawn cat”"')
   })
 
-  // [LAW:behavior-not-structure] The argument is OFF the tile (slopspot-post-comments-8q9.5). Even when
-  // the read boundary still hands the card a verdict/exchange array, the tile does NOT render those lines
-  // as its own block — the conversation lives in the thread on the object page. The tile shows a compact
-  // preview (count + a door), not the multi-line argument it used to embed.
-  it('does not render the verdict/exchange argument on the tile — only a comment preview + door', () => {
+  // [LAW:behavior-not-structure] The argument is OFF the tile (slopspot-post-comments-8q9.5/.6). The
+  // conversation lives in the thread on the object page; the RenderablePost no longer even carries a
+  // verdict/exchange array (8q9.6). The tile shows a compact preview — the comment count and a door to
+  // the object page — never the multi-line argument it used to embed.
+  it('renders a comment preview + door to the object page, not the argument itself', () => {
     const rp = gen('sei-arg')
-    const withArg: RenderablePost = {
-      ...rp,
-      commentCount: 4,
-      verdicts: [{ text: 'A CARD-ONLY VERDICT LINE.', critic: 'St. Vivian', disposition: 'blessed' }],
-      exchange: [{ text: 'A CARD-ONLY EXCHANGE LINE.', critic: 'The Gremlin', disposition: 'buried' }],
-    }
+    const withArg: RenderablePost = { ...rp, commentCount: 4 }
     const html = renderToStaticMarkup(<PostCard {...withArg} frame={{ kind: 'study' }} />)
-    // the argument text is NOT on the tile …
-    expect(html).not.toContain('A CARD-ONLY VERDICT LINE.')
-    expect(html).not.toContain('A CARD-ONLY EXCHANGE LINE.')
-    // … it is previewed (the count) with a door to the object page where the thread lives.
+    // the argument is previewed (the count) with a door to the object page where the thread lives.
     expect(html).toContain('4 comments')
     expect(html).toContain('href="/p/sei-arg"')
   })

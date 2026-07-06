@@ -50,12 +50,13 @@ import {
   type Post,
   type RenderablePost,
   type TraitVector,
+  type Verdict,
   type VoteValue,
 } from '~/lib/domain'
 import { assertNever } from '~/lib/assert-never'
 import { authorLabel } from '~/lib/author-label'
 import { crowningsForPosts } from '~/db/crowns'
-import { repliesForPosts, verdictsForPosts } from '~/db/utterances'
+import { verdictsForPosts } from '~/db/utterances'
 import { emit } from '~/observability/metrics'
 import {
   ASPECT_RATIOS,
@@ -719,10 +720,6 @@ function rowToRenderablePost(
     // origin.human.by is not touched by enrichPost (persona resolution only reaches
     // author/finder/uploader), so this bit computed pre-enrich rides through unchanged.
     viewerIsModifier: computeViewerIsModifier(post.origin, viewerId),
-    // The base renderable carries no critics; the caller fills `verdicts`/`exchange` from the batched
-    // verdictsForPosts/repliesForPosts reads (one query each over the visible set, never per-row).
-    verdicts: [],
-    exchange: [],
     // [LAW:dataflow-not-control-flow] Both lineage scalars ride through as DATA: descendantCount from
     // the per-row subquery, generationDepth from the batched ancestry walk the caller passes in (like
     // `parents`). A founder is 0 / 0 by data — no isRoot branch here or in the card.
@@ -734,12 +731,17 @@ function rowToRenderablePost(
 // [LAW:single-enforcer] The ONE rows→RenderablePost[] hydration. The clean seam is selection
 // vs hydration: the caller owns the SELECT (which ids, in what order, how many — getFeedPage's
 // keyset page, getFeedItemById's single row, getFeedItemsByIds' batch), and this owns turning
-// those rows into hydrated renderables — the two lineage reads, then the four batched enrichments
-// (persona faces, verdicts, replies, crownings), then the assembly. A new enrichment (a badge, a
-// future per-post stat) lands here ONCE and reaches every reader, instead of being added to three
-// functions in lockstep. [LAW:dataflow-not-control-flow] order is preserved (renderables follow
-// rows), so a caller that ordered its rows keeps that order; the batched reads are keyed by id, so
-// they are order-independent. Every read is over the visible set (no N+1), run concurrently.
+// those rows into hydrated renderables — the two lineage reads, then the batched enrichments
+// (persona faces, crownings), then the assembly. A new enrichment (a badge, a future per-post
+// stat) lands here ONCE and reaches every reader, instead of being added to three functions in
+// lockstep. [LAW:dataflow-not-control-flow] order is preserved (renderables follow rows), so a
+// caller that ordered its rows keeps that order; the batched reads are keyed by id, so they are
+// order-independent. Every read is over the visible set (no N+1), run concurrently.
+//
+// [LAW:decomposition] Critic verdicts are NOT hydrated here: the feed card and the object page both
+// render the argument as the comment thread, not as a verdict block, so a per-page verdict read would
+// be work no reader consumes. The one surface that still wants a verdict — the permalink's og:description
+// — fetches its single share verdict on its own cold path (shareVerdictForPost), never on this hot slab.
 async function hydrateRenderablePosts(
   database: ReturnType<typeof db>,
   rows: readonly FeedRowWithAggregates[],
@@ -760,26 +762,33 @@ async function hydrateRenderablePosts(
   )
   const agentIds = collectAgentIds(renderables.map((r) => r.post))
   const postIds = renderables.map((r) => r.post.id)
-  const [refs, verdictsByPost, repliesByPost, crownings] = await Promise.all([
+  const [refs, crownings] = await Promise.all([
     fetchCitizenRefs(database, agentIds),
-    verdictsForPosts(database, postIds),
-    repliesForPosts(database, postIds),
     crowningsForPosts(database, postIds),
   ])
   return renderables.map((r): RenderablePost => {
-    // [LAW:dataflow-not-control-flow] The verdicts ARRAY (empty when none, ≥2 = co-present) and the
-    // crowning's PRESENCE are the discriminators the card renders by — not an isReviewed/isCrowned
-    // flag. The crowning field is genuinely ABSENT (not undefined-valued) when no crown reigns, which
-    // exactOptionalPropertyTypes demands; the conditional spread carries that absence faithfully.
+    // [LAW:dataflow-not-control-flow] The crowning's PRESENCE is the discriminator the card renders by
+    // — not an isCrowned flag. The crowning field is genuinely ABSENT (not undefined-valued) when no
+    // crown reigns, which exactOptionalPropertyTypes demands; the conditional spread carries that
+    // absence faithfully.
     const crowning = crownings.get(r.post.id)
     return {
       ...r,
       post: enrichPost(r.post, refs),
-      verdicts: verdictsByPost.get(r.post.id) ?? [],
-      exchange: repliesByPost.get(r.post.id) ?? [],
       ...(crowning !== undefined ? { crowning } : {}),
     }
   })
+}
+
+// [LAW:single-enforcer] The permalink's share verdict — the ONE surface that still reads a critic's
+// spoken line (og:description shares a slop under its hottest take). This is a permalink-only, cold-path
+// read: the feed hot slab (hydrateRenderablePosts) no longer carries verdicts at all, so this fetches
+// only the single line the share tag needs, for one post. Returns the FIRST verdict (newest-first by the
+// verdictsForPosts contract) or undefined when no critic spoke — the emptiness IS the discriminator
+// shareMeta falls back on (the authorship byline), never an isReviewed flag.
+export async function shareVerdictForPost(env: Env, id: PostId): Promise<Verdict | undefined> {
+  const byPost = await verdictsForPosts(db(env), [id])
+  return byPost.get(id)?.[0]
 }
 
 // [LAW:no-mode-explosion] One page-size knob, capped. The default page is FEED_PAGE_SIZE; a caller
@@ -980,8 +989,8 @@ export async function getFeedItemById(
   // direct-return shape.
   const rows = await selectFeedRows(database, id === null ? [] : [id], voterId).limit(1)
   // [LAW:one-type-per-behavior] The permalink yields the same RenderablePost the feed does — same
-  // verdicts, same eternal mark — because it hydrates through the same one path. A single row in,
-  // its one renderable out; an empty selection (a null id or a miss) is the empty array → null.
+  // eternal mark — because it hydrates through the same one path. A single row in, its one renderable
+  // out; an empty selection (a null id or a miss) is the empty array → null.
   const [renderable] = await hydrateRenderablePosts(database, rows, voterId)
   return renderable ?? null
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Media, Origin, Actor, Content, Crowning, CrownMark, Genome, GenerationRender, GenerationStatus, HumanRole, Lineage, PersonaActor, Post, PostId, RenderablePost, RiteLens, Verdict, VerdictDisposition, VoteValue } from "~/lib/domain"
+import type { Media, Origin, Actor, Content, Crowning, CrownMark, Genome, GenerationRender, GenerationStatus, HumanRole, Lineage, PersonaActor, Post, PostId, RenderablePost, RiteLens, VoteValue } from "~/lib/domain"
 import { remarkFloor, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
@@ -354,8 +354,8 @@ export function PlacardTitle({ className, children }: { className?: string; chil
 // page-scaled PostDetail (the /p/:id object). The two differ only in ARRANGEMENT and
 // scale; the parts are shared, so a change to what a vote/comment/byline shows lands in
 // ONE place and both surfaces move together. (This file is the post-rendering KIT; adding
-// an export here — matching Verdicts/Exchange/EternalMark already exported for reuse — is
-// how a peer composition borrows a leaf, never a copy of it.)
+// an export here — matching EternalMark already exported for reuse — is how a peer
+// composition borrows a leaf, never a copy of it.)
 //
 // [LAW:types-are-the-program] Closed unions → exhaustive switches, the assertNever
 // defaults the enforcement: adding a Content or GenerationStatus variant makes a default
@@ -886,17 +886,6 @@ function RemarkQuote({ text, answerer }: { text: string; answerer: PersonaActor 
   )
 }
 
-// [LAW:dataflow-not-control-flow] The robe is the disposition VALUE, not an if-chain:
-// a total map over the closed union, so a BLESSING and a BURIAL each pull their own
-// glyph + color and a third disposition would break this literal at compile time. The
-// blessing keeps the gilt cross; the burial wears the profane magenta the down-vote
-// already uses — the same votive/profane duality the votes carry, so savagery (the
-// Gremlin's blade) no longer renders in a saint's gold robes.
-const VERDICT_ROBES: Record<VerdictDisposition, { glyph: string; bylineClass: string; accentClass: string }> = {
-  blessed: { glyph: "✚", bylineClass: "text-gilt", accentClass: "border-gilt/40" },
-  buried: { glyph: "✗", bylineClass: "text-profane", accentClass: "border-profane/50" },
-}
-
 // [LAW:dataflow-not-control-flow] The lens names the honour; the mark colours it. CROWN_LABEL
 // is a total map over RiteLens (an eighth lens breaks this literal at compile time — the badge
 // can never render an underived crown); the colour is the shared MARK_TONE (one source for the
@@ -951,134 +940,6 @@ export function EternalMark({ crowning }: { crowning: Crowning }) {
         · {crowning.riteDay}
       </span>
     </div>
-  )
-}
-
-// [LAW:dataflow-not-control-flow] The critics who spoke, rendered by a VALUE SPLIT of the array, never
-// a discard: an empty array is no block at all; otherwise the FIRST verdict (the city's hottest take —
-// the read boundary owns the order [LAW:one-source-of-truth]) is the full-weight line, and the REST is
-// handed to MoreVerdicts as a value. The image is the main course; ONE sharp verdict is the garnish
-// (the-back-door.md §The Card — ONE named critic's take, not a stacked column). No verdict is dropped —
-// the demoted ones live one click away (MoreVerdicts), so the city still speaks in full
-// [LAW:no-silent-failure]. The split point is data ([primary, ...rest]), not an isFeud/count branch.
-export function Verdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
-  if (verdicts.length === 0) return null
-  const [primary, ...rest] = verdicts
-  return (
-    <>
-      <VerdictLine verdict={primary} />
-      <MoreVerdicts verdicts={rest} />
-    </>
-  )
-}
-
-// [LAW:dataflow-not-control-flow] The demoted verdicts — every critic who spoke AFTER the hottest take.
-// An empty rest is no disclosure at all (the lone-verdict case); ≥1 collapses behind ONE native
-// <details>, mirroring the Exchange's one-click treatment. The summary is the-back-door §The Card's own
-// "machine reactions as texture" line: a glanceable row of who-else-reacted ('✚ The Populist  ✗ The
-// Mortician'), so the FEUD CO-PRESENCE — one blessed, one buried — stays legible WITHOUT a click, while
-// each demoted critic's FULL verdict text waits one click away in the body (nothing dropped
-// [LAW:no-silent-failure]). The texture is a pure map over the rest array; the glyph + colour come from
-// the SAME VERDICT_ROBES the full line wears [LAW:one-source-of-truth], so the mark can never drift from
-// the verdict it stands for. `group/more` scopes this disclosure's open-state so it cannot leak into the
-// per-verdict clamp groups nested inside it. [LAW:one-type-per-behavior] each demoted take is a VerdictLine.
-function MoreVerdicts({ verdicts }: { verdicts: readonly Verdict[] }) {
-  if (verdicts.length === 0) return null
-  return (
-    <details className="group/more ml-3 mt-1 border-l border-votive/15 pl-2">
-      <summary className="flex w-fit cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-0.5 px-3 pt-1 font-terminal text-[11px] text-ash transition marker:content-[''] hover:brightness-125 [&::-webkit-details-marker]:hidden">
-        {verdicts.map((v, i) => {
-          const robe = VERDICT_ROBES[v.disposition]
-          return (
-            <span key={i} className="inline-flex items-center gap-1">
-              <span aria-hidden className={robe.bylineClass}>{robe.glyph}</span>
-              {v.critic}
-            </span>
-          )
-        })}
-        <span aria-hidden className="text-ash/40 transition group-open/more:rotate-90">▸</span>
-      </summary>
-      {verdicts.map((v, i) => (
-        <VerdictLine key={i} verdict={v} />
-      ))}
-    </details>
-  )
-}
-
-// [LAW:dataflow-not-control-flow] The back-and-forth — the replies the citizens traded over their
-// opposing verdicts (slopspot-voice-w2v.2, the Feud Engine). An empty array is no thread at all; ≥1 is
-// the exchange, INDENTED and rule-marked as answers beneath the opening positions. A reply renders with
-// the SAME VerdictLine (a bylined line + disposition robe) — it is a Verdict-shaped value that answers
-// one [LAW:one-type-per-behavior], so the line treatment is shared, only the thread framing differs.
-// The array's length is the data; no isFeud flag, no count branch in the markup.
-export function Exchange({ exchange }: { exchange: readonly Verdict[] }) {
-  if (exchange.length === 0) return null
-  // [LAW:dataflow-not-control-flow] The reply thread is secondary to the opening
-  // verdicts, so it is collapsed behind ONE native <details> disclosure by default —
-  // the same treatment for a thread of one reply or many. There is no count branch:
-  // the empty case is the array (handled above), and the hidden-reply count is a VALUE
-  // shown on the closed summary (`· N`), not an `if` deciding what renders. CSS reveals
-  // the count when closed and the chevron-rotation when open; the array still drives the
-  // body. The `group/exchange` name scopes this disclosure's open-state so it cannot leak
-  // into the per-verdict clamp groups nested inside it.
-  return (
-    <details className="group/exchange ml-3 mt-1 border-l border-votive/15 pl-2">
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 px-3 pt-1 font-terminal text-[10px] uppercase tracking-widest text-ash/70 transition marker:content-[''] hover:text-ash [&::-webkit-details-marker]:hidden">
-        <span aria-hidden className="transition group-open/exchange:rotate-90">
-          ▸
-        </span>
-        the exchange
-        <span aria-hidden className="text-ash/45 group-open/exchange:hidden">
-          · {exchange.length}
-        </span>
-      </summary>
-      {exchange.map((v, i) => (
-        <VerdictLine key={i} verdict={v} />
-      ))}
-    </details>
-  )
-}
-
-// [LAW:dataflow-not-control-flow] The named critic's hot take — the blurb the city
-// actually has an OPINION in, not neutral museum-speak (the-back-door.md §The Card).
-// It renders only where a verdict value exists; both halves are guaranteed non-empty
-// by the read boundary, so there is no "no verdict yet" branch here. The critic line
-// is the SACRED register (placard serif), the byline the profane mono — the high/low
-// typographic collision every card is built on (the-back-door.md §type-as-collision).
-//
-// [LAW:dataflow-not-control-flow] The body is clamped to a glance by default and the
-// full text is one disclosure away — the SAME treatment for every verdict, short or
-// long. No length/count branch: CSS line-clamp caps the rendered height (a short verdict
-// never reaches the cap, so nothing truncates), and the native <details> toggle that
-// lifts the clamp renders unconditionally. Display length is decided by layout against a
-// fixed cap, not by an `if` in the markup — which keeps the sacred placard register
-// legible at long lengths WITHOUT retypesetting it (the italic serif is a creative lock,
-// the-back-door.md §type-as-collision; the length cap, not a new typeface, restores
-// legibility). `group/verdict` scopes this clamp so a parent Exchange disclosure opening
-// cannot un-clamp it.
-export function VerdictLine({ verdict }: { verdict: Verdict }) {
-  const robe = VERDICT_ROBES[verdict.disposition]
-  return (
-    <figure className={`mx-3 mb-1 mt-2 border-l-2 ${robe.accentClass} pl-3`}>
-      {/* The clamped quote lives INSIDE the summary so it stays visible when closed and
-          merely UN-CLAMPS when open — a closed <details> hides every non-summary child, so
-          a hidden-sibling blockquote would vanish, not clamp. The whole line is the toggle;
-          `more/less` is a CSS-toggled hint, not a separate branch. */}
-      <details className="group/verdict">
-        <summary className="block cursor-pointer list-none marker:content-[''] [&::-webkit-details-marker]:hidden">
-          <blockquote className="font-placard text-[15px] italic leading-snug text-bone/90 line-clamp-3 group-open/verdict:line-clamp-none">
-            {`“${verdict.text}”`}
-          </blockquote>
-          <span className="mt-0.5 inline-block font-terminal text-[10px] uppercase tracking-widest text-votive/45 transition group-hover/verdict:text-votive/75">
-            <span className="group-open/verdict:hidden">more ⌄</span>
-            <span className="hidden group-open/verdict:inline">less ⌃</span>
-          </span>
-        </summary>
-      </details>
-      <figcaption className="mt-1 font-terminal text-[11px] text-ash">
-        — {verdict.critic} <span className={robe.bylineClass}>{robe.glyph}</span>
-      </figcaption>
-    </figure>
   )
 }
 

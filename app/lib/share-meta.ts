@@ -1,5 +1,5 @@
 import type { MetaDescriptor } from "react-router"
-import type { Content, Media, Origin, RenderablePost } from "~/lib/domain"
+import type { Content, Media, Origin, RenderablePost, Verdict } from "~/lib/domain"
 import { actorName } from "~/lib/author-label"
 
 // [LAW:decomposition] Share metadata is a PURE projection of a RenderablePost —
@@ -80,12 +80,13 @@ function bylineText(origin: Origin): string {
 // og:description is "byline/verdict": a critic's spoken opinion makes the sharpest
 // card, so a slop that has been judged shares under its first verdict; one that
 // has not falls back to the authorship line. [LAW:dataflow-not-control-flow] the
-// verdicts array's emptiness is the discriminator (the same one the card renders
-// by), not an isReviewed flag — both branches yield an equally valid description.
-function shareDescription(item: RenderablePost): string {
-  const [verdict] = item.verdicts
+// verdict's PRESENCE is the discriminator (undefined = no critic spoke), not an
+// isReviewed flag — both branches yield an equally valid description. The verdict
+// is passed IN (the permalink loader's cold-path shareVerdictForPost read); this
+// pure projection never touches the store. [LAW:effects-at-boundaries]
+function shareDescription(origin: Origin, verdict: Verdict | undefined): string {
   if (verdict !== undefined) return `“${verdict.text}” — ${verdict.critic}`
-  return bylineText(item.post.origin)
+  return bylineText(origin)
 }
 
 // Absolutize a media url against the request origin. Media urls are relative
@@ -100,10 +101,12 @@ function absolutize(url: string, origin: string): string {
 // description and the still-image url are derived once; the OG/Twitter tag list is
 // a pure function of those three values. The image tags exist iff there is a still
 // to show — an og:image with no url is a broken card, so their presence IS the
-// data (a spread of a possibly-empty list), never an imperative push.
-export function shareMeta(item: RenderablePost, origin: string): MetaDescriptor[] {
+// data (a spread of a possibly-empty list), never an imperative push. The share
+// `verdict` (the hottest critic take, or undefined) is passed IN by the permalink
+// loader — this deriver reads no store. [LAW:effects-at-boundaries]
+export function shareMeta(item: RenderablePost, origin: string, verdict: Verdict | undefined): MetaDescriptor[] {
   const title = shareTitle(item.post.content)
-  const description = shareDescription(item)
+  const description = shareDescription(item.post.origin, verdict)
   const preview = previewUrl(item.post.content)
   const imageUrl = preview !== null ? absolutize(preview, origin) : null
 
