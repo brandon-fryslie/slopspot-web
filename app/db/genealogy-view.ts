@@ -12,7 +12,14 @@
 import { asc, inArray } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { generations, lineageEdges } from '~/db/schema'
+import { blankToNull } from '~/db/text'
 import { PostId, type Dynasty, type Genealogy, type GenealogyNode, type Media } from '~/lib/domain'
+
+// [LAW:types-are-the-program] The display slice for one lineage node: the phenotype to SHOW
+// (null until rendered) and the piece's NAME to LABEL it by (null for a nameless legacy row).
+// The two optionalities are independent — an unrendered node still has a name, a nameless node
+// can have rendered — so they are separate maps, each `?? null` a genuine absence, never a guard.
+type NodeSlice = { phenotype: ReadonlyMap<string, Media>; title: ReadonlyMap<string, string | null> }
 
 // D1 binds one parameter per id, capped at 100 per statement. A dynasty's slice can exceed that,
 // so the phenotype read is chunked — never silently truncated. [LAW:no-silent-fallbacks]
@@ -75,7 +82,7 @@ function siblingsOf(
 function buildTree(
   adj: ReadonlyMap<string, string[]>,
   root: string,
-  phenotype: ReadonlyMap<string, Media>,
+  slice: NodeSlice,
 ): GenealogyNode[] {
   const expanded = new Set<string>()
   const toNode = (id: string): GenealogyNode => {
@@ -83,9 +90,12 @@ function buildTree(
     expanded.add(id)
     return {
       postId: PostId(id),
+      // The piece's legible name; `?? null` is genuine optionality (a nameless legacy node),
+      // the same shape thumbnail takes — never a guard for a missing slice entry (which throws).
+      title: slice.title.get(id) ?? null,
       // `?? null` is genuine optionality: a node absent from `phenotype` is a real generation
       // that has not rendered (pending/running/failed), so it has no phenotype. NOT a guard.
-      thumbnail: phenotype.get(id) ?? null,
+      thumbnail: slice.phenotype.get(id) ?? null,
       kin: first ? (adj.get(id) ?? []).map(toNode) : [],
     }
   }
@@ -124,35 +134,46 @@ export async function getGenealogy(env: Env, postId: PostId): Promise<Genealogy>
   const nodeIds = [...new Set([...ancestorIds, ...offspringIds, ...siblingIds])]
   if (nodeIds.length === 0) return { ancestors: [], offspring: [], siblings: [] }
 
-  const phenotype = await readPhenotypes(database, nodeIds)
+  const slice = await readNodeSlice(database, nodeIds)
 
   return {
-    ancestors: buildTree(childToParents, postId, phenotype),
-    offspring: buildTree(parentToChildren, postId, phenotype),
+    ancestors: buildTree(childToParents, postId, slice),
+    offspring: buildTree(parentToChildren, postId, slice),
     // Flat peers: each sibling is a leaf here (kin:[]) — its own ancestry/offspring belong to
-    // ITS genealogy, not this post's. Thumbnail read from the same slice; null if unrendered.
-    siblings: siblingIds.map((id) => ({ postId: PostId(id), thumbnail: phenotype.get(id) ?? null, kin: [] })),
+    // ITS genealogy, not this post's. Name + thumbnail read from the same slice; null if absent.
+    siblings: siblingIds.map((id) => ({
+      postId: PostId(id),
+      title: slice.title.get(id) ?? null,
+      thumbnail: slice.phenotype.get(id) ?? null,
+      kin: [],
+    })),
   }
 }
 
-// [LAW:single-enforcer] The ONE phenotype-slice read for a genealogy/dynasty node set — chunked under
-// D1's bind cap (never silently truncated), and a node id with no generations row is storage corruption
-// (a lineage edge endpoint that is not a genome) so it fails loud rather than vanishing into a blank
-// tile. [LAW:no-silent-fallbacks] Both the per-post tree and the dynasty fold read thumbnails this way.
-async function readPhenotypes(
+// [LAW:single-enforcer] The ONE display-slice read for a genealogy/dynasty node set — the phenotype
+// to show AND the piece's name to label it by — chunked under D1's bind cap (never silently
+// truncated). A node id with no generations row is storage corruption (a lineage edge endpoint that
+// is not a genome) so it fails loud rather than vanishing into a blank tile. [LAW:no-silent-fallbacks]
+// Both the per-post tree and the dynasty fold read their nodes' display data this way.
+async function readNodeSlice(
   database: ReturnType<typeof db>,
   nodeIds: readonly string[],
-): Promise<Map<string, Media>> {
+): Promise<NodeSlice> {
   const present = new Set<string>()
   const phenotype = new Map<string, Media>()
+  const title = new Map<string, string | null>()
   for (let i = 0; i < nodeIds.length; i += PARAM_CAP) {
     const batch = nodeIds.slice(i, i + PARAM_CAP)
     const genRows = await database
-      .select({ postId: generations.postId, status: generations.status, outputJson: generations.outputJson })
+      .select({ postId: generations.postId, status: generations.status, outputJson: generations.outputJson, title: generations.title })
       .from(generations)
       .where(inArray(generations.postId, [...batch]))
     for (const r of genRows) {
       present.add(r.postId)
+      // [LAW:single-enforcer] The SAME blank→null rule the maker's shrine uses (blankToNull) — a
+      // compact lineage node treats a nameless legacy row exactly as the shrine's works list does:
+      // no name, so the renderer falls back to the serial. New rows all carry a real name.
+      title.set(r.postId, blankToNull(r.title))
       if (r.status === 'succeeded') phenotype.set(r.postId, parsePhenotype(r.outputJson, r.postId))
     }
   }
@@ -161,7 +182,7 @@ async function readPhenotypes(
       throw new Error(`genealogy: lineage node ${id} has no generations row — a genome must be a generation`)
     }
   }
-  return phenotype
+  return { phenotype, title }
 }
 
 // [LAW:one-source-of-truth] The whole-DYNASTY fold (slopspot-genome-p6z.2) — one level UP from the
@@ -205,7 +226,7 @@ export async function getDynasty(env: Env, postId: PostId): Promise<Dynasty> {
     ...new Set(founderIds.flatMap((f) => [f, ...reachable(parentToChildren, f)])),
   ]
 
-  const phenotype = await readPhenotypes(database, nodeIds)
+  const slice = await readNodeSlice(database, nodeIds)
 
   // Each founder is the ROOT of its line: its own tile + buildTree of its whole descendant subtree
   // (offspring-down). buildTree dedups a bred diamond (a node reached via two paths renders once, then
@@ -213,8 +234,9 @@ export async function getDynasty(env: Env, postId: PostId): Promise<Dynasty> {
   // per-post offspring uses.
   const founders: GenealogyNode[] = founderIds.map((f) => ({
     postId: PostId(f),
-    thumbnail: phenotype.get(f) ?? null,
-    kin: buildTree(parentToChildren, f, phenotype),
+    title: slice.title.get(f) ?? null,
+    thumbnail: slice.phenotype.get(f) ?? null,
+    kin: buildTree(parentToChildren, f, slice),
   }))
   return { founders }
 }

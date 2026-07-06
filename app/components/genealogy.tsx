@@ -201,14 +201,33 @@ function NodeList({ nodes }: { nodes: readonly GenealogyNode[] }) {
 // [LAW:one-source-of-truth] React Router's <Link> is the in-app navigation primitive — the same
 // reveal path the byline and forked-from badge use. The node links to its own permalink, so the
 // tree is the navigable lineage the ticket asks for: click an ancestor or descendant to land on it.
+// [slopspot-post-detail-sei.3] It reads in NAMES, not raw serials: the piece's placard name leads
+// (the legible identity a visitor understands without inspecting ids), the serial demoted beneath
+// it as the machine register.
 function NodeTile({ node }: { node: GenealogyNode }) {
+  const serial = `p:${node.postId.slice(0, 8)}`
+  // [LAW:dataflow-not-control-flow] The name's PRESENCE (a value on the node) decides a two-line
+  // node — the civic name over its terminal serial — versus a one-line nameless legacy node whose
+  // serial stands as its identity (the tree's original shape). Never an `isNamed` flag; the tone of
+  // the serial follows the same value, primary when alone and dim when a name sits above it.
+  const named = node.title !== null
   return (
     <Link
       to={`/p/${node.postId}`}
-      className="inline-flex items-center gap-2 rounded border border-votive/10 bg-base/40 px-1.5 py-1 transition hover:border-votive/30 hover:bg-bone/[0.04]"
+      title={node.title ?? undefined}
+      className="inline-flex max-w-full items-center gap-2 rounded border border-votive/10 bg-base/40 px-1.5 py-1 transition hover:border-votive/30 hover:bg-bone/[0.04]"
     >
       <Thumb media={node.thumbnail} />
-      <span className="font-terminal text-[11px] text-votive/80">p:{node.postId.slice(0, 8)}</span>
+      <span className="flex min-w-0 flex-col leading-tight">
+        {named && (
+          <span className="max-w-[12rem] truncate font-civic text-[12px] font-medium text-bone/85">
+            {node.title}
+          </span>
+        )}
+        <span className={`font-terminal ${named ? "text-[10px] text-ash" : "text-[11px] text-votive/80"}`}>
+          {serial}
+        </span>
+      </span>
     </Link>
   )
 }
