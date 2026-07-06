@@ -39,6 +39,12 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
+  // [LAW:locality-or-seam] Browser-pool scroll guards (*.browser.test.tsx) run in a real headless
+  // Chromium and need clean DOM types. Under this project's Workers types (@cloudflare/vitest-pool-
+  // workers + node) the Workers Response/ReadableStream shadow DOM's ParentNode.append, so a
+  // document.body.append(el) mis-resolves. They are typechecked by tsconfig.cloudflare.json (DOM lib,
+  // no Workers types) instead — excluded here so they are single-included there, never dual-typed.
+  "exclude": ["app/**/*.browser.test.tsx"],
   "include": [
     ".react-router/types/**/*",
     "app/**/*",

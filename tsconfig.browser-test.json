@@ -1,0 +1,33 @@
+{
+  // [LAW:locality-or-seam] Browser-pool tests (*.browser.test.tsx) are their own type environment,
+  // exactly as tsconfig.workers-test.json is for Workers-pool tests. They run in a real headless
+  // Chromium (vitest.browser.workspace.ts) and need CLEAN DOM types: no Workers globals. Under the
+  // app's cloudflare/workers-test projects, worker-configuration.d.ts's global Response/ReadableStream
+  // (and @cloudflare/vitest-pool-workers) shadow DOM's ParentNode.append, so document.body.append(el)
+  // mis-resolves. This project owns them alone — DOM lib, no worker-configuration.d.ts, no Workers
+  // types — so the same test files are excluded from tsconfig.cloudflare.json and tsconfig.workers-test.json.
+  //
+  // NOT composite (so not in the root tsc -b graph): a composite→composite noEmit sibling reference to
+  // tsconfig.cloudflare.json is the exact restriction tsconfig.workers-test.json documents. Instead
+  // `pnpm typecheck` runs `tsc -p` on this project as its own step; non-composite pulls in only the
+  // pure lib files the test actually imports (feed-wire, sort-mode, domain, use-infinite-feed) — none
+  // of which touch Env/Workers globals — rather than all of app/lib.
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "types": ["vite/client"],
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./app/*"]
+    },
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["app/**/*.browser.test.tsx"]
+}

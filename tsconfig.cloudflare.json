@@ -15,7 +15,10 @@
     "app/routes/__tests__",
     "app/db/__tests__",
     "app/agents/__tests__",
-    "workers/cpu-tail/__tests__"
+    "workers/cpu-tail/__tests__",
+    // Browser-pool tests need clean DOM types (no worker-configuration.d.ts globals shadowing
+    // ParentNode.append); typechecked by tsconfig.browser-test.json. [LAW:locality-or-seam]
+    "app/**/*.browser.test.tsx"
   ],
   "compilerOptions": {
     "composite": true,

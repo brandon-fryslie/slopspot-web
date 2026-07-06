@@ -25,6 +25,11 @@ export default defineConfig({
       'app/db/__tests__/**',
       'app/agents/__tests__/**',
       'workers/cpu-tail/__tests__/**',
+      // Browser-mode scroll guard runs in a real headless Chromium (its own isolated
+      // project, vitest.browser.workspace.ts). It needs a real DOM + IntersectionObserver
+      // this node runner cannot provide, so the node project disclaims the *.browser.test.tsx
+      // suffix. [LAW:locality-or-seam]
+      '**/*.browser.test.tsx',
       // Worktree clones share the project root; exclude their test files.
       '.claude/**',
     ],
