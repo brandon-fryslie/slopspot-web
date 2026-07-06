@@ -329,6 +329,14 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     expect(object).not.toContain('aria-label="open')
   })
 
+  it('an upload with alt text names its relic link by that alt (its only truthful distinguisher)', () => {
+    const u = upload('sei-up2')
+    if (u.post.content.kind !== 'upload') throw new Error('fixture is an upload')
+    u.post.content.asset = { kind: 'image', url: '/media/uploaded', w: 1, h: 1, alt: 'a hand-drawn cat' }
+    const html = renderToStaticMarkup(<PostCard {...u} frame={{ kind: 'study' }} />)
+    expect(html).toContain('aria-label="open “a hand-drawn cat”"')
+  })
+
   it('an in-progress generation relic keeps its STATUS in the link name (not just “open”)', () => {
     // The relic label must not hide the slop's state behind a fixed string: a still-generating
     // frame is a door, but its accessible name says so — the reviewer's a11y point made concrete.

@@ -354,7 +354,7 @@ function ContentView({ content, frame, permalinkHref }: { content: Content; fram
     // source (a link-post's whole purpose), so a second /p/:id anchor would nest inside the
     // outbound one — its detail door is the permalink timestamp instead.
     case "upload":
-      return <RelicView href={permalinkHref} label="open this slop"><RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame></RelicView>
+      return <RelicView href={permalinkHref} label={uploadRelicLabel(content.asset)}><RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame></RelicView>
     case "found":
       return (
         <FoundLinkCard
@@ -412,6 +412,17 @@ function generationRelicLabel(title: string, status: GenerationStatus): string {
     case "failed":    return `open “${title}” — failed`
     default:          return assertNever(status)
   }
+}
+
+// [FRAMING:representation] An upload has no title, so its relic link names itself with the
+// asset's OWN alt text when the uploader supplied one — the only truthful per-upload
+// distinguisher available — and falls back to the generic name when there is none. A synthetic
+// token (post id, list index) is rejected on purpose: it names the storage row, not anything a
+// screen-reader user can act on. An empty alt is treated as absent (no name to borrow).
+function uploadRelicLabel(asset: Media): string {
+  return asset.kind === "image" && asset.alt !== undefined && asset.alt.length > 0
+    ? `open “${asset.alt}”`
+    : "open this slop"
 }
 
 // [LAW:decomposition] The relic is the preview's OBVIOUS click target — the big hung image (or
