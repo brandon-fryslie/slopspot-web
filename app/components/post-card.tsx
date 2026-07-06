@@ -95,14 +95,14 @@ function PostCardImpl({
           so there is no nameless branch. The citizen's name for the PIECE, never the
           raw prompt. */}
       {post.content.kind === "generation" && (
-        <h2 className="px-3 pt-3 font-placard text-2xl leading-tight text-bone">
+        <PlacardTitle className="px-3 pt-3 text-2xl">
           {/* [LAW:dataflow-not-control-flow] The placard is a second, textual door to the
               object — a link on a preview, plain text on the permalink itself. The href
               value decides which; the title text is identical either way. */}
           <DetailLink href={permalinkHref} className="transition hover:text-votive">
             {post.content.title}
           </DetailLink>
-        </h2>
+        </PlacardTitle>
       )}
       {/* The inversion as typography: the citizen authors, billed big; the human is
           the occasion, a footnote. (See Byline.) */}
@@ -201,7 +201,7 @@ type WishContext = {
 // carrying a wish has an authored origin — if a hand-written row ever divorced them
 // there is no citizen to sign the remark, so this yields null (a plain slop) rather
 // than guessing an answerer.
-function wishContext(post: Post): WishContext | null {
+export function wishContext(post: Post): WishContext | null {
   if (post.content.kind !== "generation") return null
   const { wish } = post.content.render
   if (wish === undefined) return null
@@ -226,7 +226,7 @@ function wishContext(post: Post): WishContext | null {
 // (POST /api/posts/:id/vote, body { value: 1 | -1 | 0 }, returns { score,
 // value }). This component is the sole consumer; the server is the source of
 // truth on the confirmed score after the write.
-function VoteControls({
+export function VoteControls({
   postId,
   initialScore,
   initialMyVote,
@@ -339,13 +339,33 @@ function VoteControls({
   )
 }
 
+// [LAW:single-enforcer][LAW:one-source-of-truth] The placard NAME of a work — its base
+// typography (the cathedral serif, warm bone, tight leading) defined ONCE. Both compositions
+// render the same name: the feed tile as a link at tile scale, the object page plain at page
+// scale. Each layers its OWN scale and link-vs-plain treatment via className + children; the
+// name's identity (which typeface, which ink) lives here, so a future change to how a work's
+// name reads — a truncation rule, a subtitle, a different serif — lands in one place. It is an
+// <h2> because both surfaces sit under a page <h1> (the masthead sign / the object serial).
+export function PlacardTitle({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <h2 className={`font-placard leading-tight text-bone ${className ?? ""}`}>{children}</h2>
+}
+
+// [LAW:one-source-of-truth][LAW:decomposition] From here down, the post's LEAF parts —
+// media, byline, wish surfaces, votes, actions, recipe, comments. They are the single
+// source both compositions render: the compact PostCard (feed tile) above, and the
+// page-scaled PostDetail (the /p/:id object). The two differ only in ARRANGEMENT and
+// scale; the parts are shared, so a change to what a vote/comment/byline shows lands in
+// ONE place and both surfaces move together. (This file is the post-rendering KIT; adding
+// an export here — matching Verdicts/Exchange/EternalMark already exported for reuse — is
+// how a peer composition borrows a leaf, never a copy of it.)
+//
 // [LAW:types-are-the-program] Closed unions → exhaustive switches, the assertNever
 // defaults the enforcement: adding a Content or GenerationStatus variant makes a default
 // reachable with a non-never value, failing tsc -b HERE until this surface renders the
 // new variant. The central domain-exhaustiveness gate proves SOMEONE handles a new kind;
 // this local gate proves the RENDERER does — without noImplicitReturns the switch would
 // otherwise fall through to an undefined return, a valid ReactNode that renders nothing.
-function ContentView({ content, frame, permalinkHref }: { content: Content; frame: FrameLevel; permalinkHref: string | undefined }) {
+export function ContentView({ content, frame, permalinkHref }: { content: Content; frame: FrameLevel; permalinkHref: string | undefined }) {
   switch (content.kind) {
     // [LAW:dataflow-not-control-flow] The relic IS the preview's obvious click target — an
     // upload or a generation (finished or not) opens its /p/:id object. RelicView draws the
@@ -739,7 +759,7 @@ const HUMAN_ROLE_PHRASE: Record<HumanRole, string> = {
 // the VALUE the read boundary computed, not a branch this surface decides. For interspecies
 // hybrids, `crossedFrom` is the bloodline and `author` the crossing citizen: "out of
 // [lineage]" precedes "by [crossing]". [RECONCILE C]
-function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier: boolean }) {
+export function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier: boolean }) {
   switch (origin.kind) {
     case "authored": {
       const { name, href } = authorDisplay(origin.author)
@@ -799,7 +819,7 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
 // explained. (the-slop.md §4.) The caption is viewer-aware (the-slop.md §2): the
 // wisher reads "what you wished"; a stranger reads "what was wished" — we never tell a
 // stranger "what YOU wished". [LAW:dataflow-not-control-flow] the copy is the value.
-function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: boolean }) {
+export function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: boolean }) {
   return (
     <figure className="mx-3 mb-1 mt-1.5 rounded border border-votive/12 bg-base/40 px-3 py-1.5">
       <figcaption className="font-terminal text-[10px] uppercase tracking-wider text-ash">
@@ -819,7 +839,7 @@ function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: b
 // `unavailable` (the machine could not produce a line) is PLAIN ABSENCE — no apology,
 // no "remark pending"; a chosen silence is a visible, styled quiet (its reason is the
 // voice layer's to phrase, not this surface's). [the reveal DAWNS — no disclosure.]
-function SignedRemark({ ctx }: { ctx: WishContext }) {
+export function SignedRemark({ ctx }: { ctx: WishContext }) {
   const speaker: PersonaRef = {
     handle: ctx.answerer.agentId,
     displayName: ctx.answerer.persona?.displayName ?? ctx.answerer.agentId,
@@ -1074,7 +1094,7 @@ function ChosenSilence() {
 // [LAW:types-are-the-program] The recipe drawer: the medium (the provider) and the
 // raw recipe live HERE, never on the headline — the serial number does not headline
 // the art. Closed by default; the curious open it.
-function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRender }) {
+export function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRender }) {
   return (
     <details className="border-t border-votive/12 px-3 py-2 text-[11px] text-votive/70">
       <summary className="cursor-pointer select-none font-terminal uppercase tracking-wider text-votive/50">recipe</summary>
@@ -1097,7 +1117,7 @@ function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRe
 // [LAW:one-type-per-behavior] Fork is the SINGLE (asexual) act — one parent, mutated. It is named
 // honestly as Fork now that Breed is its own two-parent surface (the old "Breed This" label on this
 // single-parent link contradicted the reproduction-mode split the genome makes load-bearing).
-function ForkLink({ postId }: { postId: string }) {
+export function ForkLink({ postId }: { postId: string }) {
   return (
     <a
       href={`/fork/${postId}`}
@@ -1111,7 +1131,7 @@ function ForkLink({ postId }: { postId: string }) {
 // [LAW:single-enforcer] The Breed doorway — the loud cross-verb — only exists in PostCard. It
 // carries THIS slop into the Breeding Room as parent A (the one loved first); the room is where the
 // breeder finds mate B and witnesses the cross. An <a> for the same discoverability reasons as Fork.
-function BreedLink({ postId }: { postId: string }) {
+export function BreedLink({ postId }: { postId: string }) {
   return (
     <a
       href={`/breed/${postId}`}
@@ -1128,7 +1148,7 @@ function BreedLink({ postId }: { postId: string }) {
 // verb must discriminate. Exhaustive switch on lineage.kind so a future multi-parent mode
 // forces a copy decision rather than silently inheriting "bred from". Founder never reaches
 // here (gated by the caller on lineage.kind).
-function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "single" | "bred" }> }) {
+export function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "single" | "bred" }> }) {
   const { verb, parents }: { verb: string; parents: readonly string[] } = (() => {
     switch (lineage.kind) {
       case "single":
@@ -1155,11 +1175,11 @@ function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "singl
 // [LAW:one-type-per-behavior] One badge for both lineage scalars — "gen N" and "N bred" are the same
 // shape (a small terminal-styled chip), so they share one component, differing only in the label DATA.
 // The caller decides WHICH to render by the number (0 → omitted); this just draws the chip.
-function LineageStatBadge({ label }: { label: string }) {
+export function LineageStatBadge({ label }: { label: string }) {
   return <span className="rounded bg-bone/5 px-1.5 py-0.5 font-terminal text-ash">{label}</span>
 }
 
-function StatusBadge({ status }: { status: GenerationStatus }) {
+export function StatusBadge({ status }: { status: GenerationStatus }) {
   if (status.kind === "succeeded") return null
   const tone =
     status.kind === "pending" ? "bg-bone/5 text-ash" :
@@ -1194,7 +1214,7 @@ type ThreadState =
   | { kind: "error"; reason: string }
   | { kind: "ready"; expanded: boolean; comments: ClientComment[] }
 
-function CommentSection({
+export function CommentSection({
   postId,
   initialCount,
 }: {
@@ -1385,7 +1405,7 @@ function CommentRow({ comment }: { comment: ClientComment }) {
   )
 }
 
-function relativeTime(d: Date): string {
+export function relativeTime(d: Date): string {
   const diff = Date.now() - d.getTime()
   const m = Math.round(diff / 60_000)
   if (m < 60) return `${m}m`
