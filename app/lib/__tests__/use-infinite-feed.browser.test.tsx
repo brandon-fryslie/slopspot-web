@@ -192,3 +192,25 @@ it('extends the page-1 banner exclusion to every appended page (the gilt relic i
   expect(renderedIds(el)).toEqual(['p1', 'p3', 'p4', 'p6'])
   expect(renderedIds(el)).not.toContain('p5')
 })
+
+it('a failed feed page halts the scroll loudly — no silent swallow, no unhandled-rejection retry loop', async () => {
+  // The one seam to the world returns a 500. [LAW:no-silent-failure] the hook must SURFACE it (console
+  // .error) and HALT (cursor → null, the same DATA that ends the scroll), not swallow the rejection and
+  // let the observer re-fire into an unbacked-off retry loop. Guards the catch arm the reviewer flagged.
+  globalThis.fetch = (async () => new Response('upstream boom', { status: 500 })) as typeof globalThis.fetch
+  const el = document.createElement('div')
+  document.body.append(el)
+  mount(el, createElement(ScrollHarness, { firstPage: [domainItem('p1')], firstCursor: 'c1', excludeId: null }))
+
+  // The scroll ENDS (cursor === null) rather than spinning forever on a broken page.
+  await expect
+    .poll(() => el.querySelector('[data-testid="status"]')?.textContent, { timeout: 5000 })
+    .toBe('back-wall')
+
+  // Page 1 stands; the failed page appended nothing.
+  expect(renderedIds(el)).toEqual(['p1'])
+  // Loud: the failure reached console.error (not swallowed). [LAW:no-silent-failure]
+  expect(consoleErrors.length).toBeGreaterThan(0)
+  // The catch arm consumed the rejection — no unhandled promise rejection reached the window.
+  expect(windowErrors).toEqual([])
+})
