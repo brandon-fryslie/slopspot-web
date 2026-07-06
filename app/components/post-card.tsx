@@ -95,14 +95,14 @@ function PostCardImpl({
           so there is no nameless branch. The citizen's name for the PIECE, never the
           raw prompt. */}
       {post.content.kind === "generation" && (
-        <h2 className="px-3 pt-3 font-placard text-2xl leading-tight text-bone">
+        <PlacardTitle className="px-3 pt-3 text-2xl">
           {/* [LAW:dataflow-not-control-flow] The placard is a second, textual door to the
               object — a link on a preview, plain text on the permalink itself. The href
               value decides which; the title text is identical either way. */}
           <DetailLink href={permalinkHref} className="transition hover:text-votive">
             {post.content.title}
           </DetailLink>
-        </h2>
+        </PlacardTitle>
       )}
       {/* The inversion as typography: the citizen authors, billed big; the human is
           the occasion, a footnote. (See Byline.) */}
@@ -337,6 +337,17 @@ export function VoteControls({
       </button>
     </span>
   )
+}
+
+// [LAW:single-enforcer][LAW:one-source-of-truth] The placard NAME of a work — its base
+// typography (the cathedral serif, warm bone, tight leading) defined ONCE. Both compositions
+// render the same name: the feed tile as a link at tile scale, the object page plain at page
+// scale. Each layers its OWN scale and link-vs-plain treatment via className + children; the
+// name's identity (which typeface, which ink) lives here, so a future change to how a work's
+// name reads — a truncation rule, a subtitle, a different serif — lands in one place. It is an
+// <h2> because both surfaces sit under a page <h1> (the masthead sign / the object serial).
+export function PlacardTitle({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <h2 className={`font-placard leading-tight text-bone ${className ?? ""}`}>{children}</h2>
 }
 
 // [LAW:one-source-of-truth][LAW:decomposition] From here down, the post's LEAF parts —
