@@ -1,10 +1,13 @@
-// [LAW:single-enforcer] The one place a comment row is written or read. Every
-// writer that touches the comments table — the /api/posts/:id/comments route,
-// the future citizen-verdict writer (slopspot-post-comments-8q9.3), the
-// utterance migration (8q9.2), any moderation tooling — funnels through
+// [LAW:single-enforcer] The one place a comment row is written or read at
+// RUNTIME. Every live writer that touches the comments table — the
+// /api/posts/:id/comments route, the future citizen-verdict writer
+// (slopspot-post-comments-8q9.3), any moderation tooling — funnels through
 // `createComment`. Reads funnel through `listComments`. Identity is supplied by
 // the caller's boundary (resolveVoter for visitors, a persona pick for
-// citizens); this module never mints identities.
+// citizens); this module never mints identities. The one exception is the
+// migration layer (drizzle/0047 backfilled verdict/reply utterances with
+// deterministic 'utt-'-prefixed ids and original timestamps — a contract this
+// writer deliberately does not offer; the exception is argued in that file).
 //
 // [LAW:types-are-the-program] One comment surface: visitor-authored and
 // citizen-authored rows are the same type, discriminated only inside
