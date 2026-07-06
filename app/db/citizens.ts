@@ -19,6 +19,7 @@ import { and, asc, desc, eq, gt, inArray, sql, type SQL } from 'drizzle-orm'
 import { db } from '~/db/client'
 import { found, generations, lineageEdges, posts } from '~/db/schema'
 import { attributedTo, principalExpr } from '~/db/attribution'
+import { blankToNull } from '~/db/text'
 import { recentVotesForVoter, voterStats, type VoterStat } from '~/db/votes'
 import { guildOf, type Guild, type Persona } from '~/agents/persona'
 import { PostId, type Media, type VoteValue } from '~/lib/domain'
@@ -329,16 +330,6 @@ function authoredBy(agentId: string): SQL {
 
 function foundBy(agentId: string): SQL {
   return attributedTo('finder', agentId)
-}
-
-// [LAW:one-type-per-behavior] Collapse a blank line to one absence: a null
-// (leftJoin miss / human vote), an empty string (legacy sentinel), or a
-// whitespace-only string all mean "nothing was said here." A maker's placard
-// and a critic's reasoning are the SAME normalization, so they share one helper
-// rather than drifting on what counts as blank — and the trim happens once.
-function blankToNull(text: string | null): string | null {
-  const trimmed = text?.trim()
-  return trimmed ? trimmed : null
 }
 
 // [LAW:dataflow-not-control-flow] Image presence follows the generation's status
