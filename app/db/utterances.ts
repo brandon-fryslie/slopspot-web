@@ -67,10 +67,36 @@ function threadLine(input: {
 // the single utterance writer makes a card-only second surface unwritable — no future verdict/reply
 // caller can record the speech without the thread line. The write funnels through createComment (the
 // runtime comments enforcer mints the id and stamps now, which IS the utterance time at runtime).
+//
+// [LAW:types-are-the-program] `speaker` is a branded AgentId: every utterance is a citizen's speech,
+// and the brand makes proving that the CALLER's compile-time obligation (narrateVerdict brands at the
+// exact point its getPersona check proves citizenship) — no runtime persona re-check here, which would
+// duplicate the citizen gate at the narration boundary.
+//
+// The two writes are non-transactional (D1); the COMMENT lands first, deliberately: it is the
+// permanent conversation record, while the utterance store holds only the current exchange. A failure
+// between the writes leaves the thread whole and the voice store on its prior completed act — and a
+// vanished-post race writes NEITHER store (createComment's existence check gates the upsert).
 export async function recordUtterance(
   env: Env,
-  input: { speaker: string; occasion: Occasion; targetPostId: string | null; utterance: Utterance },
+  input: { speaker: AgentId; occasion: Occasion; targetPostId: string | null; utterance: Utterance },
 ): Promise<void> {
+  const line = threadLine(input)
+  if (line !== null) {
+    const written = await createComment(
+      { postId: line.postId, author: { kind: 'agent', agentId: input.speaker }, body: line.body },
+      { env },
+    )
+    // [LAW:no-silent-failure] post_not_found here is the post vanishing before the speech landed —
+    // surface it loud; the narration wrapper (the vote route's waitUntil catch) logs it without
+    // touching the committed vote, and neither store records the orphaned line.
+    if (!written.ok) {
+      throw new Error(
+        `utterances: thread write-through failed for ${input.occasion} by ${input.speaker} on post ${line.postId}: ${written.reason}`,
+      )
+    }
+  }
+
   const cols = utteranceColumns(input.utterance)
   await db(env)
     .insert(utterances)
@@ -88,21 +114,6 @@ export async function recordUtterance(
       // stay; only the spoken/withheld content + time move). NOT a second row — one current utterance.
       set: { ...cols, createdAt: new Date() },
     })
-
-  const line = threadLine(input)
-  if (line === null) return
-  const written = await createComment(
-    { postId: line.postId, author: { kind: 'agent', agentId: AgentId(input.speaker) }, body: line.body },
-    { env },
-  )
-  // [LAW:no-silent-failure] The utterance insert above just passed this post's FK, so post_not_found
-  // here is a delete race between the two non-transactional writes — surface it loud; the narration
-  // wrapper (the vote route's waitUntil catch) logs it without touching the committed vote.
-  if (!written.ok) {
-    throw new Error(
-      `utterances: thread write-through failed for ${input.occasion} by ${input.speaker} on post ${line.postId}: ${written.reason}`,
-    )
-  }
 }
 
 // [LAW:single-enforcer][LAW:types-are-the-program] The exchange FLOOR invariant (voice-w2v.2, CD-ruled):
@@ -290,7 +301,7 @@ export async function graceLinesForCity(database: DB, limit = CO_PRESENCE_CAP): 
 export async function coPresentVerdicts(
   database: DB,
   postId: string,
-): Promise<{ speaker: string; displayName: string; disposition: VerdictDisposition; createdAt: Date }[]> {
+): Promise<{ speaker: AgentId; displayName: string; disposition: VerdictDisposition; createdAt: Date }[]> {
   const rows = await database
     .select({
       speaker: utterances.speaker,
@@ -315,7 +326,9 @@ export async function coPresentVerdicts(
     .orderBy(desc(utterances.createdAt), desc(utterances.speaker))
 
   return rows.map((r) => ({
-    speaker: r.speaker,
+    // [LAW:types-are-the-program] The personas INNER JOIN proves the speaker is a citizen — the brand
+    // is applied where the data establishes it, so callers receive it proven, not cast.
+    speaker: AgentId(r.speaker),
     displayName: r.displayName.trim(),
     disposition: toDisposition(r.value, postId),
     createdAt: r.createdAt,
