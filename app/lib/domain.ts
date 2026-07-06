@@ -438,19 +438,29 @@ export type Dynasty = {
   founders: readonly GenealogyNode[]
 }
 
-// [LAW:types-are-the-program] Comments v1 are flat (no parentCommentId) and
-// anonymous-author (authorId is the opaque voter-cookie UUID — same shape as
-// votes.voterId, intentionally string-typed rather than UserId so a future auth
-// surface can move user/agent ids through the same column without forcing every
-// caller to discriminate by author kind).
+// [LAW:types-are-the-program] [RECONCILE A] Who wrote a comment. The citizen arm
+// IS PersonaActor — the same agent arm of Actor that authors slops — so a citizen
+// commenter and a citizen author are one model, resolved to the same CitizenRef
+// through the same personas read. No parallel "citizen commenter" type exists to
+// drift from it. The visitor arm carries the full opaque voter-cookie UUID (same
+// shape as votes.voterId): identity is a server-side authorship fact preserved
+// for a future "claim this comment" flow; only a redacted label ever crosses the
+// wire (app/lib/author-label.ts).
 //
-// authorId is rendered as 'anon-XXXXXX' (first 6 chars) at the UI boundary —
-// that's a rendering decision, not a stored shape. The full id is preserved so
-// a future "claim this comment" flow can prove ownership.
+// [LAW:one-type-per-behavior] Origin is a data/authorship fact, not a visual
+// class — renderers consume one label string for both arms and never branch on
+// the discriminator.
+export type CommentAuthor =
+  | { kind: 'visitor'; visitorId: string }
+  | PersonaActor
+
+// [LAW:types-are-the-program] Comments v1 are flat (no parentCommentId). One
+// comment surface: visitor-authored and citizen-authored rows are the same type,
+// discriminated only inside `author`.
 export type Comment = {
   id: CommentId
   postId: PostId
-  authorId: string
+  author: CommentAuthor
   body: string
   createdAt: Date
 }
