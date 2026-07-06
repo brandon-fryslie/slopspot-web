@@ -130,7 +130,10 @@ describe("shareMeta - verdict overrides byline in the description", () => {
     // The permalink loader's cold-path shareVerdictForPost hands the hottest take in as the third arg.
     const verdict: Verdict = { text: "A masterpiece of rot", critic: "The Gremlin", disposition: "blessed" }
     const tags = shareMeta(item, ORIGIN, verdict)
+    // Both the OG and the plain description tags carry the verdict — pin both (as the no-verdict
+    // case does), so a regression that drops or mutates one tag while keeping the other is caught.
     expect(byProperty(tags, "og:description")).toBe("“A masterpiece of rot” — The Gremlin")
+    expect(byName(tags, "description")).toBe("“A masterpiece of rot” — The Gremlin")
   })
 })
 

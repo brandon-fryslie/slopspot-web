@@ -946,6 +946,26 @@ describe('app/db/feed.ts - shareVerdictForPost (permalink share tag)', () => {
     const id = await seedPost(env, { id: 'post-share-noverdict', createdAt: ms(1000) })
     expect(await shareVerdictForPost(env, id)).toBeUndefined()
   })
+
+  it('picks the NEWEST take when two critics spoke — the "hottest" share verdict', async () => {
+    // [LAW:behavior-not-structure] shareVerdictForPost promises the HOTTEST take; it takes verdicts[0]
+    // trusting verdictsForPosts' newest-first order. Pin that promise HERE, at the function that makes
+    // it: if that order ever inverted, the share tag would silently describe a slop under its OLDEST take.
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    await seedCritic('agent:vivian', 'St. Vivian')
+    const id = await seedPost(env, { id: 'post-share-two', createdAt: ms(1000) })
+    await seedVote(env, { postId: id, voterId: 'agent:gremlin', value: -1 })
+    await seedUtterance(env, { speaker: 'agent:gremlin', targetPostId: id, text: 'Buried it first.', createdAt: ms(2000) })
+    await seedVote(env, { postId: id, voterId: 'agent:vivian', value: 1 })
+    await seedUtterance(env, { speaker: 'agent:vivian', targetPostId: id, text: 'Blessed it later.', createdAt: ms(3000) })
+
+    // Vivian's blessing (ms 3000) is newer than the Gremlin's burial (ms 2000), so it is the share take.
+    expect(await shareVerdictForPost(env, id)).toEqual({
+      critic: 'St. Vivian',
+      text: 'Blessed it later.',
+      disposition: 'blessed',
+    })
+  })
 })
 
 // [LAW:behavior-not-structure] Pin the batch resolver's contract: it resolves many ids to
