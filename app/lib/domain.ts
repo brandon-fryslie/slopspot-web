@@ -405,8 +405,16 @@ export type FeedItem = RenderablePost & {
 // for a node whose slop has no phenotype yet (pending/running/failed), distinct by data
 // from "no displayable image" which the renderer decides. `kin` empty = a founder (going
 // up) or a leaf (going down) — the arity is the discriminator, no separate flag.
+//
+// [LAW:types-are-the-program] `title` is the node's LEGIBLE identity — the piece's placard
+// name, the same identity the byline/placard show — so a lineage tree reads in names, not raw
+// serials (slopspot-post-detail-sei.3: provenance a visitor understands without inspecting
+// ids). `null` is the SAME optionality idiom as `thumbnail`: a genuinely nameless node (a
+// legacy pre-title row), where the renderer falls back to the stable serial. New rows always
+// carry a name (createPost rejects an empty title), so this degrades to a string by data.
 export type GenealogyNode = {
   postId: PostId
+  title: string | null
   thumbnail: Media | null
   kin: readonly GenealogyNode[]
 }

@@ -51,6 +51,34 @@ describe('getGenealogy — the per-post lineage slice', () => {
     expect(c.offspring).toEqual([])
   })
 
+  it('carries each node’s placard NAME so the tree reads in language, not raw serials (sei.3)', async () => {
+    // A named parent, a child forked from it — the ancestry node must surface the parent's placard.
+    const named = await seedPost(env, {
+      id: 'gv-named-parent',
+      content: { kind: 'generation', title: 'Wolf at the Threshold', status: { kind: 'succeeded', output: IMG('p'), completedAt: new Date('2026-01-01') } },
+    })
+    const child = await seedPost(env, { id: 'gv-named-child', content: { kind: 'generation', title: 'The Cub', parentId: named } })
+
+    const g = await getGenealogy(env, child)
+    expect(g.ancestors.map((n) => n.postId)).toEqual([PostId('gv-named-parent')])
+    // The legible identity a visitor reads — the parent's name, not just p:gv-named.
+    expect(g.ancestors[0]!.title).toBe('Wolf at the Threshold')
+  })
+
+  it('resolves a blank legacy title to null (the renderer falls back to the serial), sei.3', async () => {
+    // A pre-title legacy row (empty title) — the SAME blank→null rule the maker's shrine uses.
+    const legacy = await seedPost(env, {
+      id: 'gv-legacy-parent',
+      content: { kind: 'generation', title: '', status: { kind: 'succeeded', output: IMG('l'), completedAt: new Date('2026-01-01') } },
+    })
+    const child = await seedPost(env, { id: 'gv-legacy-child', content: { kind: 'generation', title: 'Named Child', parentId: legacy } })
+
+    const g = await getGenealogy(env, child)
+    expect(g.ancestors[0]!.postId).toBe(PostId('gv-legacy-parent'))
+    // A nameless node carries null — not the empty string, not a fabricated placard.
+    expect(g.ancestors[0]!.title).toBeNull()
+  })
+
   it('a founder with no kin yields an empty genealogy', async () => {
     const lone = await seedPost(env, { id: 'gv-lone', content: { kind: 'generation' } })
     expect(await getGenealogy(env, lone)).toEqual({ ancestors: [], offspring: [], siblings: [] })
