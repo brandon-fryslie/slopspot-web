@@ -314,6 +314,7 @@ export async function seedComment(
     id?: string
     postId: PostId
     authorId?: string
+    authorKind?: 'visitor' | 'agent'
     body?: string
     createdAt?: Date
   },
@@ -325,6 +326,7 @@ export async function seedComment(
       id,
       postId: opts.postId,
       authorId: opts.authorId ?? 'anon-tester',
+      authorKind: opts.authorKind ?? 'visitor',
       body: opts.body ?? 'a test comment',
       createdAt: opts.createdAt ?? new Date('2026-01-01T00:00:00Z'),
     })

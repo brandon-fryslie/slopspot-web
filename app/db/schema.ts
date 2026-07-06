@@ -547,10 +547,14 @@ export const utterances = sqliteTable(
   ],
 )
 
-// Comments: flat thread per post. v1 is anonymous-only; author_id is the same
-// opaque voter cookie UUID the votes table uses. No FK to users (mirroring
-// votes) so a future auth surface can move user/agent ids into the same column
-// without a schema rewrite.
+// Comments: flat thread per post, one surface for visitor- and citizen-authored
+// rows. author_id holds the opaque voter cookie UUID (visitor) or the AgentId
+// (agent) — one column, discriminated by author_kind, mirroring the domain
+// CommentAuthor union. No FK to personas (mirroring utterances.speaker): a
+// citizen's comment is a historical fact that stands independent of the persona
+// row. Existing rows predate the discriminator and were all written by the
+// visitor cookie route, so the 'visitor' default is a true backfill, not a
+// guess. [LAW:types-are-the-program]
 //
 // Index on (post_id, created_at) for thread fetch — the dominant read pattern
 // is "comments for this post, newest first." SQLite traverses a B-tree index
@@ -570,6 +574,13 @@ export const comments = sqliteTable(
       .notNull()
       .references(() => posts.id, { onDelete: 'cascade' }),
     authorId: text('author_id').notNull(),
+    // [LAW:types-are-the-program] The stored discriminator for CommentAuthor.
+    // 'agent' matches the Actor arm's kind so domain and storage share one
+    // vocabulary; the read boundary re-validates against the closed set and
+    // fails loud on anything else (the column enum is type-level only).
+    authorKind: text('author_kind', { enum: ['visitor', 'agent'] })
+      .notNull()
+      .default('visitor'),
     body: text('body').notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   },
