@@ -7,9 +7,10 @@
 
 import { and, asc, desc, eq, inArray, isNotNull, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
+import { createComment } from '~/db/comments'
 import { personas, utterances, votes } from '~/db/schema'
 import type { Occasion, Utterance } from '~/lib/voice'
-import type { Verdict, VerdictDisposition } from '~/lib/domain'
+import { AgentId, PostId, type Verdict, type VerdictDisposition } from '~/lib/domain'
 
 // [LAW:dataflow-not-control-flow] How many co-present verdicts a single slop surfaces. ≥2 is the feud's
 // visual germ (the-voice-layer.md): the Gremlin's burial and Vivian's blessing of the SAME slop, side
@@ -26,11 +27,46 @@ function utteranceColumns(u: Utterance) {
     : { kind: 'withheld' as const, text: null, withheldReason: u.reason }
 }
 
+// [LAW:one-source-of-truth] The argument occasions — the speech that IS the post's conversation
+// (slopspot-post-comments-8q9.2/.3). A spoken line on one of these is recorded twice, on purpose,
+// as two representations of ONE speech act with different lifetimes: the utterance row is the
+// CURRENT-exchange record (re-votes upsert in place, superseded replies prune), the comment is the
+// PERMANENT thread line (append-only — a change of heart appends a new line, it never rewrites the
+// old one). The divergence is the design, not drift: comments are the conversation record,
+// utterances the voice record.
+const ARGUMENT_OCCASIONS: ReadonlySet<Occasion> = new Set(['verdict', 'reply'])
+
+// [LAW:dataflow-not-control-flow] The same shape filter drizzle/0047's backfill WHERE applies in SQL,
+// as a total projection over the input: an argument occasion, spoken, on a real post, with a non-empty
+// line → the thread comment; everything else (withheld silence, post-less speech, non-argument
+// occasions) → no comment, decided by the data's shape.
+function threadLine(input: {
+  occasion: Occasion
+  targetPostId: string | null
+  utterance: Utterance
+}): { postId: PostId; body: string } | null {
+  if (
+    !ARGUMENT_OCCASIONS.has(input.occasion) ||
+    input.utterance.kind !== 'spoke' ||
+    input.targetPostId === null
+  ) {
+    return null
+  }
+  const body = input.utterance.text.trim()
+  return body === '' ? null : { postId: PostId(input.targetPostId), body }
+}
+
 // [LAW:single-enforcer] The ONE writer of an utterance. Persists the returned Utterance once, keyed by
 // (speaker, target, occasion) — a re-vote UPSERTS the latest verdict (the unique index enforces one
 // current utterance per citizen/slop/occasion, matching the votes upsert model). The voice has already
 // degraded any failure to Withheld{unavailable} upstream (speak() in voice.ts), so both arms persist:
 // a chosen/forced silence is a REAL recorded row, not an absence. [LAW:no-silent-fallbacks]
+//
+// [LAW:single-enforcer] A spoken verdict/reply also writes through to the post's thread
+// (slopspot-post-comments-8q9.3): the argument under a slop is real comments, and enforcing that at
+// the single utterance writer makes a card-only second surface unwritable — no future verdict/reply
+// caller can record the speech without the thread line. The write funnels through createComment (the
+// runtime comments enforcer mints the id and stamps now, which IS the utterance time at runtime).
 export async function recordUtterance(
   env: Env,
   input: { speaker: string; occasion: Occasion; targetPostId: string | null; utterance: Utterance },
@@ -52,6 +88,21 @@ export async function recordUtterance(
       // stay; only the spoken/withheld content + time move). NOT a second row — one current utterance.
       set: { ...cols, createdAt: new Date() },
     })
+
+  const line = threadLine(input)
+  if (line === null) return
+  const written = await createComment(
+    { postId: line.postId, author: { kind: 'agent', agentId: AgentId(input.speaker) }, body: line.body },
+    { env },
+  )
+  // [LAW:no-silent-failure] The utterance insert above just passed this post's FK, so post_not_found
+  // here is a delete race between the two non-transactional writes — surface it loud; the narration
+  // wrapper (the vote route's waitUntil catch) logs it without touching the committed vote.
+  if (!written.ok) {
+    throw new Error(
+      `utterances: thread write-through failed for ${input.occasion} by ${input.speaker} on post ${line.postId}: ${written.reason}`,
+    )
+  }
 }
 
 // [LAW:single-enforcer][LAW:types-are-the-program] The exchange FLOOR invariant (voice-w2v.2, CD-ruled):
