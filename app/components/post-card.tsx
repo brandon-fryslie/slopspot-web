@@ -1344,13 +1344,7 @@ export function CommentSection({
         aria-expanded={isExpanded}
         className="flex w-full items-center justify-between px-3 py-2 text-left font-terminal text-xs text-ash transition hover:bg-bone/[0.03] hover:text-bone"
       >
-        <span>
-          {displayCount === 0
-            ? "no comments yet"
-            : displayCount === 1
-            ? "1 comment"
-            : `${displayCount} comments`}
-        </span>
+        <span>{commentCountLabel(displayCount)}</span>
         <span aria-hidden className="font-terminal text-ash">
           {isLoading ? "…" : isExpanded ? "▾" : "▸"}
         </span>
@@ -1412,8 +1406,15 @@ export function CommentSection({
 // where the full argument lives. It makes one promise — glance + open — asking nothing (no fetch, no
 // compose, no thread). On the object itself (permalinkHref undefined) the count stands alone; there is
 // nothing to open. The open-affordance renders by the PRESENCE of the door, never an isPreview flag.
+// [LAW:one-source-of-truth] The one place a comment count becomes its label — the tile preview and the
+// thread header both read it, so "no comments yet" / "1 comment" / "N comments" can never drift between
+// the two surfaces.
+function commentCountLabel(count: number): string {
+  return count === 0 ? "no comments yet" : count === 1 ? "1 comment" : `${count} comments`
+}
+
 function CommentPreview({ permalinkHref, count }: { permalinkHref: string | undefined; count: number }) {
-  const label = count === 0 ? "no comments yet" : count === 1 ? "1 comment" : `${count} comments`
+  const label = commentCountLabel(count)
   return (
     <div className="border-t border-votive/12 px-3 py-2 font-terminal text-xs text-ash">
       <DetailLink href={permalinkHref} className="flex items-center justify-between transition hover:text-bone">

@@ -89,8 +89,10 @@ describe('app/components/post-detail.tsx - the object page', () => {
     // the acts still work — vote + fork are their own targets
     expect(html).toContain('aria-label="upvote"')
     expect(html).toContain('href="/fork/sei2-gen"')
-    // the conversation entry (the comment thread) — a complete object, not a bare relic
-    expect(html).toContain('comments')
+    // the conversation entry — a complete object carries the comment thread's compose box, not a
+    // bare relic. The placeholder is an unambiguous marker of the rendered thread surface (unlike the
+    // bare word "comments", which also lives in the count head and the empty-thread line).
+    expect(html).toContain('leave a comment')
   })
 
   it('is the object, not a preview of itself — it never self-links (sei.1 seam preserved)', () => {
