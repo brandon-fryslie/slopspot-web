@@ -99,6 +99,12 @@ describe("shareMeta - generation", () => {
     expect(metaTitle(tags)).toBe("Neon Robot Dystopia — SlopSpot")
   })
 
+  it("og:url is the canonical permalink, absolute against the origin", () => {
+    expect(byProperty(tags, "og:url")).toBe(
+      "https://slopspot.ai/p/11112222-3333-4444-5555-666677778888",
+    )
+  })
+
   it("og:image is the succeeded output url, absolutized against the request origin", () => {
     expect(byProperty(tags, "og:image")).toBe("https://slopspot.ai/media/relic-sha")
     expect(byName(tags, "twitter:image")).toBe("https://slopspot.ai/media/relic-sha")

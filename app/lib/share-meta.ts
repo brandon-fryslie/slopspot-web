@@ -120,6 +120,10 @@ export function shareMeta(item: RenderablePost, origin: string): MetaDescriptor[
     { name: "description", content: description },
     { property: "og:title", content: title },
     { property: "og:description", content: description },
+    // The canonical permalink: tells a scraper THIS is the page a shared link
+    // stands for, so ?utm_source=… variants dedupe to one card and the card's
+    // click target is the permalink, not the shared query-string url.
+    { property: "og:url", content: `${origin}/p/${item.post.id}` },
     { property: "og:type", content: "article" },
     {
       name: "twitter:card",
