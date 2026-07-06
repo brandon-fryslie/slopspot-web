@@ -1,9 +1,10 @@
 // [LAW:single-enforcer] The read/write side of the `utterances` table — the first-class addressable
 // record of what citizens say (slopspot-voice-w2v.1, design-docs/the-voice-layer.md). `recordUtterance`
 // is the ONE writer (the spec's "persistence of the returned Utterance is the caller's single-enforcer
-// write, done once"); `verdictsForPosts` is the batched read that surfaces verdict lines on the feed,
-// RETIRING feed.ts's ad-hoc derivation from votes.reasoning — the utterance store is now the single
-// source for the rendered line. [LAW:one-source-of-truth]
+// write, done once"); `verdictsForPosts` is the batched read that surfaces a critic's spoken line —
+// now consumed only by the permalink's share tag (feed.ts shareVerdictForPost), the argument itself
+// living in the comment thread. The utterance store is the single source for the rendered line.
+// [LAW:one-source-of-truth]
 
 import { and, asc, desc, eq, inArray, isNotNull, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DB } from '~/db/client'
@@ -201,8 +202,8 @@ function spokenLinesForPosts(
     .from(ranked)
     .where(lte(ranked.rank, CO_PRESENCE_CAP))
     // [LAW:one-source-of-truth] rank 1 is the NEWEST (the window orders created_at desc), so ASC rank
-    // yields NEWEST-FIRST — the order RenderablePost.verdicts/exchange promise.
-    // (desc(rank) would render oldest-first, silently contradicting the contract.)
+    // yields NEWEST-FIRST — the order the verdict readers promise (the share tag takes the first, i.e.
+    // the hottest, take). (desc(rank) would render oldest-first, silently contradicting the contract.)
     .orderBy(asc(ranked.rank))
     .then((rows) => {
       const byPost = new Map<string, Verdict[]>()
@@ -229,16 +230,6 @@ export function verdictsForPosts(
   postIds: readonly string[],
 ): Promise<Map<string, Verdict[]>> {
   return spokenLinesForPosts(database, postIds, 'verdict')
-}
-
-// The answers in the exchange — the back-and-forth the Feud Engine fires when verdicts oppose
-// (slopspot-voice-w2v.2). Same read, the `reply` occasion flowing in; rendered as a threaded exchange
-// beneath the verdicts (newest-first, same co-presence cap).
-export function repliesForPosts(
-  database: DB,
-  postIds: readonly string[],
-): Promise<Map<string, Verdict[]>> {
-  return spokenLinesForPosts(database, postIds, 'reply')
 }
 
 // A grace reveal surfaced for the city PULL — the third-person line and the slop it hangs on. Carries no
