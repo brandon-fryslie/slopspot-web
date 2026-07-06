@@ -76,9 +76,15 @@ function PostCardImpl({
   // flag — turns the wish-gap panel and signed remark on. Honest data in, honest
   // display out; this card reads the snapshot and triggers no act.
   const wish = wishContext(post)
+  // [LAW:single-enforcer][LAW:dataflow-not-control-flow] The object's address, formed once.
+  // A preview (any framed tile in a list) opens /p/:id; the standalone permalink IS the object
+  // itself and carries `undefined`, so it links to nothing — no self-link. Every detail door on
+  // this card (the relic, the placard, the timestamp) reads this ONE value; the value decides
+  // anchor-vs-passthrough, never an isPreview flag threaded through each child.
+  const permalinkHref = frame.kind === "standalone" ? undefined : `/p/${post.id}`
   return (
     <article className="overflow-hidden rounded-lg border border-votive/12 bg-panel">
-      <ContentView content={post.content} frame={frame} />
+      <ContentView content={post.content} frame={frame} permalinkHref={permalinkHref} />
       {/* [LAW:dataflow-not-control-flow] The eternal mark renders by the PRESENCE of
           the Crowning the read boundary derived from the crowns table — never an
           isCrowned flag. An uncrowned post carries no crowning and this block does
@@ -90,7 +96,12 @@ function PostCardImpl({
           raw prompt. */}
       {post.content.kind === "generation" && (
         <h2 className="px-3 pt-3 font-placard text-2xl leading-tight text-bone">
-          {post.content.title}
+          {/* [LAW:dataflow-not-control-flow] The placard is a second, textual door to the
+              object — a link on a preview, plain text on the permalink itself. The href
+              value decides which; the title text is identical either way. */}
+          <DetailLink href={permalinkHref} className="transition hover:text-votive">
+            {post.content.title}
+          </DetailLink>
         </h2>
       )}
       {/* The inversion as typography: the citizen authors, billed big; the human is
@@ -149,7 +160,15 @@ function PostCardImpl({
             )}
           </>
         )}
-        <span className="ml-auto font-terminal text-ash">{relativeTime(post.createdAt)}</span>
+        {/* [LAW:dataflow-not-control-flow] The timestamp is the conventional permalink spot —
+            the detail door EVERY card carries, including a found slop whose relic is outbound
+            (so this is that card's way into its own object). The span owns the row alignment so
+            it holds whether the inner value is a link (preview) or plain time (the object). */}
+        <span className="ml-auto font-terminal text-ash">
+          <DetailLink href={permalinkHref} className="transition hover:text-votive">
+            {relativeTime(post.createdAt)}
+          </DetailLink>
+        </span>
       </div>
       {/* [LAW:types-are-the-program] The medium (the provider) lives in the recipe
           drawer, never the headline — the serial number does not headline the art. */}
@@ -326,10 +345,16 @@ function VoteControls({
 // new variant. The central domain-exhaustiveness gate proves SOMEONE handles a new kind;
 // this local gate proves the RENDERER does — without noImplicitReturns the switch would
 // otherwise fall through to an undefined return, a valid ReactNode that renders nothing.
-function ContentView({ content, frame }: { content: Content; frame: FrameLevel }) {
+function ContentView({ content, frame, permalinkHref }: { content: Content; frame: FrameLevel; permalinkHref: string | undefined }) {
   switch (content.kind) {
+    // [LAW:dataflow-not-control-flow] The relic IS the preview's obvious click target — an
+    // upload or a generation (finished or not) opens its /p/:id object. RelicView draws the
+    // opening anchor iff permalinkHref is present, so the standalone permalink never self-links.
+    // FOUND is deliberately absent from this wrapping: its relic already links OUTBOUND to the
+    // source (a link-post's whole purpose), so a second /p/:id anchor would nest inside the
+    // outbound one — its detail door is the permalink timestamp instead.
     case "upload":
-      return <RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame>
+      return <RelicView href={permalinkHref} label={uploadRelicLabel(content.asset)}><RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame></RelicView>
     case "found":
       return (
         <FoundLinkCard
@@ -343,19 +368,86 @@ function ContentView({ content, frame }: { content: Content; frame: FrameLevel }
     case "generation": {
       const status = content.status
       // [LAW:single-enforcer] Every relic — the finished image and the not-yet-finished
-      // frame alike — hangs through the SAME RelicFrame at the same level. An in-progress
-      // slop is an empty frame already on the wall, not an unframed loading state.
-      switch (status.kind) {
-        case "pending":   return <RelicFrame level={frame}><StatusPlaceholder tone="queued"  label="queued" /></RelicFrame>
-        case "running":   return <RelicFrame level={frame}><StatusPlaceholder tone="working" label="generating…" /></RelicFrame>
-        case "succeeded": return <RelicFrame level={frame}><MediaView media={status.output} /></RelicFrame>
-        case "failed":    return <RelicFrame level={frame}><StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} /></RelicFrame>
-        default:          return assertNever(status)
-      }
+      // frame alike — hangs through the SAME RelicFrame at the same level and opens through
+      // the SAME RelicView. An in-progress slop is a clickable empty frame already on the
+      // wall, not an unframed loading state.
+      const relic = (() => {
+        switch (status.kind) {
+          case "pending":   return <RelicFrame level={frame}><StatusPlaceholder tone="queued"  label="queued" /></RelicFrame>
+          case "running":   return <RelicFrame level={frame}><StatusPlaceholder tone="working" label="generating…" /></RelicFrame>
+          case "succeeded": return <RelicFrame level={frame}><MediaView media={status.output} /></RelicFrame>
+          case "failed":    return <RelicFrame level={frame}><StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} /></RelicFrame>
+          default:          return assertNever(status)
+        }
+      })()
+      return <RelicView href={permalinkHref} label={generationRelicLabel(content.title, status)}>{relic}</RelicView>
     }
     default:
       return assertNever(content)
   }
+}
+
+// [LAW:single-enforcer][LAW:dataflow-not-control-flow] The feed→object navigation door, drawn
+// from ONE value. `href` present → a plain <a> to /p/:id; `undefined` → the children pass
+// through unwrapped (the permalink object does not link to itself). A plain <a> (not <Link>)
+// matches the card's own ForkLink/BreedLink/cast idiom: a meaningful href middle-clicks into a
+// new tab, is discoverable without JS, and needs no Router context (PostCard renders router-less
+// in tests). Used for the textual doors (the placard, the timestamp); the relic uses RelicView.
+function DetailLink({ href, className, children }: { href: string | undefined; className?: string; children: React.ReactNode }) {
+  return href !== undefined ? <a href={href} className={className}>{children}</a> : <>{children}</>
+}
+
+// [LAW:one-source-of-truth][FRAMING:representation] The relic link's accessible name must
+// DESCRIBE what it opens, not a fixed string that hides the child. A blanket aria-label overrides
+// the relic's own content, so a screen-reader user navigating by links would otherwise lose the
+// slop's identity AND its status (a generating or failed frame reads the same as a finished one).
+// A generation carries its title and, when not yet viewable, its state; an in-progress frame is
+// still a door but the name says so. Exhaustive on GenerationStatus so a new state forces a copy
+// decision here rather than silently reading as "open".
+function generationRelicLabel(title: string, status: GenerationStatus): string {
+  switch (status.kind) {
+    case "succeeded": return `open “${title}”`
+    case "pending":   return `open “${title}” — queued`
+    case "running":   return `open “${title}” — generating`
+    case "failed":    return `open “${title}” — failed`
+    default:          return assertNever(status)
+  }
+}
+
+// [FRAMING:representation] An upload has no title, so its relic link names itself with the
+// asset's OWN alt text when the uploader supplied one — the only truthful per-upload
+// distinguisher available — and falls back to the generic name when there is none. A synthetic
+// token (post id, list index) is rejected on purpose: it names the storage row, not anything a
+// screen-reader user can act on. An empty alt is treated as absent (no name to borrow).
+function uploadRelicLabel(asset: Media): string {
+  return asset.kind === "image" && asset.alt !== undefined && asset.alt.length > 0
+    ? `open “${asset.alt}”`
+    : "open this slop"
+}
+
+// [LAW:decomposition] The relic is the preview's OBVIOUS click target — the big hung image (or
+// its in-progress frame) that opens the object, the Reddit/Digg "click the preview" move. It
+// carries a hover cue for pointer users and a focus-visible ring for keyboard users, and an
+// accessible `label` (an image's alt can be empty and a nameless link is unusable) — computed
+// per content by the caller so it names the slop, not a shared fixed string. When href is
+// undefined (the permalink object) the relic renders bare — no self-link, no cue.
+function RelicView({ href, label, children }: { href: string | undefined; label: string; children: React.ReactNode }) {
+  if (href === undefined) return <>{children}</>
+  return (
+    <a
+      href={href}
+      aria-label={label}
+      className="group/relic relative block overflow-hidden rounded-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-votive/60"
+    >
+      {children}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-3 rounded bg-base/80 px-1.5 py-0.5 font-terminal text-[10px] uppercase tracking-wider text-votive/90 opacity-0 shadow-sm transition-opacity group-hover/relic:opacity-100"
+      >
+        open ↗
+      </span>
+    </a>
+  )
 }
 
 // [LAW:single-enforcer][LAW:one-source-of-truth] The card is the ONE owner of relic
