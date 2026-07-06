@@ -1,6 +1,6 @@
 import type { Route } from "./+types/p.$id"
 import { Link } from "react-router"
-import { getFeedItemById } from "~/db/feed"
+import { getFeedItemById, shareVerdictForPost } from "~/db/feed"
 import { getGenealogy } from "~/db/genealogy-view"
 import { listComments } from "~/db/comments"
 import { readVoterId } from "~/lib/voter-cookie"
@@ -37,10 +37,14 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   // the thread so the conversation is in the HTML, readable on load. [LAW:single-enforcer] the comments
   // serialize through the SAME author-label redaction the /api/posts/:id/comments loader uses — the raw
   // voter UUID never crosses this boundary; only the display label does.
-  const [item, genealogy, comments] = await Promise.all([
+  // [LAW:decomposition] The share verdict is a permalink-only, cold-path read — the feed no longer
+  // hydrates verdicts (8q9.6), so this one surface (og:description) fetches its single hottest take
+  // here, in parallel with the object and its thread, rather than on the feed hot slab.
+  const [item, genealogy, comments, shareVerdict] = await Promise.all([
     getFeedItemById(env, postId, readVoterId(request)),
     getGenealogy(env, postId),
     listComments(env, postId),
+    shareVerdictForPost(env, postId),
   ])
   if (item === null) {
     throw new Response("post not found", { status: 404 })
@@ -56,7 +60,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   // client Location, never the host) can absolutize the share image's relative
   // /media/<sha> url against the host the link was served from.
   const origin = new URL(request.url).origin
-  return { item, genealogy, origin, initialComments }
+  return { item, genealogy, origin, initialComments, shareVerdict }
 }
 
 export function meta({ data }: Route.MetaArgs) {
@@ -70,8 +74,9 @@ export function meta({ data }: Route.MetaArgs) {
   // [LAW:single-enforcer] Share/preview tags (title, description, og:image,
   // twitter card) are minted in one place from the SAME RenderablePost the page
   // hangs — never re-derived here. This route is the adapter that hands the pure
-  // deriver the renderable and the request origin.
-  return shareMeta(data.item, data.origin)
+  // deriver the renderable, the request origin, and the loader's cold-path share
+  // verdict (the hottest critic take, or undefined for the byline fallback).
+  return shareMeta(data.item, data.origin, data.shareVerdict)
 }
 
 export default function PermalinkPage({ loaderData }: Route.ComponentProps) {

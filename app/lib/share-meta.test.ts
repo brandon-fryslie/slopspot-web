@@ -55,7 +55,7 @@ function generationContent(overrides: {
   }
 }
 
-function renderable(opts: { content: Content; origin: Origin; verdicts?: Verdict[] }): RenderablePost {
+function renderable(opts: { content: Content; origin: Origin }): RenderablePost {
   return {
     post: {
       id: PostId("11112222-3333-4444-5555-666677778888"),
@@ -67,8 +67,6 @@ function renderable(opts: { content: Content; origin: Origin; verdicts?: Verdict
     myVote: null,
     commentCount: 0,
     viewerIsModifier: false,
-    verdicts: opts.verdicts ?? [],
-    exchange: [],
     generationDepth: 0,
     descendantCount: 0,
   }
@@ -92,7 +90,8 @@ describe("shareMeta - generation", () => {
     }),
     origin: AGENT_ORIGIN,
   })
-  const tags = shareMeta(item, ORIGIN)
+  // No critic spoke → the share verdict is undefined, so the description falls to the byline.
+  const tags = shareMeta(item, ORIGIN, undefined)
 
   it("og:title and document title are the placard name", () => {
     expect(byProperty(tags, "og:title")).toBe("Neon Robot Dystopia")
@@ -121,15 +120,16 @@ describe("shareMeta - generation", () => {
 })
 
 describe("shareMeta - verdict overrides byline in the description", () => {
-  it("shares under the first critic's spoken verdict when one exists", () => {
+  it("shares under the critic's spoken verdict when the loader fetched one", () => {
     const item = renderable({
       content: generationContent({
         status: { kind: "succeeded", output: succeededImage, completedAt: new Date("2026-01-01T00:00:00Z") },
       }),
       origin: AGENT_ORIGIN,
-      verdicts: [{ text: "A masterpiece of rot", critic: "The Gremlin", disposition: "blessed" }],
     })
-    const tags = shareMeta(item, ORIGIN)
+    // The permalink loader's cold-path shareVerdictForPost hands the hottest take in as the third arg.
+    const verdict: Verdict = { text: "A masterpiece of rot", critic: "The Gremlin", disposition: "blessed" }
+    const tags = shareMeta(item, ORIGIN, verdict)
     expect(byProperty(tags, "og:description")).toBe("“A masterpiece of rot” — The Gremlin")
   })
 })
@@ -142,7 +142,7 @@ describe("shareMeta - a generation with no phenotype yet has no preview image", 
   ] as const) {
     it(`${status.kind} → no og:image, plain summary card`, () => {
       const item = renderable({ content: generationContent({ status }), origin: AGENT_ORIGIN })
-      const tags = shareMeta(item, ORIGIN)
+      const tags = shareMeta(item, ORIGIN, undefined)
       expect(byProperty(tags, "og:image")).toBeUndefined()
       expect(byName(tags, "twitter:image")).toBeUndefined()
       expect(byName(tags, "twitter:card")).toBe("summary")
@@ -163,7 +163,7 @@ describe("shareMeta - found", () => {
       title: "Someone Else's Slop",
       thumbnail: { kind: "image", url: "/media/thumb-sha", w: 800, h: 600 },
     }
-    const tags = shareMeta(renderable({ content, origin: foundOrigin }), ORIGIN)
+    const tags = shareMeta(renderable({ content, origin: foundOrigin }), ORIGIN, undefined)
     expect(byProperty(tags, "og:title")).toBe("Someone Else's Slop")
     expect(byProperty(tags, "og:image")).toBe("https://slopspot.ai/media/thumb-sha")
     expect(byProperty(tags, "og:description")).toBe("Found by The Ragpicker")
@@ -171,7 +171,7 @@ describe("shareMeta - found", () => {
 
   it("a found post with no captured thumbnail has no preview image", () => {
     const content: Content = { kind: "found", url: "https://example.com/art", title: "Untitled Find" }
-    const tags = shareMeta(renderable({ content, origin: foundOrigin }), ORIGIN)
+    const tags = shareMeta(renderable({ content, origin: foundOrigin }), ORIGIN, undefined)
     expect(byProperty(tags, "og:image")).toBeUndefined()
     expect(byName(tags, "twitter:card")).toBe("summary")
   })
@@ -181,7 +181,7 @@ describe("shareMeta - upload", () => {
   it("has no placard, shares under a stable generic and its uploader byline", () => {
     const content: Content = { kind: "upload", asset: { kind: "image", url: "/media/upload-sha", w: 1, h: 1 } }
     const origin: Origin = { kind: "uploaded", uploader: { kind: "anon", label: "anon-abc123" } }
-    const tags = shareMeta(renderable({ content, origin }), ORIGIN)
+    const tags = shareMeta(renderable({ content, origin }), ORIGIN, undefined)
     expect(byProperty(tags, "og:title")).toBe("An uploaded slop")
     expect(byProperty(tags, "og:image")).toBe("https://slopspot.ai/media/upload-sha")
     expect(byProperty(tags, "og:description")).toBe("Uploaded by anon-abc123")
@@ -192,7 +192,7 @@ describe("shareMeta - media kinds that have no still", () => {
   it("a video previews through its poster frame", () => {
     const content: Content = { kind: "upload", asset: { kind: "video", url: "/media/clip", durationMs: 1000, thumbnailUrl: "/media/poster" } }
     const origin: Origin = { kind: "uploaded", uploader: { kind: "anon", label: "anon-x" } }
-    const tags = shareMeta(renderable({ content, origin }), ORIGIN)
+    const tags = shareMeta(renderable({ content, origin }), ORIGIN, undefined)
     expect(byProperty(tags, "og:image")).toBe("https://slopspot.ai/media/poster")
   })
 
@@ -204,7 +204,7 @@ describe("shareMeta - media kinds that have no still", () => {
       { kind: "text", body: "just words" },
       { kind: "audio", url: "/media/sound", durationMs: 500 },
     ] as const) {
-      const tags = shareMeta(renderable({ content: { kind: "upload", asset }, origin }), ORIGIN)
+      const tags = shareMeta(renderable({ content: { kind: "upload", asset }, origin }), ORIGIN, undefined)
       expect(byProperty(tags, "og:image")).toBeUndefined()
     }
   })
@@ -214,7 +214,7 @@ describe("shareMeta - absolutization", () => {
   it("passes an already-absolute image url through unchanged", () => {
     const content: Content = { kind: "upload", asset: { kind: "image", url: "https://cdn.example.com/x.png", w: 1, h: 1 } }
     const origin: Origin = { kind: "uploaded", uploader: { kind: "anon", label: "anon-x" } }
-    const tags = shareMeta(renderable({ content, origin }), ORIGIN)
+    const tags = shareMeta(renderable({ content, origin }), ORIGIN, undefined)
     expect(byProperty(tags, "og:image")).toBe("https://cdn.example.com/x.png")
   })
 })
