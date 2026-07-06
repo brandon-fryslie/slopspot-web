@@ -337,6 +337,27 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     expect(html).toContain('aria-label="open “a hand-drawn cat”"')
   })
 
+  // [LAW:behavior-not-structure] The argument is OFF the tile (slopspot-post-comments-8q9.5). Even when
+  // the read boundary still hands the card a verdict/exchange array, the tile does NOT render those lines
+  // as its own block — the conversation lives in the thread on the object page. The tile shows a compact
+  // preview (count + a door), not the multi-line argument it used to embed.
+  it('does not render the verdict/exchange argument on the tile — only a comment preview + door', () => {
+    const rp = gen('sei-arg')
+    const withArg: RenderablePost = {
+      ...rp,
+      commentCount: 4,
+      verdicts: [{ text: 'A CARD-ONLY VERDICT LINE.', critic: 'St. Vivian', disposition: 'blessed' }],
+      exchange: [{ text: 'A CARD-ONLY EXCHANGE LINE.', critic: 'The Gremlin', disposition: 'buried' }],
+    }
+    const html = renderToStaticMarkup(<PostCard {...withArg} frame={{ kind: 'study' }} />)
+    // the argument text is NOT on the tile …
+    expect(html).not.toContain('A CARD-ONLY VERDICT LINE.')
+    expect(html).not.toContain('A CARD-ONLY EXCHANGE LINE.')
+    // … it is previewed (the count) with a door to the object page where the thread lives.
+    expect(html).toContain('4 comments')
+    expect(html).toContain('href="/p/sei-arg"')
+  })
+
   it('an in-progress generation relic keeps its STATUS in the link name (not just “open”)', () => {
     // The relic label must not hide the slop's state behind a fixed string: a still-generating
     // frame is a door, but its accessible name says so — the reviewer's a11y point made concrete.
