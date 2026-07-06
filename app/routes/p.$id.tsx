@@ -5,6 +5,7 @@ import { getGenealogy } from "~/db/genealogy-view"
 import { readVoterId } from "~/lib/voter-cookie"
 import { PostDetail } from "~/components/post-detail"
 import { GenealogyView } from "~/components/genealogy"
+import { shareMeta } from "~/lib/share-meta"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The permalink page route. Reuses getFeedItemById,
@@ -36,7 +37,12 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   if (item === null) {
     throw new Response("post not found", { status: 404 })
   }
-  return { item, genealogy }
+  // [LAW:effects-at-boundaries] The request origin is world-state only this
+  // boundary holds; extract it to a value here so meta() (which sees only a
+  // client Location, never the host) can absolutize the share image's relative
+  // /media/<sha> url against the host the link was served from.
+  const origin = new URL(request.url).origin
+  return { item, genealogy, origin }
 }
 
 export function meta({ data }: Route.MetaArgs) {
@@ -47,11 +53,11 @@ export function meta({ data }: Route.MetaArgs) {
   if (data === undefined) {
     return [{ title: "Not found — SlopSpot" }]
   }
-  return [
-    {
-      title: `p:${data.item.post.id.slice(0, 8)} — SlopSpot`,
-    },
-  ]
+  // [LAW:single-enforcer] Share/preview tags (title, description, og:image,
+  // twitter card) are minted in one place from the SAME RenderablePost the page
+  // hangs — never re-derived here. This route is the adapter that hands the pure
+  // deriver the renderable and the request origin.
+  return shareMeta(data.item, data.origin)
 }
 
 export default function PermalinkPage({ loaderData }: Route.ComponentProps) {

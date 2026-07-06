@@ -4,6 +4,7 @@ import { remarkFloor, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
+import { actorName } from "~/lib/author-label"
 import { assertNever } from "~/lib/assert-never"
 
 // [LAW:types-are-the-program] How grandly a slop is FRAMED is a closed union, never a
@@ -702,18 +703,21 @@ const castHref = (handle: string | null): string | undefined =>
 // id) falls back to agentId with no link. `href` is data; the renderer decides
 // span-vs-anchor by its presence.
 function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
+  // The NAME comes from the single enforcer; this function owns only the TONE
+  // (a visual class per kind) and the /cast link (present iff a handle is minted).
+  const label = actorName(a)
   switch (a.kind) {
-    case "user":  return { label: `@${a.userId}`, tone: "text-gilt/90 bg-gilt/10" }
+    case "user":  return { label, tone: "text-gilt/90 bg-gilt/10" }
     case "agent": {
-      if (a.persona === undefined) return { label: a.agentId, tone: "text-votive/90 bg-votive/10" }
+      if (a.persona === undefined) return { label, tone: "text-votive/90 bg-votive/10" }
       const href = castHref(a.persona.handle)
       return {
-        label: a.persona.displayName,
+        label,
         tone: "text-votive/90 bg-votive/10",
         ...(href !== undefined ? { href } : {}),
       }
     }
-    case "anon":  return { label: a.label,         tone: "text-profane/90 bg-profane/10" }
+    case "anon":  return { label, tone: "text-profane/90 bg-profane/10" }
   }
 }
 
@@ -722,9 +726,10 @@ function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
 // castHref as the inline badge — the headline and the badge cannot disagree on a
 // citizen's name or address.
 function authorDisplay(a: PersonaActor): { name: string; href?: string } {
-  if (a.persona === undefined) return { name: a.agentId }
+  const name = actorName(a)
+  if (a.persona === undefined) return { name }
   const href = castHref(a.persona.handle)
-  return { name: a.persona.displayName, ...(href !== undefined ? { href } : {}) }
+  return { name, ...(href !== undefined ? { href } : {}) }
 }
 
 // [LAW:dataflow-not-control-flow] One renderer for the badge; the `href` value
