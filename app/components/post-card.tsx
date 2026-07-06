@@ -354,7 +354,7 @@ function ContentView({ content, frame, permalinkHref }: { content: Content; fram
     // source (a link-post's whole purpose), so a second /p/:id anchor would nest inside the
     // outbound one — its detail door is the permalink timestamp instead.
     case "upload":
-      return <RelicView href={permalinkHref}><RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame></RelicView>
+      return <RelicView href={permalinkHref} label="open this slop"><RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame></RelicView>
     case "found":
       return (
         <FoundLinkCard
@@ -380,7 +380,7 @@ function ContentView({ content, frame, permalinkHref }: { content: Content; fram
           default:          return assertNever(status)
         }
       })()
-      return <RelicView href={permalinkHref}>{relic}</RelicView>
+      return <RelicView href={permalinkHref} label={generationRelicLabel(content.title, status)}>{relic}</RelicView>
     }
     default:
       return assertNever(content)
@@ -397,17 +397,35 @@ function DetailLink({ href, className, children }: { href: string | undefined; c
   return href !== undefined ? <a href={href} className={className}>{children}</a> : <>{children}</>
 }
 
+// [LAW:one-source-of-truth][FRAMING:representation] The relic link's accessible name must
+// DESCRIBE what it opens, not a fixed string that hides the child. A blanket aria-label overrides
+// the relic's own content, so a screen-reader user navigating by links would otherwise lose the
+// slop's identity AND its status (a generating or failed frame reads the same as a finished one).
+// A generation carries its title and, when not yet viewable, its state; an in-progress frame is
+// still a door but the name says so. Exhaustive on GenerationStatus so a new state forces a copy
+// decision here rather than silently reading as "open".
+function generationRelicLabel(title: string, status: GenerationStatus): string {
+  switch (status.kind) {
+    case "succeeded": return `open “${title}”`
+    case "pending":   return `open “${title}” — queued`
+    case "running":   return `open “${title}” — generating`
+    case "failed":    return `open “${title}” — failed`
+    default:          return assertNever(status)
+  }
+}
+
 // [LAW:decomposition] The relic is the preview's OBVIOUS click target — the big hung image (or
 // its in-progress frame) that opens the object, the Reddit/Digg "click the preview" move. It
 // carries a hover cue for pointer users and a focus-visible ring for keyboard users, and an
-// aria-label because an image's alt can be empty and a nameless link is unusable. When href is
+// accessible `label` (an image's alt can be empty and a nameless link is unusable) — computed
+// per content by the caller so it names the slop, not a shared fixed string. When href is
 // undefined (the permalink object) the relic renders bare — no self-link, no cue.
-function RelicView({ href, children }: { href: string | undefined; children: React.ReactNode }) {
+function RelicView({ href, label, children }: { href: string | undefined; label: string; children: React.ReactNode }) {
   if (href === undefined) return <>{children}</>
   return (
     <a
       href={href}
-      aria-label="open this slop"
+      aria-label={label}
       className="group/relic relative block overflow-hidden rounded-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-votive/60"
     >
       {children}
