@@ -19,11 +19,11 @@ import { listComments } from '~/db/comments'
 import { commentAuthorLabel } from '~/lib/author-label'
 import { seedComment, seedPost, seedUtterance } from './helpers'
 
-async function runUtteranceBackfill(): Promise<void> {
-  const migration = env.TEST_MIGRATIONS.find((m) => m.name.startsWith('0047_'))
+async function runUtteranceBackfill(prefix: '0047_' | '0048_' = '0047_'): Promise<void> {
+  const migration = env.TEST_MIGRATIONS.find((m) => m.name.startsWith(prefix))
   // [LAW:no-silent-failure] A renamed/missing migration must fail the suite,
   // not silently test nothing.
-  if (migration === undefined) throw new Error('0047 utterance→comment migration not found in TEST_MIGRATIONS')
+  if (migration === undefined) throw new Error(`${prefix} utterance→comment migration not found in TEST_MIGRATIONS`)
   for (const query of migration.queries) {
     await env.DB.prepare(query).run()
   }
@@ -164,5 +164,73 @@ describe('0047 verdict/reply utterance → comment backfill', () => {
     expect(thread[0].author.kind).toBe('agent')
     expect(thread[1].body).toBe('a visitor was here first')
     expect(thread[1].author.kind).toBe('visitor')
+  })
+})
+
+// [LAW:behavior-not-structure] The 8q9.3 catch-up contract: 0048 re-runs 0047's
+// exact copy so utterances recorded AFTER 0047's deploy (the snapshot gap, while
+// the old no-write-through Worker still served) land as comments, while every
+// row 0047 already migrated is a no-op — the deterministic 'utt-' id is the
+// entire dedup mechanism. Zero duplication is asserted, not assumed.
+describe('0048 catch-up: the gap between 0047 and the runtime write-through', () => {
+  it('migrates gap rows recorded after 0047 ran, without duplicating 0047 rows', async () => {
+    const postId = await seedPost(env)
+    await seedUtterance(env, {
+      speaker: 'a:gremlin',
+      targetPostId: postId,
+      occasion: 'verdict',
+      text: 'the pre-0047 line',
+      createdAt: new Date('2026-06-01T00:00:00Z'),
+    })
+    await runUtteranceBackfill('0047_')
+
+    // Speech recorded in the gap: after 0047's snapshot, before the write-through Worker.
+    await seedUtterance(env, {
+      speaker: 'a:vesper',
+      targetPostId: postId,
+      occasion: 'reply',
+      text: 'the gap line',
+      createdAt: new Date('2026-07-01T00:00:00Z'),
+    })
+    await runUtteranceBackfill('0048_')
+
+    const thread = await listComments(env, postId)
+    expect(thread).toHaveLength(2)
+    expect(thread[0].body).toBe('the gap line')
+    expect(thread[1].body).toBe('the pre-0047 line')
+  })
+
+  it('is idempotent: a re-run of 0048 adds zero rows', async () => {
+    const postId = await seedPost(env)
+    await seedUtterance(env, {
+      speaker: 'a:critic',
+      targetPostId: postId,
+      occasion: 'verdict',
+      text: 'a verdict line',
+    })
+
+    await runUtteranceBackfill('0048_')
+    await runUtteranceBackfill('0048_')
+
+    expect(await listComments(env, postId)).toHaveLength(1)
+  })
+
+  it('runs the same statement as 0047 — one logical backfill in two installments', async () => {
+    const m47 = env.TEST_MIGRATIONS.find((m) => m.name.startsWith('0047_'))
+    const m48 = env.TEST_MIGRATIONS.find((m) => m.name.startsWith('0048_'))
+    if (m47 === undefined || m48 === undefined) throw new Error('backfill migrations missing from TEST_MIGRATIONS')
+    // [LAW:one-source-of-truth] The catch-up's correctness rests on running the
+    // IDENTICAL copy: a drifted WHERE or key expression would silently migrate a
+    // different population. Header comments differ; the executable SQL must not.
+    const executable = (queries: string[]) =>
+      queries.map((q) =>
+        q
+          .split('\n')
+          .filter((l) => !l.trim().startsWith('--'))
+          .join('\n')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      )
+    expect(executable([...m48.queries])).toEqual(executable([...m47.queries]))
   })
 })
