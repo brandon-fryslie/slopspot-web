@@ -3,17 +3,18 @@ import { Link } from "react-router"
 import { getFeedItemById } from "~/db/feed"
 import { getGenealogy } from "~/db/genealogy-view"
 import { readVoterId } from "~/lib/voter-cookie"
-import { PostCard } from "~/components/post-card"
+import { PostDetail } from "~/components/post-detail"
 import { GenealogyView } from "~/components/genealogy"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The permalink page route. Reuses getFeedItemById,
 // which returns a RenderablePost — the same renderable shape getFeed
 // projects per row, minus the list-position `rank` that only the feed
-// view carries. PostCard consumes that renderable directly; the only things
-// each viewpoint adds are the presentation variables it owns — the feed assigns
-// a crowned/study frame level by prominence and carries rank, the permalink
-// hangs a lone relic as "standalone". One renderable shape, two viewpoints.
+// view carries. The feed hands that renderable to PostCard as a dense tile;
+// here PostDetail hangs the SAME renderable as the complete object — the media
+// large and centred, its wall label beside it, the conversation below. One
+// renderable shape, two viewpoints; the object never links to itself (the seam
+// PostDetail inherits from ContentView's undefined href).
 //
 // [LAW:locality-or-seam] The fork submit handler navigates to /p/<newId> to
 // solve the "I forked a post and now I can't see it" UX gap from ec7.3 —
@@ -56,30 +57,28 @@ export function meta({ data }: Route.MetaArgs) {
 export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
   const { item, genealogy } = loaderData
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10">
-      <header className="mb-8 border-b border-white/10 pb-6">
-        {/* [LAW:one-source-of-truth] React Router's <Link> is the canonical
-            in-app navigation primitive: client-side routing, no full
-            document reload, preserves SPA state. A bare <a href="/"> would
-            tear down React and refetch the whole bundle for an in-app
-            destination — wrong tool for an internal jump. */}
+    <main className="mx-auto w-full max-w-4xl px-4 py-10">
+      {/* The detail masthead is a breadcrumb, not the object's name. [LAW:one-source-of-truth]
+          React Router's <Link> is the canonical in-app navigation primitive — client-side
+          routing, no full-document reload. The serial is the object's stable machine identity
+          in the terminal register (the pawnshop's guts), kept as the page h1 so every object
+          page has exactly one, regardless of content kind; PostDetail's placard is the visual
+          hero beneath it. The palette is the redesign's (bone/votive/ash), not the old white. */}
+      <header className="mb-6 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-votive/15 pb-4">
         <Link
           to="/"
-          className="font-mono text-xs uppercase tracking-[0.25em] text-white/40 transition hover:text-white/70"
+          className="font-terminal text-xs uppercase tracking-[0.25em] text-ash transition hover:text-votive"
         >
-          ← back to slopspot
+          ← back to the wall
         </Link>
-        <h1 className="mt-3 text-3xl font-black tracking-tight text-white">
-          <span className="font-mono text-xl text-emerald-400">
-            p:{item.post.id.slice(0, 8)}
-          </span>
+        <h1 className="font-terminal text-sm text-votive/80">
+          p:{item.post.id.slice(0, 8)}
         </h1>
       </header>
-      {/* [LAW:dataflow-not-control-flow] item is the RenderablePost the loader
-          returns; the route names the frame LEVEL its container owns — a lone
-          permalinked relic hangs "standalone". Spread the renderable as one value
-          and name the level beside it; the type system carries the contract. */}
-      <PostCard {...item} frame={{ kind: "standalone" }} />
+      {/* [LAW:dataflow-not-control-flow] item is the RenderablePost the loader returns; PostDetail
+          arranges it as the complete object (media hero + wall label + conversation). Spread the
+          renderable as one value — no frame prop, because the object is not a framed tile in a list. */}
+      <PostDetail {...item} />
       {/* [LAW:dataflow-not-control-flow] The visual genealogy hangs beside the relic on the
           permalink — ancestry up, offspring down — derived from the lineage_edges DAG. It renders
           nothing for a founder with no offspring; the data is the discriminator. */}

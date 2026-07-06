@@ -1,0 +1,119 @@
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, it, expect } from 'vitest'
+import { PostDetail } from '~/components/post-detail'
+import { AgentId, GenomeId, PostId, ProviderId, type RenderablePost } from '~/lib/domain'
+import { NEUTRAL_TRAITS } from '~/lib/traits'
+
+// [LAW:behavior-not-structure] The object page (slopspot-post-detail-sei.2). /p/:id renders the
+// RenderablePost as the COMPLETE object — media, placard, attribution, acts, and the conversation
+// entry — NOT a feed tile dropped on a blank page. And it inherits sei.1's seam: the object is not
+// a preview of itself, so it never self-links. These assert the emitted markup (renderToStaticMarkup,
+// no jsdom), not the component's internals.
+describe('app/components/post-detail.tsx - the object page', () => {
+  const gen = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'authored', author: { kind: 'agent', agentId: AgentId('agent:maker') } },
+      content: {
+        kind: 'generation',
+        title: 'A Placard Title',
+        genome: {
+          id: GenomeId(id),
+          genes: { species: 'photoreal', form: { subjectTemplate: 'T00', slots: { freeText: 'x' } }, frame: '1:1', medium: ProviderId('fal-flux') },
+          utterance: 'a prompt',
+          traits: NEUTRAL_TRAITS,
+          lineage: { kind: 'founder' },
+        },
+        render: { providerVersion: '1', params: {} },
+        status: { kind: 'succeeded', output: { kind: 'image', url: '/media/relic-image', w: 1, h: 1 }, completedAt: new Date('2026-01-01T00:00:00Z') },
+      },
+    },
+    score: 7,
+    myVote: null,
+    commentCount: 3,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  const upload = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'uploaded', uploader: { kind: 'anon', label: 'anon-abc123' } },
+      content: { kind: 'upload', asset: { kind: 'image', url: '/media/uploaded', w: 1, h: 1 } },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  const found = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'found', finder: { kind: 'agent', agentId: AgentId('agent:scout') } },
+      content: {
+        kind: 'found',
+        url: 'https://example.com/original-slop',
+        title: 'A Found Slop',
+        thumbnail: { kind: 'image', url: '/media/thumb', w: 1, h: 1 },
+      },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  it('presents the object COMPLETE: media, placard, maker, score+acts, and the conversation entry', () => {
+    const html = renderToStaticMarkup(<PostDetail {...gen('sei2-gen')} />)
+    // the relic (the media) is hung
+    expect(html).toContain('/media/relic-image')
+    // the placard name is present (the biggest text; a generation's title)
+    expect(html).toContain('A Placard Title')
+    // maker attribution
+    expect(html).toContain('agent:maker')
+    // the acts still work — vote + fork are their own targets
+    expect(html).toContain('aria-label="upvote"')
+    expect(html).toContain('href="/fork/sei2-gen"')
+    // the conversation entry (the comment thread) — a complete object, not a bare relic
+    expect(html).toContain('comments')
+  })
+
+  it('is the object, not a preview of itself — it never self-links (sei.1 seam preserved)', () => {
+    const html = renderToStaticMarkup(<PostDetail {...gen('sei2-gen')} />)
+    // no /p/:id anchor anywhere (the relic, the placard, the timestamp are all bare)
+    expect(html).not.toContain('href="/p/sei2-gen"')
+    // no relic "open" door at all — the object is the destination
+    expect(html).not.toContain('aria-label="open')
+    expect(html).not.toContain('open ↗')
+  })
+
+  it('an upload object hangs its media bare — no self-link, no relic door', () => {
+    const html = renderToStaticMarkup(<PostDetail {...upload('sei2-up')} />)
+    expect(html).toContain('/media/uploaded')
+    expect(html).not.toContain('href="/p/sei2-up"')
+    expect(html).not.toContain('aria-label="open')
+  })
+
+  it('a found object keeps its relic OUTBOUND (a link-post’s purpose) and never self-links', () => {
+    const html = renderToStaticMarkup(<PostDetail {...found('sei2-found')} />)
+    // the relic links to the source, not to /p/:id
+    expect(html).toContain('href="https://example.com/original-slop"')
+    expect(html).not.toContain('href="/p/sei2-found"')
+    expect(html).not.toContain('aria-label="open')
+  })
+})
