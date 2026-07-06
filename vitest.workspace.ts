@@ -43,6 +43,7 @@ export default defineWorkspace([
         'app/routes/__tests__/**/*.test.ts',
         'app/db/__tests__/**/*.test.ts',
         'app/agents/__tests__/**/*.test.ts',
+        'workers/cpu-tail/__tests__/**/*.test.ts',
       ],
       exclude: ['.claude/**'],
       // [LAW:single-enforcer] Migration application lives in one place,

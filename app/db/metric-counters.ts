@@ -24,8 +24,10 @@ import {
 // batch is NOT transactional, so a per-statement failure resolves WITHOUT throwing (see
 // app/db/d1-batch.ts). Returning exactly the failed entries lets the caller re-queue them
 // without double-counting the ones that committed. [LAW:no-silent-failure]
+// The env parameter is Pick<Env,'DB'> (the true requirement) so BOTH workers that own a
+// flush boundary — the main app and the cpu-tail consumer — call this one enforcer.
 export async function applyDeltas(
-  env: Env,
+  env: Pick<Env, 'DB'>,
   entries: readonly MetricEntry[],
 ): Promise<{ failed: MetricEntry[] }> {
   const database = db(env)

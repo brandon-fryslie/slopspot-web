@@ -308,14 +308,21 @@ export function emit<K extends MetricName>(
   accumulate(name, labels as Record<string, string | number>, value)
 }
 
-// [LAW:single-enforcer] The one merge rule for a (name, labels, delta) into the buffer.
+// [LAW:single-enforcer] The one merge rule for folding a (name, labels, delta) entry into
+// a keyed entry map. Used by the emit buffer here (via accumulate) and by the cpu-tail
+// worker's per-batch fold — both paths accumulate identically, so a merged delta lands
+// exactly where a fresh emit would. [LAW:one-source-of-truth]
+export function mergeEntry(into: Map<string, MetricEntry>, entry: MetricEntry): void {
+  const key = metricKey(entry.name, entry.labels)
+  const existing = into.get(key)
+  into.set(key, existing ? { ...existing, value: existing.value + entry.value } : entry)
+}
+
 // Used by emit (new counts) and remergePending (deltas a failed flush returned), so both
-// paths fold into the same monotonic accumulation — a re-merged delta lands exactly where
-// a fresh emit would. [LAW:dataflow-not-control-flow] same code every call.
+// paths fold into the same monotonic accumulation. [LAW:dataflow-not-control-flow] same
+// code every call.
 function accumulate(name: string, labels: Record<string, string | number>, value: number): void {
-  const key = metricKey(name, labels)
-  const existing = counters.get(key)
-  counters.set(key, existing ? { ...existing, value: existing.value + value } : { name, labels, value })
+  mergeEntry(counters, { name, labels, value })
 }
 
 // [LAW:effects-at-boundaries] Snapshot-and-clear the buffer in ONE synchronous step so no
