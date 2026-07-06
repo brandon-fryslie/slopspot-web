@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
-import { EternalMark, Exchange, PostCard, VerdictLine, Verdicts } from '~/components/post-card'
+import { CommentSection, EternalMark, Exchange, PostCard, VerdictLine, Verdicts } from '~/components/post-card'
 import { AgentId, GenomeId, PostId, ProviderId, type Crowning, type Lineage, type RenderablePost, type Verdict } from '~/lib/domain'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 
@@ -337,6 +337,27 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     expect(html).toContain('aria-label="open “a hand-drawn cat”"')
   })
 
+  // [LAW:behavior-not-structure] The argument is OFF the tile (slopspot-post-comments-8q9.5). Even when
+  // the read boundary still hands the card a verdict/exchange array, the tile does NOT render those lines
+  // as its own block — the conversation lives in the thread on the object page. The tile shows a compact
+  // preview (count + a door), not the multi-line argument it used to embed.
+  it('does not render the verdict/exchange argument on the tile — only a comment preview + door', () => {
+    const rp = gen('sei-arg')
+    const withArg: RenderablePost = {
+      ...rp,
+      commentCount: 4,
+      verdicts: [{ text: 'A CARD-ONLY VERDICT LINE.', critic: 'St. Vivian', disposition: 'blessed' }],
+      exchange: [{ text: 'A CARD-ONLY EXCHANGE LINE.', critic: 'The Gremlin', disposition: 'buried' }],
+    }
+    const html = renderToStaticMarkup(<PostCard {...withArg} frame={{ kind: 'study' }} />)
+    // the argument text is NOT on the tile …
+    expect(html).not.toContain('A CARD-ONLY VERDICT LINE.')
+    expect(html).not.toContain('A CARD-ONLY EXCHANGE LINE.')
+    // … it is previewed (the count) with a door to the object page where the thread lives.
+    expect(html).toContain('4 comments')
+    expect(html).toContain('href="/p/sei-arg"')
+  })
+
   it('an in-progress generation relic keeps its STATUS in the link name (not just “open”)', () => {
     // The relic label must not hide the slop's state behind a fixed string: a still-generating
     // frame is a door, but its accessible name says so — the reviewer's a11y point made concrete.
@@ -345,5 +366,28 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     g.post.content.status = { kind: 'running', startedAt: new Date('2026-01-01T00:00:00Z') }
     const html = renderToStaticMarkup(<PostCard {...g} frame={{ kind: 'study' }} />)
     expect(html).toContain('aria-label="open “A Placard Title” — generating"')
+  })
+})
+
+// [LAW:one-source-of-truth] When the thread is SSR'd, the header count IS the rendered rows, never the
+// separate `commentCount` aggregate (which can race the row read in D1's WAL). A stale aggregate must
+// not win over the rows actually on the page.
+describe('app/components/post-card.tsx - CommentSection SSR count', () => {
+  it('derives the header count from the SSR rows, not a stale initialCount aggregate', () => {
+    const html = renderToStaticMarkup(
+      <CommentSection
+        postId="p1"
+        initialCount={99}
+        initialComments={[
+          { id: 'utt-1', authorLabel: 'The Gremlin', body: 'One.', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 'utt-2', authorLabel: 'St. Vivian', body: 'Two.', createdAt: '2026-01-01T00:00:01Z' },
+        ]}
+      />,
+    )
+    expect(html).toContain('2 comments')
+    expect(html).not.toContain('99 comments')
+    // the argument is in the HTML on load — expanded, both lines rendered
+    expect(html).toContain('One.')
+    expect(html).toContain('Two.')
   })
 })

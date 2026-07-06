@@ -1,10 +1,10 @@
 import type { RenderablePost } from "~/lib/domain"
 import {
   Byline,
+  type ClientComment,
   CommentSection,
   ContentView,
   EternalMark,
-  Exchange,
   ForkedFromBadge,
   ForkLink,
   BreedLink,
@@ -14,7 +14,6 @@ import {
   relativeTime,
   SignedRemark,
   StatusBadge,
-  Verdicts,
   VoteControls,
   WishGap,
   wishContext,
@@ -39,12 +38,11 @@ export function PostDetail({
   myVote,
   commentCount,
   viewerIsModifier,
-  verdicts,
-  exchange,
   crowning,
   generationDepth,
   descendantCount,
-}: RenderablePost) {
+  initialComments,
+}: RenderablePost & { initialComments: ClientComment[] }) {
   // [LAW:dataflow-not-control-flow] Same derivation the tile runs: a non-null WishContext is a
   // property of the snapshot (a generation carrying the human's verbatim wish, authored by a
   // citizen), never an isWished flag. Its presence turns the wish-gap + signed remark on.
@@ -88,8 +86,10 @@ export function PostDetail({
               <SignedRemark ctx={wish} />
             </>
           )}
-          <Verdicts verdicts={verdicts} />
-          <Exchange exchange={exchange} />
+          {/* [LAW:one-source-of-truth] The argument (verdicts + the traded exchange) is not a block in
+              the label — it IS the thread below (slopspot-post-comments-8q9). The object page renders it
+              once, as the conversation, so the label carries the maker + acts and the argument lives where
+              a reader reads it. No <Verdicts>/<Exchange> here: the thread is the single source. */}
           {/* The acts. [LAW:one-source-of-truth] identical gating to the tile — a fork/breed door
               and lineage badges exist only for a generation (an upload/found carries no recipe), and
               breed only once a phenotype has succeeded. The value decides what renders, not a flag. */}
@@ -125,9 +125,12 @@ export function PostDetail({
           )}
         </aside>
       </div>
-      {/* THE CONVERSATION — the comment thread entry point, given the full width beneath the work
-          because it is about the whole object, not the label. The same CommentSection the tile hangs. */}
-      <CommentSection postId={post.id} initialCount={commentCount} />
+      {/* THE ARGUMENT — the comment thread, given the full width beneath the work because it is about
+          the whole object, not the label. This is where the citizens' verdicts and the visitors' lines
+          converge into ONE conversation (slopspot-post-comments-8q9). The object page SSRs it EXPANDED
+          (initialComments), so the argument is in the HTML and readable on load — not a fetch behind a
+          click. [LAW:one-source-of-truth] the same thread the API serves, rendered server-side here. */}
+      <CommentSection postId={post.id} initialCount={commentCount} initialComments={initialComments} />
     </article>
   )
 }

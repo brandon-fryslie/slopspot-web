@@ -2,7 +2,9 @@ import type { Route } from "./+types/p.$id"
 import { Link } from "react-router"
 import { getFeedItemById } from "~/db/feed"
 import { getGenealogy } from "~/db/genealogy-view"
+import { listComments } from "~/db/comments"
 import { readVoterId } from "~/lib/voter-cookie"
+import { commentAuthorLabel } from "~/lib/author-label"
 import { PostDetail } from "~/components/post-detail"
 import { GenealogyView } from "~/components/genealogy"
 import { shareMeta } from "~/lib/share-meta"
@@ -30,19 +32,31 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
   // [LAW:dataflow-not-control-flow] The post and its genealogy are independent reads of the same
   // id — fetch them together. The genealogy folds the lineage_edges subgraph reachable from this
   // post; a founder with no offspring yields an empty Genealogy the view renders as nothing.
-  const [item, genealogy] = await Promise.all([
+  // [LAW:dataflow-not-control-flow] The post, its genealogy, and its conversation are three independent
+  // reads of the same id — fetch them together. The object page is the argument's HOME (8q9.4): it SSRs
+  // the thread so the conversation is in the HTML, readable on load. [LAW:single-enforcer] the comments
+  // serialize through the SAME author-label redaction the /api/posts/:id/comments loader uses — the raw
+  // voter UUID never crosses this boundary; only the display label does.
+  const [item, genealogy, comments] = await Promise.all([
     getFeedItemById(env, postId, readVoterId(request)),
     getGenealogy(env, postId),
+    listComments(env, postId),
   ])
   if (item === null) {
     throw new Response("post not found", { status: 404 })
   }
+  const initialComments = comments.map((c) => ({
+    id: c.id,
+    authorLabel: commentAuthorLabel(c.author),
+    body: c.body,
+    createdAt: c.createdAt.toISOString(),
+  }))
   // [LAW:effects-at-boundaries] The request origin is world-state only this
   // boundary holds; extract it to a value here so meta() (which sees only a
   // client Location, never the host) can absolutize the share image's relative
   // /media/<sha> url against the host the link was served from.
   const origin = new URL(request.url).origin
-  return { item, genealogy, origin }
+  return { item, genealogy, origin, initialComments }
 }
 
 export function meta({ data }: Route.MetaArgs) {
@@ -61,7 +75,7 @@ export function meta({ data }: Route.MetaArgs) {
 }
 
 export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
-  const { item, genealogy } = loaderData
+  const { item, genealogy, initialComments } = loaderData
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10">
       {/* The detail masthead is a breadcrumb, not the object's name. [LAW:one-source-of-truth]
@@ -84,7 +98,7 @@ export default function PermalinkPage({ loaderData }: Route.ComponentProps) {
       {/* [LAW:dataflow-not-control-flow] item is the RenderablePost the loader returns; PostDetail
           arranges it as the complete object (media hero + wall label + conversation). Spread the
           renderable as one value — no frame prop, because the object is not a framed tile in a list. */}
-      <PostDetail {...item} />
+      <PostDetail {...item} initialComments={initialComments} />
       {/* [LAW:dataflow-not-control-flow] The visual genealogy hangs beside the relic on the
           permalink — ancestry up, offspring down — derived from the lineage_edges DAG. It renders
           nothing for a founder with no offspring; the data is the discriminator. */}

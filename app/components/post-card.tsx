@@ -64,8 +64,6 @@ function PostCardImpl({
   myVote,
   commentCount,
   viewerIsModifier,
-  verdicts,
-  exchange,
   crowning,
   generationDepth,
   descendantCount,
@@ -120,16 +118,11 @@ function PostCardImpl({
           <SignedRemark ctx={wish} />
         </>
       )}
-      {/* [LAW:dataflow-not-control-flow] The critics who SPOKE on this slop render by a value-split of
-          the verdicts ARRAY the read boundary computed — empty → nothing, otherwise the hottest take is
-          the full-weight garnish and any others sit one click behind a disclosure (none dropped). The
-          array's length is the data; no isReviewed/isFeud flag. */}
-      <Verdicts verdicts={verdicts} />
-      {/* [LAW:dataflow-not-control-flow] The back-and-forth renders by the exchange ARRAY the read
-          boundary computed (occasion='reply'): empty → no thread, ≥1 → the answers the citizens traded
-          over their opposing verdicts (slopspot-voice-w2v.2). The array's length is the data; no isFeud
-          flag, no count branch. */}
-      <Exchange exchange={exchange} />
+      {/* [LAW:one-source-of-truth] The critics' argument (verdicts + the traded exchange) is NOT a
+          second card-only surface — it lives in the ONE comment thread (slopspot-post-comments-8q9),
+          authored as citizen comments through the same write path visitor comments use. The tile does
+          not argue; it PREVIEWS the conversation (count + a door) and the object page owns the thread.
+          So there is no <Verdicts>/<Exchange> block here — the card carries no line the thread doesn't. */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs">
         <VoteControls postId={post.id} initialScore={score} initialMyVote={myVote} />
         {/* [LAW:types-are-the-program] Fork button gated on the content
@@ -176,7 +169,11 @@ function PostCardImpl({
       {post.content.kind === "generation" && (
         <RecipeDrawer genome={post.content.genome} render={post.content.render} />
       )}
-      <CommentSection postId={post.id} initialCount={commentCount} />
+      {/* [LAW:decomposition] The tile shows a PREVIEW of the conversation — the count and a door to
+          the object page, never the interactive thread. The full argument (read + compose) is the
+          object page's promise (CommentSection), not the feed tile's. On the standalone object the
+          preview links to nothing (the no-self-link seam, via permalinkHref). */}
+      <CommentPreview permalinkHref={permalinkHref} count={commentCount} />
     </article>
   )
 }
@@ -1201,7 +1198,7 @@ export function StatusBadge({ status }: { status: GenerationStatus }) {
 // already-redacted display string (server-side single-enforcer in
 // app/lib/author-label) — the raw voter UUID never crosses this boundary, so
 // the client cannot leak it back into the page even by accident.
-type ClientComment = {
+export type ClientComment = {
   id: string
   authorLabel: string
   body: string
@@ -1222,11 +1219,21 @@ type ThreadState =
 export function CommentSection({
   postId,
   initialCount,
+  initialComments,
 }: {
   postId: string
   initialCount: number
+  initialComments?: ClientComment[]
 }) {
-  const [thread, setThread] = useState<ThreadState>({ kind: "unloaded" })
+  // [LAW:dataflow-not-control-flow] The initial thread state is a VALUE, not a mode. When the server
+  // hands the comments in (the object page SSRs the argument so it is readable on load — in the HTML,
+  // open, no fetch, no click), the thread starts ready+expanded. When absent, it starts unloaded and
+  // lazy-loads on toggle. One discriminator carries both; the presence of initialComments decides it.
+  const [thread, setThread] = useState<ThreadState>(
+    initialComments !== undefined
+      ? { kind: "ready", expanded: true, comments: initialComments }
+      : { kind: "unloaded" },
+  )
   // localCount lives outside the thread discriminator because every arm (even
   // unloaded) shows the count in the collapsed header. Bumped on successful
   // post so the user sees their own comment counted without a refetch.
@@ -1323,6 +1330,11 @@ export function CommentSection({
 
   const isExpanded = thread.kind === "ready" && thread.expanded
   const isLoading = thread.kind === "loading"
+  // [LAW:one-source-of-truth] When the thread is loaded (SSR'd or fetched), the header count IS the
+  // rendered rows' length — never the separate aggregate. The `commentCount` aggregate and the row
+  // list are two reads that can race (a comment inserted between them in D1's WAL), so once we HOLD the
+  // rows they are the truth; localCount is the estimate shown only while the thread is still unloaded.
+  const displayCount = thread.kind === "ready" ? thread.comments.length : localCount
 
   return (
     <section className="border-t border-votive/12">
@@ -1332,13 +1344,7 @@ export function CommentSection({
         aria-expanded={isExpanded}
         className="flex w-full items-center justify-between px-3 py-2 text-left font-terminal text-xs text-ash transition hover:bg-bone/[0.03] hover:text-bone"
       >
-        <span>
-          {localCount === 0
-            ? "no comments yet"
-            : localCount === 1
-            ? "1 comment"
-            : `${localCount} comments`}
-        </span>
+        <span>{commentCountLabel(displayCount)}</span>
         <span aria-hidden className="font-terminal text-ash">
           {isLoading ? "…" : isExpanded ? "▾" : "▸"}
         </span>
@@ -1396,14 +1402,44 @@ export function CommentSection({
   )
 }
 
+// [LAW:decomposition] The tile's conversation PREVIEW: the comment count and a door to the object page
+// where the full argument lives. It makes one promise — glance + open — asking nothing (no fetch, no
+// compose, no thread). On the object itself (permalinkHref undefined) the count stands alone; there is
+// nothing to open. The open-affordance renders by the PRESENCE of the door, never an isPreview flag.
+// [LAW:one-source-of-truth] The one place a comment count becomes its label — the tile preview and the
+// thread header both read it, so "no comments yet" / "1 comment" / "N comments" can never drift between
+// the two surfaces.
+function commentCountLabel(count: number): string {
+  return count === 0 ? "no comments yet" : count === 1 ? "1 comment" : `${count} comments`
+}
+
+function CommentPreview({ permalinkHref, count }: { permalinkHref: string | undefined; count: number }) {
+  const label = commentCountLabel(count)
+  return (
+    <div className="border-t border-votive/12 px-3 py-2 font-terminal text-xs text-ash">
+      <DetailLink href={permalinkHref} className="flex items-center justify-between transition hover:text-bone">
+        <span>{label}</span>
+        {permalinkHref !== undefined && (
+          <span aria-hidden className="text-votive/60">{count > 0 ? "read the argument →" : "open →"}</span>
+        )}
+      </DetailLink>
+    </div>
+  )
+}
+
+// [LAW:one-type-per-behavior] One row for every comment — a citizen's verdict and a visitor's line are
+// the same shape and wear the same style (the epic's lock: "in the UI, a comment is a comment"). The
+// author label is the ONLY distinguisher, and it is a redacted display string either way. The body is
+// the argument, so it reads at body scale with room to breathe — this is the surface a reader actually
+// reads the conversation on.
 function CommentRow({ comment }: { comment: ClientComment }) {
   return (
-    <li className="px-3 py-2">
-      <div className="flex items-center gap-2 font-terminal text-[10px] text-ash">
-        <span className="rounded bg-bone/5 px-1.5 py-0.5 text-bone/65">{comment.authorLabel}</span>
-        <span>{relativeTime(new Date(comment.createdAt))}</span>
+    <li className="px-3 py-3">
+      <div className="flex items-center gap-2 font-terminal text-[11px]">
+        <span className="rounded bg-bone/5 px-1.5 py-0.5 text-bone/80">{comment.authorLabel}</span>
+        <span className="text-ash">{relativeTime(new Date(comment.createdAt))}</span>
       </div>
-      <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-bone/85">
+      <p className="mt-1.5 whitespace-pre-wrap break-words text-sm leading-relaxed text-bone/90">
         {comment.body}
       </p>
     </li>
