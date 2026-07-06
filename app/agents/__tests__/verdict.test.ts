@@ -9,10 +9,12 @@ import { and, eq } from 'drizzle-orm'
 import { narrateVerdict } from '~/agents/verdict'
 import { db } from '~/db/client'
 import { listComments } from '~/db/comments'
+import { recordUtterance } from '~/db/utterances'
 import { commentAuthorLabel } from '~/lib/author-label'
+import { spoke } from '~/lib/voice'
 import { personas, utterances } from '~/db/schema'
 import { seedPost, seedVote } from '../../db/__tests__/helpers'
-import { PostId, type VoteValue } from '~/lib/domain'
+import { AgentId, PostId, type VoteValue } from '~/lib/domain'
 
 // Seed a critic persona row (traits_json defaults to neutral). narrateVerdict resolves the speaker
 // through getPersona, so a real row must exist for a citizen to have a voice.
@@ -241,6 +243,23 @@ describe('narrateVerdict — thread write-through (8q9.3)', () => {
     expect(thread).toHaveLength(2)
     expect(thread[0].body).toBe('Fine. Up. Once.')
     expect(thread[1].body).toBe('Buried.')
+  })
+
+  it('speech on a vanished post surfaces loud and lands in NEITHER store', async () => {
+    // The TOCTOU seam is recordUtterance's own: narrateVerdict's getPostById check has already
+    // passed, then the post vanishes before the write-through. createComment's existence check
+    // gates BOTH writes — the orphaned line must not reach comments or utterances.
+    await expect(
+      recordUtterance(env, {
+        speaker: AgentId('agent:gremlin'),
+        occasion: 'verdict',
+        targetPostId: 'never-existed',
+        utterance: spoke('a verdict for a ghost'),
+      }),
+    ).rejects.toThrow('post_not_found')
+
+    expect(await rowsFor('agent:gremlin', 'never-existed')).toEqual([])
+    expect(await listComments(env, PostId('never-existed'))).toHaveLength(0)
   })
 
   it('a feud exchange lands both replies as comments; a pruned reply KEEPS its comment', async () => {
