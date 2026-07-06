@@ -190,9 +190,11 @@ describe("shareMeta - media kinds that have no still", () => {
     expect(byProperty(tags, "og:image")).toBe("https://slopspot.ai/media/poster")
   })
 
-  it("text and audio uploads carry no preview image", () => {
+  it("a video with no poster frame, text, and audio carry no preview image", () => {
     const origin: Origin = { kind: "uploaded", uploader: { kind: "anon", label: "anon-x" } }
     for (const asset of [
+      // No thumbnailUrl → mediaPreviewUrl's `?? null` branch → no still to show.
+      { kind: "video", url: "/media/clip", durationMs: 1000 },
       { kind: "text", body: "just words" },
       { kind: "audio", url: "/media/sound", durationMs: 500 },
     ] as const) {
