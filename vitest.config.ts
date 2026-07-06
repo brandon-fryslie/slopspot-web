@@ -24,6 +24,7 @@ export default defineConfig({
       'app/routes/__tests__/**',
       'app/db/__tests__/**',
       'app/agents/__tests__/**',
+      'workers/cpu-tail/__tests__/**',
       // Worktree clones share the project root; exclude their test files.
       '.claude/**',
     ],

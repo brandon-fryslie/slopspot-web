@@ -10,6 +10,9 @@ import * as schema from './schema'
 
 export type DB = DrizzleD1Database<typeof schema>
 
-export function db(env: Env): DB {
+// [LAW:types-are-the-program] The parameter states the true requirement — only the D1
+// binding — so a Worker whose Env is narrower than the main app's (the cpu-tail consumer
+// has just DB) calls through this same single enforcer without a cast.
+export function db(env: Pick<Env, 'DB'>): DB {
   return drizzle(env.DB, { schema })
 }

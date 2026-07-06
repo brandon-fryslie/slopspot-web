@@ -1,19 +1,19 @@
 /**
  * Wrangler config for slopspot-cpu-tail — the out-of-band CPU-measurement tail
- * consumer for slopspot-web. Deployed as its own Worker:
- *   pnpm exec wrangler deploy -c workers/cpu-tail/wrangler.jsonc
+ * consumer for slopspot-web. Deployed as its own Worker (from the repo root):
+ *   pnpm exec wrangler deploy --cwd workers/cpu-tail -c wrangler.jsonc
+ * (--cwd because wrangler resolves the tsconfig field against the working directory;
+ * explicit -c because the root RR7 build's deploy-redirect otherwise joins discovery.)
  *
- * The main worker (../../wrangler.jsonc) will point its `tail_consumers` at the
- * `slopspot-cpu-tail` service name below once activated. [LAW:one-source-of-truth] the
- * consumer's identity (name) lives here; the producer references it by that name.
+ * The main worker (../../wrangler.jsonc) points its `tail_consumers` at the
+ * `slopspot-cpu-tail` service name below. [LAW:one-source-of-truth] the consumer's
+ * identity (name) lives here; the producer references it by that name.
  *
- * NOT ACTIVATED YET. VICTORIA_METRICS_ENDPOINT must be a full InfluxDB-line write URL
- * reachable FROM the Cloudflare edge. VM is tailnet-only today (the homelab
- * 192.168.7.208:8428 / *.sanctuary.gdn ingress does not resolve off-tailnet, and a
- * Worker has no tailnet access), so there is no endpoint to pin. Do NOT hardcode the
- * private IP — the Worker cannot reach it, so it would silently never ingest. Pin a
- * public ingress (Cloudflare Tunnel or vm.*.gdn) in the `vars` block here once one
- * exists, then activate `tail_consumers` in ../../wrangler.jsonc. [LAW:verifiable-goals]
+ * [LAW:no-ambient-temporal-coupling] DEPLOY ORDER IS OWNED BY ci.yml: this worker
+ * deploys BEFORE the main worker, because wrangler validates the main config's
+ * tail_consumers reference at upload time — a ref to an undeployed service rejects.
+ * The ordering lives in the one deploy pipeline (and the package.json deploy script
+ * mirrors it), not in operator folklore.
  */
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
@@ -21,7 +21,22 @@
   "main": "./index.ts",
   "compatibility_date": "2026-05-17",
   "compatibility_flags": ["nodejs_compat"],
+  // The bundle reaches app/db/metric-counters.ts, whose imports use the ~/* alias;
+  // this tsconfig carries the paths mapping wrangler's bundler resolves it with.
+  "tsconfig": "../../tsconfig.cloudflare.json",
   "observability": {
     "enabled": true
-  }
+  },
+  // [LAW:one-source-of-truth] The SAME prod D1 database as the main worker — the tail
+  // consumer writes histogram deltas into the metric_counters table through the same
+  // single-enforcer module (app/db/metric-counters.ts) the app's emit() flush uses.
+  // No migrations_dir: the main worker's deploy owns migration application; a second
+  // migration owner would race it. [LAW:single-enforcer]
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "slopspot-db",
+      "database_id": "9b531782-6645-4886-a50e-e1f0ca7cb7b1"
+    }
+  ]
 }
