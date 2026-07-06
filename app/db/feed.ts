@@ -19,12 +19,12 @@
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
 import { db } from '~/db/client'
+import { fetchCitizenRefs } from '~/db/citizen-refs'
 import {
   comments,
   found,
   generations,
   lineageEdges,
-  personas,
   posts,
   uploads,
   votes,
@@ -505,37 +505,6 @@ function toOrigin(contentKind: Content['kind'], raw: unknown, postId: string): O
     default:
       return assertNever(contentKind, `contentKind for origin of post ${postId}`)
   }
-}
-
-// [LAW:one-source-of-truth] [RECONCILE A] A persona's public identity (handle +
-// displayName) is authoritative in the personas table. Feed readers resolve the
-// agent Actor's reference (agentId) into a CitizenRef here rather than storing a
-// redundant copy in origin_json. One batch query per feed load regardless of how
-// many posts have agent origins. handle and displayName come from the same row,
-// so the resolution is atomic — never a half-populated CitizenRef.
-async function fetchCitizenRefs(
-  database: ReturnType<typeof db>,
-  agentIds: readonly string[],
-): Promise<Map<string, CitizenRef>> {
-  if (agentIds.length === 0) return new Map()
-  const rows = await database
-    .select({
-      agentId: personas.agentId,
-      handle: personas.handle,
-      displayName: personas.displayName,
-    })
-    .from(personas)
-    .where(inArray(personas.agentId, agentIds))
-  // [LAW:types-are-the-program] A CitizenRef carries the citizen's NAME always and
-  // its handle (null until minted). Every resolved persona row produces one — the
-  // name is what attribution shows, the handle is what lights the /cast link.
-  // [LAW:one-source-of-truth] The agentId-label fallback is for a genuinely
-  // persona-less actor (no row here), never for an un-minted-but-named citizen.
-  const refs = new Map<string, CitizenRef>()
-  for (const r of rows) {
-    refs.set(r.agentId, { handle: r.handle, displayName: r.displayName })
-  }
-  return refs
 }
 
 // [LAW:one-source-of-truth] Resolve an agent's persona reference (agentId) into its

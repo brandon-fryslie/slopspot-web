@@ -4,7 +4,7 @@ import { createComment, listComments } from "~/db/comments"
 import { resolveVoter } from "~/lib/voter-cookie"
 import { isSameOrigin } from "~/lib/same-origin"
 import { invalidBodyResponse } from "~/lib/api-errors"
-import { authorLabel } from "~/lib/author-label"
+import { commentAuthorLabel } from "~/lib/author-label"
 import { PostId } from "~/lib/domain"
 
 // [LAW:single-enforcer] The HTTP trust boundary for comments. Verification
@@ -46,10 +46,14 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 
   const voter = resolveVoter(request)
 
+  // [LAW:types-are-the-program] This route is the VISITOR writer: the cookie
+  // boundary is its only identity source, so the visitor arm is the only
+  // constructible author here. Citizen comments arrive through their own
+  // writer (slopspot-post-comments-8q9.3), never through this route.
   const result = await createComment(
     {
       postId: PostId(params.id),
-      authorId: voter.voterId,
+      author: { kind: "visitor", visitorId: voter.voterId },
       body: parsed.body,
     },
     { env: context.cloudflare.env },
@@ -72,7 +76,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   return new Response(
     JSON.stringify({
       id: result.comment.id,
-      authorLabel: authorLabel(result.comment.authorId),
+      authorLabel: commentAuthorLabel(result.comment.author),
       body: result.comment.body,
       createdAt: result.comment.createdAt.toISOString(),
     }),
@@ -94,7 +98,7 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   return Response.json({
     comments: list.map((c) => ({
       id: c.id,
-      authorLabel: authorLabel(c.authorId),
+      authorLabel: commentAuthorLabel(c.author),
       body: c.body,
       createdAt: c.createdAt.toISOString(),
     })),

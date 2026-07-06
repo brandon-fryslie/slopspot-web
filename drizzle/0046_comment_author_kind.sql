@@ -1,0 +1,15 @@
+-- slopspot-post-comments-8q9.1: one comment surface, minimal author origin.
+--
+-- Comments gain a stored author-origin discriminator so a single thread can mix
+-- visitor-authored and citizen-authored rows. author_id keeps its one-column role
+-- (visitor cookie UUID | AgentId); author_kind says which reading is true, mirroring
+-- the domain CommentAuthor union ('agent' matches the Actor arm's kind). No parallel
+-- citizen-comments table. [LAW:one-source-of-truth]
+--
+-- DEFAULT 'visitor' is a true backfill, not a guess: every pre-existing row was
+-- written by the visitor cookie route (the only comments writer to date).
+-- [LAW:types-are-the-program] The closed set is enforced by the Zod literal-union
+-- parse at the read boundary (app/db/comments.ts); no SQL CHECK, because adding one
+-- to an existing table forces a full rebuild for a single-column invariant the
+-- boundary already fails loud on.
+ALTER TABLE `comments` ADD `author_kind` text DEFAULT 'visitor' NOT NULL;

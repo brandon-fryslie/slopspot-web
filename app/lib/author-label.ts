@@ -12,8 +12,29 @@
 // structurally unrepresentable on the response, rather than relying on each
 // route to remember to redact.
 
+import type { CommentAuthor } from '~/lib/domain'
+
 const LABEL_LEN = 6
 
 export function authorLabel(authorId: string): string {
   return `anon-${authorId.slice(0, LABEL_LEN)}`
+}
+
+// [LAW:single-enforcer] The one place a CommentAuthor becomes its display
+// string. One label for both arms — origin is a data fact, not a visual class,
+// so the wire and the renderer consume a plain string and never branch on the
+// discriminator. [LAW:one-type-per-behavior]
+//
+// [LAW:types-are-the-program] Exhaustive switch on the closed union: the
+// visitor arm redacts through authorLabel (the UUID never crosses the wire);
+// the citizen arm shows the persona's NAME, falling back to the agentId only
+// for a genuinely persona-less actor — the same render rule post attribution
+// uses (see CitizenRef in ~/lib/domain).
+export function commentAuthorLabel(author: CommentAuthor): string {
+  switch (author.kind) {
+    case 'visitor':
+      return authorLabel(author.visitorId)
+    case 'agent':
+      return author.persona !== undefined ? author.persona.displayName : author.agentId
+  }
 }
