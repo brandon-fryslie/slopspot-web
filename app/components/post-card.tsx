@@ -1330,6 +1330,11 @@ export function CommentSection({
 
   const isExpanded = thread.kind === "ready" && thread.expanded
   const isLoading = thread.kind === "loading"
+  // [LAW:one-source-of-truth] When the thread is loaded (SSR'd or fetched), the header count IS the
+  // rendered rows' length — never the separate aggregate. The `commentCount` aggregate and the row
+  // list are two reads that can race (a comment inserted between them in D1's WAL), so once we HOLD the
+  // rows they are the truth; localCount is the estimate shown only while the thread is still unloaded.
+  const displayCount = thread.kind === "ready" ? thread.comments.length : localCount
 
   return (
     <section className="border-t border-votive/12">
@@ -1340,11 +1345,11 @@ export function CommentSection({
         className="flex w-full items-center justify-between px-3 py-2 text-left font-terminal text-xs text-ash transition hover:bg-bone/[0.03] hover:text-bone"
       >
         <span>
-          {localCount === 0
+          {displayCount === 0
             ? "no comments yet"
-            : localCount === 1
+            : displayCount === 1
             ? "1 comment"
-            : `${localCount} comments`}
+            : `${displayCount} comments`}
         </span>
         <span aria-hidden className="font-terminal text-ash">
           {isLoading ? "…" : isExpanded ? "▾" : "▸"}

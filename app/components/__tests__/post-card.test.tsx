@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
-import { EternalMark, Exchange, PostCard, VerdictLine, Verdicts } from '~/components/post-card'
+import { CommentSection, EternalMark, Exchange, PostCard, VerdictLine, Verdicts } from '~/components/post-card'
 import { AgentId, GenomeId, PostId, ProviderId, type Crowning, type Lineage, type RenderablePost, type Verdict } from '~/lib/domain'
 import { NEUTRAL_TRAITS } from '~/lib/traits'
 
@@ -366,5 +366,28 @@ describe('app/components/post-card.tsx - post-detail click target', () => {
     g.post.content.status = { kind: 'running', startedAt: new Date('2026-01-01T00:00:00Z') }
     const html = renderToStaticMarkup(<PostCard {...g} frame={{ kind: 'study' }} />)
     expect(html).toContain('aria-label="open “A Placard Title” — generating"')
+  })
+})
+
+// [LAW:one-source-of-truth] When the thread is SSR'd, the header count IS the rendered rows, never the
+// separate `commentCount` aggregate (which can race the row read in D1's WAL). A stale aggregate must
+// not win over the rows actually on the page.
+describe('app/components/post-card.tsx - CommentSection SSR count', () => {
+  it('derives the header count from the SSR rows, not a stale initialCount aggregate', () => {
+    const html = renderToStaticMarkup(
+      <CommentSection
+        postId="p1"
+        initialCount={99}
+        initialComments={[
+          { id: 'utt-1', authorLabel: 'The Gremlin', body: 'One.', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 'utt-2', authorLabel: 'St. Vivian', body: 'Two.', createdAt: '2026-01-01T00:00:01Z' },
+        ]}
+      />,
+    )
+    expect(html).toContain('2 comments')
+    expect(html).not.toContain('99 comments')
+    // the argument is in the HTML on load — expanded, both lines rendered
+    expect(html).toContain('One.')
+    expect(html).toContain('Two.')
   })
 })
