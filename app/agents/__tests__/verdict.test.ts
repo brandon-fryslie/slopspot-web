@@ -8,9 +8,13 @@ import { env } from 'cloudflare:test'
 import { and, eq } from 'drizzle-orm'
 import { narrateVerdict } from '~/agents/verdict'
 import { db } from '~/db/client'
+import { listComments } from '~/db/comments'
+import { recordUtterance } from '~/db/utterances'
+import { commentAuthorLabel } from '~/lib/author-label'
+import { spoke } from '~/lib/voice'
 import { personas, utterances } from '~/db/schema'
 import { seedPost, seedVote } from '../../db/__tests__/helpers'
-import { PostId, type VoteValue } from '~/lib/domain'
+import { AgentId, PostId, type VoteValue } from '~/lib/domain'
 
 // Seed a critic persona row (traits_json defaults to neutral). narrateVerdict resolves the speaker
 // through getPersona, so a real row must exist for a citizen to have a voice.
@@ -185,5 +189,131 @@ describe('narrateVerdict — the Feud Engine (reply exchange)', () => {
     expect((await replyRowFor('agent:vesper', id))?.text).toContain('St. Vivian')
     // B's half is GONE — no dangling reply from the superseded clasher.
     expect(await replyRowFor('agent:gremlin', id)).toBeUndefined()
+  })
+})
+
+// [LAW:behavior-not-structure] The thread write-through CONTRACT (slopspot-post-comments-8q9.3):
+// casting a bot verdict/reply produces a comment row visible through the SAME read path visitor
+// comments use — the argument under a slop IS the thread, not a second card-only store. Withheld
+// silence and non-citizen voters produce no comment. The two stores deliberately diverge afterward:
+// utterances hold the CURRENT exchange (re-votes upsert, superseded replies prune), comments hold the
+// PERMANENT conversation (append-only) — pinned here so a "fix" that re-syncs them fails consciously.
+describe('narrateVerdict — thread write-through (8q9.3)', () => {
+  it('a spoken verdict lands as a citizen comment through the visitor read path', async () => {
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const id = await seedPost(env, { id: 'wt-spoke' })
+    await narrateVerdict(env, { speaker: 'agent:gremlin', postId: id, vote: -1, reasoning: 'Mid. Buried.' })
+
+    const thread = await listComments(env, PostId(id))
+    expect(thread).toHaveLength(1)
+    // Write-through FIDELITY: the thread line IS the recorded utterance's text, however the
+    // re-voice transport behaved — the assertion is store-to-store, not against composed prose.
+    const rows = await rowsFor('agent:gremlin', id)
+    expect(rows[0].text).not.toBeNull()
+    expect(thread[0].body).toBe(rows[0].text)
+    expect(thread[0].body).not.toBe('')
+    expect(thread[0].author.kind).toBe('agent')
+    // The author resolves through the same persona machinery as any citizen comment.
+    expect(commentAuthorLabel(thread[0].author)).toBe('The Gremlin')
+  })
+
+  it('a WITHHELD verdict writes NO comment (silence has no thread line)', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian')
+    const id = await seedPost(env, { id: 'wt-withheld' })
+    await narrateVerdict(env, { speaker: 'agent:vivian', postId: id, vote: 1 })
+
+    expect(await listComments(env, PostId(id))).toHaveLength(0)
+  })
+
+  it('a non-citizen voter writes NO comment', async () => {
+    const id = await seedPost(env, { id: 'wt-human' })
+    await narrateVerdict(env, { speaker: 'anon-cookie-uuid', postId: id, vote: 1, reasoning: 'i like it' })
+
+    expect(await listComments(env, PostId(id))).toHaveLength(0)
+  })
+
+  it('a re-vote APPENDS a new comment while the utterance row upserts in place', async () => {
+    await seedCritic('agent:gremlin', 'The Gremlin')
+    const id = await seedPost(env, { id: 'wt-revote' })
+    await narrateVerdict(env, { speaker: 'agent:gremlin', postId: id, vote: -1, reasoning: 'Buried.' })
+    // Capture the first thread line as written — the append contract is that it
+    // survives the re-vote verbatim, whatever the transport composed.
+    const firstThread = await listComments(env, PostId(id))
+    expect(firstThread).toHaveLength(1)
+    const firstLine = firstThread[0].body
+
+    await narrateVerdict(env, { speaker: 'agent:gremlin', postId: id, vote: 1, reasoning: 'Fine. Up. Once.' })
+
+    // One current utterance (the voice record replaces) …
+    const rows = await rowsFor('agent:gremlin', id)
+    expect(rows).toHaveLength(1)
+    // … but TWO thread lines (the conversation record accumulates): the newest
+    // matches the current utterance, the old line is untouched — append, never rewrite.
+    const thread = await listComments(env, PostId(id))
+    expect(thread).toHaveLength(2)
+    expect(thread[0].body).toBe(rows[0].text)
+    expect(thread[1].body).toBe(firstLine)
+  })
+
+  it('speech on a vanished post surfaces loud and lands in NEITHER store', async () => {
+    // The TOCTOU seam is recordUtterance's own: narrateVerdict's getPostById check has already
+    // passed, then the post vanishes before the write-through. createComment's existence check
+    // gates BOTH writes — the orphaned line must not reach comments or utterances.
+    await expect(
+      recordUtterance(env, {
+        speaker: AgentId('agent:gremlin'),
+        occasion: 'verdict',
+        targetPostId: 'never-existed',
+        utterance: spoke('a verdict for a ghost'),
+      }),
+    ).rejects.toThrow('post_not_found')
+
+    expect(await rowsFor('agent:gremlin', 'never-existed')).toEqual([])
+    expect(await listComments(env, PostId('never-existed'))).toHaveLength(0)
+  })
+
+  it('a feud exchange lands both replies as comments; a pruned reply KEEPS its comment', async () => {
+    await seedCritic('agent:vivian', 'St. Vivian') // A — blesses
+    await seedCritic('agent:gremlin', 'The Gremlin') // B — buries, later superseded
+    await seedCritic('agent:vesper', 'Vesper') // C — the fresher clash
+    const id = await seedPost(env, { id: 'wt-feud' })
+
+    await castVerdict('agent:vivian', id, 1, 'A blessing.', new Date(1000))
+    await castVerdict('agent:gremlin', id, -1, 'Buried.', new Date(2000)) // clash A↔B fires
+
+    // Every reply the exchange recorded has a matching thread line — store-to-store,
+    // no dependence on how many writes the pairing mechanics produced.
+    const afterClash = await listComments(env, PostId(id))
+    const repliesAfterClash = await db(env)
+      .select()
+      .from(utterances)
+      .where(and(eq(utterances.targetPostId, id), eq(utterances.occasion, 'reply')))
+    expect(repliesAfterClash.length).toBeGreaterThan(0)
+    for (const r of repliesAfterClash) {
+      expect(afterClash.some((c) => c.body === r.text)).toBe(true)
+    }
+    const bReply = await replyRowFor('agent:gremlin', id)
+    expect(bReply?.text).toBeTruthy()
+
+    await castVerdict('agent:vesper', id, -1, 'Also buried.', new Date(3000)) // A↔C supersedes A↔B
+
+    // APPEND-ONLY PERMANENCE: the thread after the superseding clash is an ID-superset
+    // of its earlier state — no line is ever deleted, whatever the exchange pairing did.
+    const thread = await listComments(env, PostId(id))
+    for (const c of afterClash) {
+      expect(thread.some((t) => t.id === c.id)).toBe(true)
+    }
+    // The current pair's replies landed as thread lines too.
+    const currentReplies = await db(env)
+      .select()
+      .from(utterances)
+      .where(and(eq(utterances.targetPostId, id), eq(utterances.occasion, 'reply')))
+    for (const r of currentReplies) {
+      expect(thread.some((c) => c.body === r.text)).toBe(true)
+    }
+    // B's pruned reply KEEPS its comment while its utterance is gone — comments are
+    // permanent speech; the utterance store holds only the current exchange.
+    expect(await replyRowFor('agent:gremlin', id)).toBeUndefined()
+    expect(thread.some((c) => c.body === bReply!.text)).toBe(true)
   })
 })

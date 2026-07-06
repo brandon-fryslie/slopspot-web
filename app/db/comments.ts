@@ -1,8 +1,8 @@
 // [LAW:single-enforcer] The one place a comment row is written or read at
 // RUNTIME. Every live writer that touches the comments table — the
-// /api/posts/:id/comments route, the future citizen-verdict writer
-// (slopspot-post-comments-8q9.3), any moderation tooling — funnels through
-// `createComment`. Reads funnel through `listComments`. Identity is supplied by
+// /api/posts/:id/comments route, the citizen verdict/reply write-through
+// (recordUtterance in ~/db/utterances.ts, slopspot-post-comments-8q9.3), any
+// moderation tooling — funnels through `createComment`. Reads funnel through `listComments`. Identity is supplied by
 // the caller's boundary (resolveVoter for visitors, a persona pick for
 // citizens); this module never mints identities. The one exception is the
 // migration layer (drizzle/0047 backfilled verdict/reply utterances with

@@ -11,7 +11,7 @@ import { coPresentVerdicts, pruneRepliesExcept, recordUtterance } from '~/db/utt
 import { feudStandingBetween } from '~/db/feud'
 import { effectiveTraits } from '~/db/character'
 import { getAuthor } from '~/lib/haiku'
-import { AgentId, PostId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
+import { PostId, type AgentId, type Content, type Origin, type VerdictDisposition, type VoteValue } from '~/lib/domain'
 
 // [LAW:one-way-deps][capabilities-over-context] The agent layer binds the re-voice TRANSPORT over the
 // shared callHaiku leaf, capturing env, and hands the ONE ability into the pure voice layer — voice.ts
@@ -87,8 +87,10 @@ export async function narrateVerdict(
   // FORK C (slopspot-voice-w2v.7): re-voice the verdict in the citizen's register via the injected Haiku
   // transport; degrades to the verbatim floor when the transport cannot speak.
   const utterance = await utter(ref, 'verdict', target, { reVoice: makeReVoice(env) })
+  // [LAW:types-are-the-program] ref.handle carries the AgentId brand the getPersona check above
+  // proved — recordUtterance demands it, so a non-citizen speaker is a compile error, not a leak.
   await recordUtterance(env, {
-    speaker: input.speaker,
+    speaker: ref.handle,
     occasion: 'verdict',
     targetPostId: input.postId,
     utterance,
@@ -135,7 +137,7 @@ async function narrateExchange(
   // B answers A.
   const newcomerReply: ReplyExchange = {
     slop: newcomer.slop,
-    opponent: { handle: opponent.speaker as AgentId, displayName: opponent.displayName, disposition: opponent.disposition },
+    opponent: { handle: opponent.speaker, displayName: opponent.displayName, disposition: opponent.disposition },
     ownDisposition,
     standing,
   }
