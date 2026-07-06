@@ -4,6 +4,7 @@ import { remarkFloor, type AnsweredWish, type PersonaRef } from "~/lib/voice"
 import { MARK_TONE } from "~/lib/crown-tone"
 import { PROPRIETOR } from "~/lib/proprietor"
 import { modifierSubject, wishGapCaption } from "~/lib/wish-copy"
+import { actorName } from "~/lib/author-label"
 import { assertNever } from "~/lib/assert-never"
 
 // [LAW:types-are-the-program] How grandly a slop is FRAMED is a closed union, never a
@@ -76,9 +77,15 @@ function PostCardImpl({
   // flag — turns the wish-gap panel and signed remark on. Honest data in, honest
   // display out; this card reads the snapshot and triggers no act.
   const wish = wishContext(post)
+  // [LAW:single-enforcer][LAW:dataflow-not-control-flow] The object's address, formed once.
+  // A preview (any framed tile in a list) opens /p/:id; the standalone permalink IS the object
+  // itself and carries `undefined`, so it links to nothing — no self-link. Every detail door on
+  // this card (the relic, the placard, the timestamp) reads this ONE value; the value decides
+  // anchor-vs-passthrough, never an isPreview flag threaded through each child.
+  const permalinkHref = frame.kind === "standalone" ? undefined : `/p/${post.id}`
   return (
     <article className="overflow-hidden rounded-lg border border-votive/12 bg-panel">
-      <ContentView content={post.content} frame={frame} />
+      <ContentView content={post.content} frame={frame} permalinkHref={permalinkHref} />
       {/* [LAW:dataflow-not-control-flow] The eternal mark renders by the PRESENCE of
           the Crowning the read boundary derived from the crowns table — never an
           isCrowned flag. An uncrowned post carries no crowning and this block does
@@ -89,9 +96,14 @@ function PostCardImpl({
           so there is no nameless branch. The citizen's name for the PIECE, never the
           raw prompt. */}
       {post.content.kind === "generation" && (
-        <h2 className="px-3 pt-3 font-placard text-2xl leading-tight text-bone">
-          {post.content.title}
-        </h2>
+        <PlacardTitle className="px-3 pt-3 text-2xl">
+          {/* [LAW:dataflow-not-control-flow] The placard is a second, textual door to the
+              object — a link on a preview, plain text on the permalink itself. The href
+              value decides which; the title text is identical either way. */}
+          <DetailLink href={permalinkHref} className="transition hover:text-votive">
+            {post.content.title}
+          </DetailLink>
+        </PlacardTitle>
       )}
       {/* The inversion as typography: the citizen authors, billed big; the human is
           the occasion, a footnote. (See Byline.) */}
@@ -149,7 +161,15 @@ function PostCardImpl({
             )}
           </>
         )}
-        <span className="ml-auto font-terminal text-ash">{relativeTime(post.createdAt)}</span>
+        {/* [LAW:dataflow-not-control-flow] The timestamp is the conventional permalink spot —
+            the detail door EVERY card carries, including a found slop whose relic is outbound
+            (so this is that card's way into its own object). The span owns the row alignment so
+            it holds whether the inner value is a link (preview) or plain time (the object). */}
+        <span className="ml-auto font-terminal text-ash">
+          <DetailLink href={permalinkHref} className="transition hover:text-votive">
+            {relativeTime(post.createdAt)}
+          </DetailLink>
+        </span>
       </div>
       {/* [LAW:types-are-the-program] The medium (the provider) lives in the recipe
           drawer, never the headline — the serial number does not headline the art. */}
@@ -182,7 +202,7 @@ type WishContext = {
 // carrying a wish has an authored origin — if a hand-written row ever divorced them
 // there is no citizen to sign the remark, so this yields null (a plain slop) rather
 // than guessing an answerer.
-function wishContext(post: Post): WishContext | null {
+export function wishContext(post: Post): WishContext | null {
   if (post.content.kind !== "generation") return null
   const { wish } = post.content.render
   if (wish === undefined) return null
@@ -207,7 +227,7 @@ function wishContext(post: Post): WishContext | null {
 // (POST /api/posts/:id/vote, body { value: 1 | -1 | 0 }, returns { score,
 // value }). This component is the sole consumer; the server is the source of
 // truth on the confirmed score after the write.
-function VoteControls({
+export function VoteControls({
   postId,
   initialScore,
   initialMyVote,
@@ -320,16 +340,42 @@ function VoteControls({
   )
 }
 
+// [LAW:single-enforcer][LAW:one-source-of-truth] The placard NAME of a work — its base
+// typography (the cathedral serif, warm bone, tight leading) defined ONCE. Both compositions
+// render the same name: the feed tile as a link at tile scale, the object page plain at page
+// scale. Each layers its OWN scale and link-vs-plain treatment via className + children; the
+// name's identity (which typeface, which ink) lives here, so a future change to how a work's
+// name reads — a truncation rule, a subtitle, a different serif — lands in one place. It is an
+// <h2> because both surfaces sit under a page <h1> (the masthead sign / the object serial).
+export function PlacardTitle({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <h2 className={`font-placard leading-tight text-bone ${className ?? ""}`}>{children}</h2>
+}
+
+// [LAW:one-source-of-truth][LAW:decomposition] From here down, the post's LEAF parts —
+// media, byline, wish surfaces, votes, actions, recipe, comments. They are the single
+// source both compositions render: the compact PostCard (feed tile) above, and the
+// page-scaled PostDetail (the /p/:id object). The two differ only in ARRANGEMENT and
+// scale; the parts are shared, so a change to what a vote/comment/byline shows lands in
+// ONE place and both surfaces move together. (This file is the post-rendering KIT; adding
+// an export here — matching Verdicts/Exchange/EternalMark already exported for reuse — is
+// how a peer composition borrows a leaf, never a copy of it.)
+//
 // [LAW:types-are-the-program] Closed unions → exhaustive switches, the assertNever
 // defaults the enforcement: adding a Content or GenerationStatus variant makes a default
 // reachable with a non-never value, failing tsc -b HERE until this surface renders the
 // new variant. The central domain-exhaustiveness gate proves SOMEONE handles a new kind;
 // this local gate proves the RENDERER does — without noImplicitReturns the switch would
 // otherwise fall through to an undefined return, a valid ReactNode that renders nothing.
-function ContentView({ content, frame }: { content: Content; frame: FrameLevel }) {
+export function ContentView({ content, frame, permalinkHref }: { content: Content; frame: FrameLevel; permalinkHref: string | undefined }) {
   switch (content.kind) {
+    // [LAW:dataflow-not-control-flow] The relic IS the preview's obvious click target — an
+    // upload or a generation (finished or not) opens its /p/:id object. RelicView draws the
+    // opening anchor iff permalinkHref is present, so the standalone permalink never self-links.
+    // FOUND is deliberately absent from this wrapping: its relic already links OUTBOUND to the
+    // source (a link-post's whole purpose), so a second /p/:id anchor would nest inside the
+    // outbound one — its detail door is the permalink timestamp instead.
     case "upload":
-      return <RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame>
+      return <RelicView href={permalinkHref} label={uploadRelicLabel(content.asset)}><RelicFrame level={frame}><MediaView media={content.asset} /></RelicFrame></RelicView>
     case "found":
       return (
         <FoundLinkCard
@@ -343,19 +389,86 @@ function ContentView({ content, frame }: { content: Content; frame: FrameLevel }
     case "generation": {
       const status = content.status
       // [LAW:single-enforcer] Every relic — the finished image and the not-yet-finished
-      // frame alike — hangs through the SAME RelicFrame at the same level. An in-progress
-      // slop is an empty frame already on the wall, not an unframed loading state.
-      switch (status.kind) {
-        case "pending":   return <RelicFrame level={frame}><StatusPlaceholder tone="queued"  label="queued" /></RelicFrame>
-        case "running":   return <RelicFrame level={frame}><StatusPlaceholder tone="working" label="generating…" /></RelicFrame>
-        case "succeeded": return <RelicFrame level={frame}><MediaView media={status.output} /></RelicFrame>
-        case "failed":    return <RelicFrame level={frame}><StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} /></RelicFrame>
-        default:          return assertNever(status)
-      }
+      // frame alike — hangs through the SAME RelicFrame at the same level and opens through
+      // the SAME RelicView. An in-progress slop is a clickable empty frame already on the
+      // wall, not an unframed loading state.
+      const relic = (() => {
+        switch (status.kind) {
+          case "pending":   return <RelicFrame level={frame}><StatusPlaceholder tone="queued"  label="queued" /></RelicFrame>
+          case "running":   return <RelicFrame level={frame}><StatusPlaceholder tone="working" label="generating…" /></RelicFrame>
+          case "succeeded": return <RelicFrame level={frame}><MediaView media={status.output} /></RelicFrame>
+          case "failed":    return <RelicFrame level={frame}><StatusPlaceholder tone="error"   label={`failed: ${status.reason}`} /></RelicFrame>
+          default:          return assertNever(status)
+        }
+      })()
+      return <RelicView href={permalinkHref} label={generationRelicLabel(content.title, status)}>{relic}</RelicView>
     }
     default:
       return assertNever(content)
   }
+}
+
+// [LAW:single-enforcer][LAW:dataflow-not-control-flow] The feed→object navigation door, drawn
+// from ONE value. `href` present → a plain <a> to /p/:id; `undefined` → the children pass
+// through unwrapped (the permalink object does not link to itself). A plain <a> (not <Link>)
+// matches the card's own ForkLink/BreedLink/cast idiom: a meaningful href middle-clicks into a
+// new tab, is discoverable without JS, and needs no Router context (PostCard renders router-less
+// in tests). Used for the textual doors (the placard, the timestamp); the relic uses RelicView.
+function DetailLink({ href, className, children }: { href: string | undefined; className?: string; children: React.ReactNode }) {
+  return href !== undefined ? <a href={href} className={className}>{children}</a> : <>{children}</>
+}
+
+// [LAW:one-source-of-truth][FRAMING:representation] The relic link's accessible name must
+// DESCRIBE what it opens, not a fixed string that hides the child. A blanket aria-label overrides
+// the relic's own content, so a screen-reader user navigating by links would otherwise lose the
+// slop's identity AND its status (a generating or failed frame reads the same as a finished one).
+// A generation carries its title and, when not yet viewable, its state; an in-progress frame is
+// still a door but the name says so. Exhaustive on GenerationStatus so a new state forces a copy
+// decision here rather than silently reading as "open".
+function generationRelicLabel(title: string, status: GenerationStatus): string {
+  switch (status.kind) {
+    case "succeeded": return `open “${title}”`
+    case "pending":   return `open “${title}” — queued`
+    case "running":   return `open “${title}” — generating`
+    case "failed":    return `open “${title}” — failed`
+    default:          return assertNever(status)
+  }
+}
+
+// [FRAMING:representation] An upload has no title, so its relic link names itself with the
+// asset's OWN alt text when the uploader supplied one — the only truthful per-upload
+// distinguisher available — and falls back to the generic name when there is none. A synthetic
+// token (post id, list index) is rejected on purpose: it names the storage row, not anything a
+// screen-reader user can act on. An empty alt is treated as absent (no name to borrow).
+function uploadRelicLabel(asset: Media): string {
+  return asset.kind === "image" && asset.alt !== undefined && asset.alt.length > 0
+    ? `open “${asset.alt}”`
+    : "open this slop"
+}
+
+// [LAW:decomposition] The relic is the preview's OBVIOUS click target — the big hung image (or
+// its in-progress frame) that opens the object, the Reddit/Digg "click the preview" move. It
+// carries a hover cue for pointer users and a focus-visible ring for keyboard users, and an
+// accessible `label` (an image's alt can be empty and a nameless link is unusable) — computed
+// per content by the caller so it names the slop, not a shared fixed string. When href is
+// undefined (the permalink object) the relic renders bare — no self-link, no cue.
+function RelicView({ href, label, children }: { href: string | undefined; label: string; children: React.ReactNode }) {
+  if (href === undefined) return <>{children}</>
+  return (
+    <a
+      href={href}
+      aria-label={label}
+      className="group/relic relative block overflow-hidden rounded-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-votive/60"
+    >
+      {children}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-3 rounded bg-base/80 px-1.5 py-0.5 font-terminal text-[10px] uppercase tracking-wider text-votive/90 opacity-0 shadow-sm transition-opacity group-hover/relic:opacity-100"
+      >
+        open ↗
+      </span>
+    </a>
+  )
 }
 
 // [LAW:single-enforcer][LAW:one-source-of-truth] The card is the ONE owner of relic
@@ -590,18 +703,21 @@ const castHref = (handle: string | null): string | undefined =>
 // id) falls back to agentId with no link. `href` is data; the renderer decides
 // span-vs-anchor by its presence.
 function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
+  // The NAME comes from the single enforcer; this function owns only the TONE
+  // (a visual class per kind) and the /cast link (present iff a handle is minted).
+  const label = actorName(a)
   switch (a.kind) {
-    case "user":  return { label: `@${a.userId}`, tone: "text-gilt/90 bg-gilt/10" }
+    case "user":  return { label, tone: "text-gilt/90 bg-gilt/10" }
     case "agent": {
-      if (a.persona === undefined) return { label: a.agentId, tone: "text-votive/90 bg-votive/10" }
+      if (a.persona === undefined) return { label, tone: "text-votive/90 bg-votive/10" }
       const href = castHref(a.persona.handle)
       return {
-        label: a.persona.displayName,
+        label,
         tone: "text-votive/90 bg-votive/10",
         ...(href !== undefined ? { href } : {}),
       }
     }
-    case "anon":  return { label: a.label,         tone: "text-profane/90 bg-profane/10" }
+    case "anon":  return { label, tone: "text-profane/90 bg-profane/10" }
   }
 }
 
@@ -610,9 +726,10 @@ function actorLabel(a: Actor): { label: string; tone: string; href?: string } {
 // castHref as the inline badge — the headline and the badge cannot disagree on a
 // citizen's name or address.
 function authorDisplay(a: PersonaActor): { name: string; href?: string } {
-  if (a.persona === undefined) return { name: a.agentId }
+  const name = actorName(a)
+  if (a.persona === undefined) return { name }
   const href = castHref(a.persona.handle)
-  return { name: a.persona.displayName, ...(href !== undefined ? { href } : {}) }
+  return { name, ...(href !== undefined ? { href } : {}) }
 }
 
 // [LAW:dataflow-not-control-flow] One renderer for the badge; the `href` value
@@ -647,7 +764,7 @@ const HUMAN_ROLE_PHRASE: Record<HumanRole, string> = {
 // the VALUE the read boundary computed, not a branch this surface decides. For interspecies
 // hybrids, `crossedFrom` is the bloodline and `author` the crossing citizen: "out of
 // [lineage]" precedes "by [crossing]". [RECONCILE C]
-function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier: boolean }) {
+export function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier: boolean }) {
   switch (origin.kind) {
     case "authored": {
       const { name, href } = authorDisplay(origin.author)
@@ -707,7 +824,7 @@ function Byline({ origin, viewerIsModifier }: { origin: Origin; viewerIsModifier
 // explained. (the-slop.md §4.) The caption is viewer-aware (the-slop.md §2): the
 // wisher reads "what you wished"; a stranger reads "what was wished" — we never tell a
 // stranger "what YOU wished". [LAW:dataflow-not-control-flow] the copy is the value.
-function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: boolean }) {
+export function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: boolean }) {
   return (
     <figure className="mx-3 mb-1 mt-1.5 rounded border border-votive/12 bg-base/40 px-3 py-1.5">
       <figcaption className="font-terminal text-[10px] uppercase tracking-wider text-ash">
@@ -727,7 +844,7 @@ function WishGap({ wish, viewerIsModifier }: { wish: string; viewerIsModifier: b
 // `unavailable` (the machine could not produce a line) is PLAIN ABSENCE — no apology,
 // no "remark pending"; a chosen silence is a visible, styled quiet (its reason is the
 // voice layer's to phrase, not this surface's). [the reveal DAWNS — no disclosure.]
-function SignedRemark({ ctx }: { ctx: WishContext }) {
+export function SignedRemark({ ctx }: { ctx: WishContext }) {
   const speaker: PersonaRef = {
     handle: ctx.answerer.agentId,
     displayName: ctx.answerer.persona?.displayName ?? ctx.answerer.agentId,
@@ -982,7 +1099,7 @@ function ChosenSilence() {
 // [LAW:types-are-the-program] The recipe drawer: the medium (the provider) and the
 // raw recipe live HERE, never on the headline — the serial number does not headline
 // the art. Closed by default; the curious open it.
-function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRender }) {
+export function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRender }) {
   return (
     <details className="border-t border-votive/12 px-3 py-2 text-[11px] text-votive/70">
       <summary className="cursor-pointer select-none font-terminal uppercase tracking-wider text-votive/50">recipe</summary>
@@ -1005,7 +1122,7 @@ function RecipeDrawer({ genome, render }: { genome: Genome; render: GenerationRe
 // [LAW:one-type-per-behavior] Fork is the SINGLE (asexual) act — one parent, mutated. It is named
 // honestly as Fork now that Breed is its own two-parent surface (the old "Breed This" label on this
 // single-parent link contradicted the reproduction-mode split the genome makes load-bearing).
-function ForkLink({ postId }: { postId: string }) {
+export function ForkLink({ postId }: { postId: string }) {
   return (
     <a
       href={`/fork/${postId}`}
@@ -1019,7 +1136,7 @@ function ForkLink({ postId }: { postId: string }) {
 // [LAW:single-enforcer] The Breed doorway — the loud cross-verb — only exists in PostCard. It
 // carries THIS slop into the Breeding Room as parent A (the one loved first); the room is where the
 // breeder finds mate B and witnesses the cross. An <a> for the same discoverability reasons as Fork.
-function BreedLink({ postId }: { postId: string }) {
+export function BreedLink({ postId }: { postId: string }) {
   return (
     <a
       href={`/breed/${postId}`}
@@ -1036,7 +1153,7 @@ function BreedLink({ postId }: { postId: string }) {
 // verb must discriminate. Exhaustive switch on lineage.kind so a future multi-parent mode
 // forces a copy decision rather than silently inheriting "bred from". Founder never reaches
 // here (gated by the caller on lineage.kind).
-function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "single" | "bred" }> }) {
+export function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "single" | "bred" }> }) {
   const { verb, parents }: { verb: string; parents: readonly string[] } = (() => {
     switch (lineage.kind) {
       case "single":
@@ -1063,11 +1180,11 @@ function ForkedFromBadge({ lineage }: { lineage: Extract<Lineage, { kind: "singl
 // [LAW:one-type-per-behavior] One badge for both lineage scalars — "gen N" and "N bred" are the same
 // shape (a small terminal-styled chip), so they share one component, differing only in the label DATA.
 // The caller decides WHICH to render by the number (0 → omitted); this just draws the chip.
-function LineageStatBadge({ label }: { label: string }) {
+export function LineageStatBadge({ label }: { label: string }) {
   return <span className="rounded bg-bone/5 px-1.5 py-0.5 font-terminal text-ash">{label}</span>
 }
 
-function StatusBadge({ status }: { status: GenerationStatus }) {
+export function StatusBadge({ status }: { status: GenerationStatus }) {
   if (status.kind === "succeeded") return null
   const tone =
     status.kind === "pending" ? "bg-bone/5 text-ash" :
@@ -1102,7 +1219,7 @@ type ThreadState =
   | { kind: "error"; reason: string }
   | { kind: "ready"; expanded: boolean; comments: ClientComment[] }
 
-function CommentSection({
+export function CommentSection({
   postId,
   initialCount,
 }: {
@@ -1293,7 +1410,7 @@ function CommentRow({ comment }: { comment: ClientComment }) {
   )
 }
 
-function relativeTime(d: Date): string {
+export function relativeTime(d: Date): string {
   const diff = Date.now() - d.getTime()
   const m = Math.round(diff / 60_000)
   if (m < 60) return `${m}m`

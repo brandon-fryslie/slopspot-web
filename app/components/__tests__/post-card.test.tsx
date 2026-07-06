@@ -209,3 +209,141 @@ describe('app/components/post-card.tsx - lineage scalars (gen N / N bred)', () =
     expect(html).not.toMatch(/\d+ bred/)
   })
 })
+
+// [LAW:behavior-not-structure] The feed→object click target (slopspot-post-detail-sei.1). A
+// card hung as a PREVIEW (any frame but standalone) opens its /p/:id object through obvious,
+// keyboard-reachable doors; the STANDALONE permalink — the object itself — links to nothing.
+// The affordance is DERIVED from the frame viewpoint, so these pin the emitted href, not internals.
+describe('app/components/post-card.tsx - post-detail click target', () => {
+  const gen = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'authored', author: { kind: 'agent', agentId: AgentId('agent:maker') } },
+      content: {
+        kind: 'generation',
+        title: 'A Placard Title',
+        genome: {
+          id: GenomeId(id),
+          genes: { species: 'photoreal', form: { subjectTemplate: 'T00', slots: { freeText: 'x' } }, frame: '1:1', medium: ProviderId('fal-flux') },
+          utterance: 'a prompt',
+          traits: NEUTRAL_TRAITS,
+          lineage: { kind: 'founder' },
+        },
+        render: { providerVersion: '1', params: {} },
+        status: { kind: 'succeeded', output: { kind: 'image', url: '/media/relic-image', w: 1, h: 1 }, completedAt: new Date('2026-01-01T00:00:00Z') },
+      },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  const upload = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'uploaded', uploader: { kind: 'anon', label: 'anon-abc123' } },
+      content: { kind: 'upload', asset: { kind: 'image', url: '/media/uploaded', w: 1, h: 1 } },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  const found = (id: string): RenderablePost => ({
+    post: {
+      id: PostId(id),
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      origin: { kind: 'found', finder: { kind: 'agent', agentId: AgentId('agent:scout') } },
+      content: {
+        kind: 'found',
+        url: 'https://example.com/original-slop',
+        title: 'A Found Slop',
+        thumbnail: { kind: 'image', url: '/media/thumb', w: 1, h: 1 },
+      },
+    },
+    score: 0,
+    myVote: null,
+    commentCount: 0,
+    viewerIsModifier: false,
+    verdicts: [],
+    exchange: [],
+    generationDepth: 0,
+    descendantCount: 0,
+  })
+
+  it('a PREVIEW generation card opens its /p/:id object (relic + placard), keyboard-reachable', () => {
+    const html = renderToStaticMarkup(<PostCard {...gen('sei-gen')} frame={{ kind: 'study' }} />)
+    // Both textual/visual doors point at the object; the relic link carries an accessible name
+    // that NAMES the slop (its title, not a shared fixed string) and a visible cue so pointer
+    // AND keyboard users can find it.
+    expect(html).toContain('href="/p/sei-gen"')
+    expect(html).toContain('aria-label="open “A Placard Title”"')
+    expect(html).toContain('open ↗')
+  })
+
+  it('the STANDALONE permalink card never links to itself — the object is not a preview', () => {
+    const html = renderToStaticMarkup(<PostCard {...gen('sei-gen')} frame={{ kind: 'standalone' }} />)
+    expect(html).not.toContain('href="/p/sei-gen"')
+    expect(html).not.toContain('aria-label="open') // no relic door at all on the object itself
+    // The placard still renders — only its LINK is gone, the title text is unchanged.
+    expect(html).toContain('A Placard Title')
+  })
+
+  it('the detail door does not steal the card’s own controls — vote and fork still act', () => {
+    const html = renderToStaticMarkup(<PostCard {...gen('sei-gen')} frame={{ kind: 'study' }} />)
+    // Existing controls remain their own separate targets (not swallowed by the detail link).
+    expect(html).toContain('aria-label="upvote"')
+    expect(html).toContain('href="/fork/sei-gen"')
+  })
+
+  it('a found preview keeps its relic OUTBOUND; its detail door is the permalink timestamp', () => {
+    const html = renderToStaticMarkup(<PostCard {...found('sei-found')} frame={{ kind: 'study' }} />)
+    // The relic (thumbnail + title) links to the source — a link-post's whole purpose — NOT to /p/:id.
+    expect(html).toContain('href="https://example.com/original-slop"')
+    // The object is still reachable: the timestamp is the found card's detail door.
+    expect(html).toContain('href="/p/sei-found"')
+    // Found's relic is NOT re-wrapped in the object anchor.
+    expect(html).not.toContain('aria-label="open')
+  })
+
+  it('an upload preview opens /p/:id through its relic; the standalone upload renders bare', () => {
+    // Upload flows through the SAME RelicView as generation (its only detail door — an upload
+    // has no placard title). A preview links; the object itself does not self-link.
+    const preview = renderToStaticMarkup(<PostCard {...upload('sei-up')} frame={{ kind: 'study' }} />)
+    expect(preview).toContain('href="/p/sei-up"')
+    expect(preview).toContain('aria-label="open this slop"')
+    const object = renderToStaticMarkup(<PostCard {...upload('sei-up')} frame={{ kind: 'standalone' }} />)
+    expect(object).not.toContain('href="/p/sei-up"')
+    expect(object).not.toContain('aria-label="open')
+  })
+
+  it('an upload with alt text names its relic link by that alt (its only truthful distinguisher)', () => {
+    const u = upload('sei-up2')
+    if (u.post.content.kind !== 'upload') throw new Error('fixture is an upload')
+    u.post.content.asset = { kind: 'image', url: '/media/uploaded', w: 1, h: 1, alt: 'a hand-drawn cat' }
+    const html = renderToStaticMarkup(<PostCard {...u} frame={{ kind: 'study' }} />)
+    expect(html).toContain('aria-label="open “a hand-drawn cat”"')
+  })
+
+  it('an in-progress generation relic keeps its STATUS in the link name (not just “open”)', () => {
+    // The relic label must not hide the slop's state behind a fixed string: a still-generating
+    // frame is a door, but its accessible name says so — the reviewer's a11y point made concrete.
+    const g = gen('sei-run')
+    if (g.post.content.kind !== 'generation') throw new Error('fixture is a generation')
+    g.post.content.status = { kind: 'running', startedAt: new Date('2026-01-01T00:00:00Z') }
+    const html = renderToStaticMarkup(<PostCard {...g} frame={{ kind: 'study' }} />)
+    expect(html).toContain('aria-label="open “A Placard Title” — generating"')
+  })
+})

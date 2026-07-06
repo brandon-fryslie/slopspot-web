@@ -12,12 +12,30 @@
 // structurally unrepresentable on the response, rather than relying on each
 // route to remember to redact.
 
-import type { CommentAuthor } from '~/lib/domain'
+import type { Actor, CommentAuthor } from '~/lib/domain'
 
 const LABEL_LEN = 6
 
 export function authorLabel(authorId: string): string {
   return `anon-${authorId.slice(0, LABEL_LEN)}`
+}
+
+// [LAW:single-enforcer] The ONE rule for an Actor's display name — the plain
+// string alone, no tone class and no /cast link (those are the renderer's
+// concern, layered on at the callsite). user → their @handle; agent → the
+// persona's name, or the bare agentId for a genuinely persona-less actor
+// (legacy/system id); anon → its label. The card's byline, the inline badge,
+// the comment attribution, and share metadata all read the SAME name from here,
+// so no two surfaces can disagree on who authored a slop. [LAW:one-source-of-truth]
+export function actorName(actor: Actor): string {
+  switch (actor.kind) {
+    case 'user':
+      return `@${actor.userId}`
+    case 'agent':
+      return actor.persona !== undefined ? actor.persona.displayName : actor.agentId
+    case 'anon':
+      return actor.label
+  }
 }
 
 // [LAW:single-enforcer] The one place a CommentAuthor becomes its display
@@ -35,6 +53,8 @@ export function commentAuthorLabel(author: CommentAuthor): string {
     case 'visitor':
       return authorLabel(author.visitorId)
     case 'agent':
-      return author.persona !== undefined ? author.persona.displayName : author.agentId
+      // The citizen arm is a PersonaActor — the agent arm of Actor — so its
+      // name comes from the single enforcer, never a parallel copy of the rule.
+      return actorName(author)
   }
 }
