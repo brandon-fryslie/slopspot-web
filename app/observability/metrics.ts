@@ -82,6 +82,13 @@ export type MetricLabels = {
     provider_id: string
     style_family: string
   }
+  // [LAW:one-source-of-truth] SUPERSEDED by generate_duration_ms_sum/_count below — both are
+  // emitted from the same two call sites and track the identical cumulative value per
+  // provider_id+outcome. Kept alive only because several LIVE slopspot-ops Grafana panels
+  // (home-infra dashboards/slopspot-ops.json) query this name directly; deleting it now would
+  // break those panels before the dashboard side migrates to the histogram series. Remove this
+  // metric once that Grafana migration (home-grafana-jgf.5.1's follow-up, tracked in home-infra)
+  // ships.
   'slopspot.provider.generate_duration_ms': {
     provider_id: string
     outcome: 'success' | 'failed'
