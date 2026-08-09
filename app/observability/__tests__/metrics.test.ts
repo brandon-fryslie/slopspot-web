@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   drainPending,
   emit,
+  emitGenerateDurationHistogram,
   formatPrometheus,
   metricKey,
   remergePending,
@@ -88,6 +89,97 @@ describe('emit', () => {
     emit('slopspot.http.request', { route: 'home', status: '404' }, 1)
     const snap = snapshotCountersForTesting()
     expect(snap.size).toBe(3)
+  })
+})
+
+// [LAW:behavior-not-structure] emitGenerateDurationHistogram's contract: an observation becomes
+// the cumulative-bucket + sum + count counter family histogram_quantile() expects, built entirely
+// on top of the same emit() accumulator asserted above — no separate storage path to trust.
+describe('emitGenerateDurationHistogram', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.mocked(console.log).mockRestore()
+    resetCountersForTesting()
+  })
+
+  function bucketValue(providerId: string, outcome: 'success' | 'failed', le: string) {
+    const snap = snapshotCountersForTesting()
+    const key = metricKey('slopspot.provider.generate_duration_ms_bucket', {
+      provider_id: providerId,
+      outcome,
+      le,
+    })
+    return snap.get(key)?.value
+  }
+
+  it('increments every cumulative bucket boundary at or above the observation, and +Inf', () => {
+    // Between the 1000 and 2000 boundaries: those two (and everything above) increment;
+    // 500 does not.
+    emitGenerateDurationHistogram('fal-flux', 'success', 1500)
+
+    expect(bucketValue('fal-flux', 'success', '500')).toBeUndefined()
+    expect(bucketValue('fal-flux', 'success', '1000')).toBeUndefined()
+    expect(bucketValue('fal-flux', 'success', '2000')).toBe(1)
+    expect(bucketValue('fal-flux', 'success', '5000')).toBe(1)
+    expect(bucketValue('fal-flux', 'success', '+Inf')).toBe(1)
+  })
+
+  it('increments the boundary itself for a value exactly on a boundary (le is inclusive)', () => {
+    emitGenerateDurationHistogram('fal-flux', 'success', 2000)
+
+    expect(bucketValue('fal-flux', 'success', '1000')).toBeUndefined()
+    expect(bucketValue('fal-flux', 'success', '2000')).toBe(1)
+  })
+
+  it('an observation past the widest boundary only increments +Inf, still counts in sum/count', () => {
+    emitGenerateDurationHistogram('slow-provider', 'success', 999_999)
+
+    expect(bucketValue('slow-provider', 'success', '120000')).toBeUndefined()
+    expect(bucketValue('slow-provider', 'success', '+Inf')).toBe(1)
+
+    const snap = snapshotCountersForTesting()
+    const sumKey = metricKey('slopspot.provider.generate_duration_ms_sum', {
+      provider_id: 'slow-provider',
+      outcome: 'success',
+    })
+    const countKey = metricKey('slopspot.provider.generate_duration_ms_count', {
+      provider_id: 'slow-provider',
+      outcome: 'success',
+    })
+    expect(snap.get(sumKey)?.value).toBe(999_999)
+    expect(snap.get(countKey)?.value).toBe(1)
+  })
+
+  it('accumulates sum and count across repeated observations', () => {
+    emitGenerateDurationHistogram('fal-flux', 'success', 800)
+    emitGenerateDurationHistogram('fal-flux', 'success', 1200)
+
+    const snap = snapshotCountersForTesting()
+    const sumKey = metricKey('slopspot.provider.generate_duration_ms_sum', {
+      provider_id: 'fal-flux',
+      outcome: 'success',
+    })
+    const countKey = metricKey('slopspot.provider.generate_duration_ms_count', {
+      provider_id: 'fal-flux',
+      outcome: 'success',
+    })
+    expect(snap.get(sumKey)?.value).toBe(2000)
+    expect(snap.get(countKey)?.value).toBe(2)
+    // Both observations were <= the 2000 boundary, so it saw both.
+    expect(bucketValue('fal-flux', 'success', '2000')).toBe(2)
+    // Only the first observation (800) is <= the 1000 boundary — the second (1200) exceeds it.
+    expect(bucketValue('fal-flux', 'success', '1000')).toBe(1)
+  })
+
+  it('keeps success and failed outcomes as separate counter series', () => {
+    emitGenerateDurationHistogram('fal-flux', 'success', 100)
+    emitGenerateDurationHistogram('fal-flux', 'failed', 100)
+
+    expect(bucketValue('fal-flux', 'success', '500')).toBe(1)
+    expect(bucketValue('fal-flux', 'failed', '500')).toBe(1)
   })
 })
 

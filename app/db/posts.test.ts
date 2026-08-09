@@ -17,7 +17,7 @@ import { NEUTRAL_TRAITS } from '~/lib/traits'
 // testTimeout; under the fleet's concurrent suites that crossed the deadline and flaked
 // (slopspot-testing-4dv). Static imports move that transform to the un-timed collection phase.
 import { createPost } from '~/db/posts'
-import { emit } from '~/observability/metrics'
+import { emit, emitGenerateDurationHistogram } from '~/observability/metrics'
 import { ingestImage } from '~/storage/ingest'
 
 // Drizzle fluent chain returns `this` at each step, with batch as the terminal.
@@ -49,7 +49,10 @@ vi.mock('~/db/client', () => ({
   }),
 }))
 
-vi.mock('~/observability/metrics', () => ({ emit: vi.fn() }))
+vi.mock('~/observability/metrics', () => ({
+  emit: vi.fn(),
+  emitGenerateDurationHistogram: vi.fn(),
+}))
 
 // posts.ts imports schema symbols only for the drizzle fluent chain; they are
 // never inspected by the mock, so stubs are enough.
@@ -225,6 +228,24 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
       await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow('provider-error')
     })
 
+    it('emits generate_outcome=failed and the duration histogram when the provider call throws', async () => {
+      mockBatch.mockResolvedValue([{ success: true }, { success: true }])
+      mockGenerate.mockRejectedValueOnce(new Error('provider-error'))
+
+      await expect(createPost(GENERATION_INPUT, { env: fakeEnv })).rejects.toThrow('provider-error')
+
+      expect(vi.mocked(emit)).toHaveBeenCalledWith(
+        'slopspot.provider.generate_outcome',
+        { provider_id: 'test-provider', outcome: 'failed' },
+        1,
+      )
+      expect(vi.mocked(emitGenerateDurationHistogram)).toHaveBeenCalledWith(
+        'test-provider',
+        'failed',
+        expect.any(Number),
+      )
+    })
+
     // [LAW:one-source-of-truth] The Well invariant: a wish is the human's words
     // (provenance), the machine-authored prompt in `params` is what the provider
     // sees. They are distinct fields; the wish must NEVER reach generate().
@@ -355,6 +376,17 @@ describe('app/db/posts.ts — batch INSERT success validation', () => {
           body: 'the room remembers its emptiness',
         })
       }
+      // A successful generate() attempt is counted and its duration observed.
+      expect(vi.mocked(emit)).toHaveBeenCalledWith(
+        'slopspot.provider.generate_outcome',
+        { provider_id: 'test-provider', outcome: 'success' },
+        1,
+      )
+      expect(vi.mocked(emitGenerateDurationHistogram)).toHaveBeenCalledWith(
+        'test-provider',
+        'success',
+        expect.any(Number),
+      )
     })
 
     // [LAW:no-silent-fallbacks] The boundary is pinned in BOTH directions: a Media kind with no
