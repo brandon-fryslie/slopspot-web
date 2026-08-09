@@ -9,7 +9,7 @@ import type { ZodError, ZodIssue } from 'zod'
 import { db } from '~/db/client'
 import { d1StmtResult } from '~/db/d1-batch'
 import { found, generations, lineageEdges, posts } from '~/db/schema'
-import { emit } from '~/observability/metrics'
+import { emit, emitGenerateDurationHistogram } from '~/observability/metrics'
 import { getProvider } from '~/providers'
 import { ingestImage } from '~/storage/ingest'
 import type {
@@ -344,11 +344,14 @@ async function createGenerationPost(
     // fails loud. Whatever path it takes, the returned Media is the stored output.
     output = await persistOutput(generated, env)
     completedAt = new Date()
+    const successDurationMs = Date.now() - generateStartedMs
     emit(
       'slopspot.provider.generate_duration_ms',
       { provider_id: provider.id, outcome: 'success' },
-      Date.now() - generateStartedMs,
+      successDurationMs,
     )
+    emit('slopspot.provider.generate_outcome', { provider_id: provider.id, outcome: 'success' }, 1)
+    emitGenerateDurationHistogram(provider.id, 'success', successDurationMs)
   } catch (err) {
     // [LAW:types-are-the-program] running → failed: clear the running arm's column
     // (started_at) and set the failed arm's, satisfying generations_status_shape.
@@ -363,11 +366,14 @@ async function createGenerationPost(
         failedReason: describeError(err),
       })
       .where(eq(generations.postId, id))
+    const failedDurationMs = Date.now() - generateStartedMs
     emit(
       'slopspot.provider.generate_duration_ms',
       { provider_id: provider.id, outcome: 'failed' },
-      Date.now() - generateStartedMs,
+      failedDurationMs,
     )
+    emit('slopspot.provider.generate_outcome', { provider_id: provider.id, outcome: 'failed' }, 1)
+    emitGenerateDurationHistogram(provider.id, 'failed', failedDurationMs)
     emit('slopspot.write.batch_outcome', { content_kind: 'generation', outcome: 'failed' }, 1)
     throw err
   }
