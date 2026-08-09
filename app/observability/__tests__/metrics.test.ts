@@ -170,7 +170,7 @@ describe('emitGenerateDurationHistogram', () => {
     expect(snap.get(countKey)?.value).toBe(2)
     // Both observations were <= the 2000 boundary, so it saw both.
     expect(bucketValue('fal-flux', 'success', '2000')).toBe(2)
-    // Only the second observation crossed the 1000 boundary.
+    // Only the first observation (800) is <= the 1000 boundary — the second (1200) exceeds it.
     expect(bucketValue('fal-flux', 'success', '1000')).toBe(1)
   })
 
