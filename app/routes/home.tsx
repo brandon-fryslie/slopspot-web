@@ -1,6 +1,5 @@
 import type { Route } from "./+types/home"
 import { data, Link } from "react-router"
-import { useCallback, useEffect, useRef, useState } from "react"
 import { countSlops, getFeedPage, getFeedItemById } from "~/db/feed"
 import { contenderPostIds, feastsToday, latestCrownedPostId } from "~/db/crowns"
 import { getPulse } from "~/db/pulse"
@@ -24,11 +23,11 @@ import { SortSelector } from "~/components/sort-selector"
 import { readVoterId } from "~/lib/voter-cookie"
 import { WELL_REACHABLE } from "~/lib/well-gate"
 import { readSortCookieRaw, serializeSortCookie } from "~/lib/sort-cookie"
-import { defaultSortMode, parseSortMode, serializeSortMode, sortModeUrlQuery } from "~/lib/sort-mode"
+import { defaultSortMode, parseSortMode, serializeSortMode } from "~/lib/sort-mode"
 import { ritePhaseClock } from "~/lib/rite"
 import { PROPRIETOR } from "~/lib/proprietor"
-import type { FeedItem, RenderablePost } from "~/lib/domain"
-import { reviveFeedItem, type WireFeedItem } from "~/lib/feed-wire"
+import type { RenderablePost } from "~/lib/domain"
+import { useInfiniteFeed } from "~/lib/use-infinite-feed"
 
 // [LAW:types-are-the-program] Narrow a resolved post to a Deliberation contender: only a
 // succeeded generation carrying an image output can be teased. A null resolution or a
@@ -168,55 +167,9 @@ export default function Home({ loaderData }: Route.ComponentProps) {
   const excludeId = bannerExcludeId(phase)
 
   // [LAW:dataflow-not-control-flow] Page 1 is the loader's SSR result (the cheap real-path probe);
-  // later pages are appended from /api/feed. `cursor === null` is the DATA that ends the scroll — the
-  // observer has nothing left to advance to, not a branch that tears the component down.
-  const [extraItems, setExtraItems] = useState<FeedItem[]>([])
-  const [cursor, setCursor] = useState<string | null>(firstCursor)
-  const [loading, setLoading] = useState(false)
-  const sentinelRef = useRef<HTMLDivElement | null>(null)
-
-  // A sort change re-runs the loader → a fresh page-1 (new loaderData identity) → restart the scroll
-  // from it. [LAW:one-source-of-truth] page 1 always comes from the loader; only the appended tail is
-  // local state, so a stale cursor can never out-live its sort.
-  useEffect(() => {
-    setExtraItems([])
-    setCursor(firstCursor)
-  }, [firstPage, firstCursor])
-
-  const loadMore = useCallback(async () => {
-    if (loading || cursor === null) return
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/feed?${sortModeUrlQuery(sort)}&cursor=${encodeURIComponent(cursor)}`)
-      // [LAW:single-enforcer] reviveFeedItem (feed-wire.ts) owns the wire→domain boundary: /api/feed
-      // serializes Dates to ISO strings (Response.json), so an appended row's post.createdAt must be
-      // revived to a Date or PostCard's relativeTime throws. The wire shape is honest (createdAt: string).
-      const next = (await res.json()) as { items: WireFeedItem[]; nextCursor: string | null }
-      // [LAW:one-source-of-truth] The crowned hero is hung once (the gold relic); it must never ALSO
-      // appear as a wall tile — the loader filter enforces this on page 1; the SAME uniform predicate
-      // (excludeId, derived once from the phase) extends it to every appended page (null when the
-      // banner hangs no relic, so it matches nothing during deliberation/empty).
-      const revived = next.items.map(reviveFeedItem).filter((i) => i.post.id !== excludeId)
-      setExtraItems((prev) => [...prev, ...revived])
-      setCursor(next.nextCursor)
-    } finally {
-      setLoading(false)
-    }
-  }, [loading, cursor, sort, excludeId])
-
-  // [LAW:dataflow-not-control-flow] One observer. `rootMargin` prefetches the next page ~600px before
-  // the sentinel is visible so the scroll never stalls; when `cursor === null` the effect attaches
-  // nothing, so the feed simply ends.
-  useEffect(() => {
-    const el = sentinelRef.current
-    if (el === null || cursor === null) return
-    const io = new IntersectionObserver(
-      (entries) => { if (entries[0]?.isIntersecting) void loadMore() },
-      { rootMargin: '600px' },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [loadMore, cursor])
+  // later pages are appended from /api/feed by the infinite-scroll hook (the one part that owns the
+  // cursor loop + observer). `cursor === null` is the DATA that ends the scroll.
+  const { extraItems, cursor, loading, sentinelRef } = useInfiniteFeed({ firstPage, firstCursor, sort, excludeId })
 
   // THE HUM — the city's live heartbeat (the-haunted-gallery.md move F). [LAW:no-ambient-temporal-coupling]
   // useHum is the ONE owner of the live poll; it returns the live Pulse (the loader's at first, then each
