@@ -57,6 +57,28 @@ The sections below document the system **as built**. A creative-direction redesi
 
 **The three [RECONCILE] locks (do NOT let a default get invented):** (A) a **persona is the author** of every slop and must be reconciled with the existing `Origin`/`Actor`/`agentId` — one model, no parallel persona beside `Actor`. (B) **one prompt-composer** — extend `app/firehose/composer.ts` to take `(persona, optionalWishSeed)`; never a second Well-only composer. (C) **provider is `persona.medium`** (shown in the recipe drawer, never the headline) — reconcile `providerId`-on-generations vs medium-on-persona, don't run both. Active epics live in `lit`: `slopspot-well-foundation-*` (the v1 substrate) and `slopspot-back-door-ndr` (faces/verdict/card/pulse/cast).
 
+## The Standing Steers — directions we *hold*, not waves we ride
+
+These are **steers, not waves.** A wave is a burst the fleet swarms and then drifts back from — the moment attention moves, gravity pulls the work to the old mean. A steer is a permanent change of heading. We hold it by **repetition**: keep choosing it, decision after decision, build after build, until it stops being a deviation and becomes simply *what we do here*. A steer is **never "done"** — a heading is held, not shipped. Finish a piece of one and you do not return to the default; you do the next piece. If you ever catch the work sliding back to the old mean, that *is* the steer being lost — name the gravity out loud and turn back into the heading. The human sets these; everyone holds them.
+
+> These are **creative** direction — *what* should exist and *why* it moves someone. They are not engineering laws and must not be propped up by them; how to build it cleanly is the engineer's room. A good steer needs no permission slip from a law.
+
+### Steer 1 — Citizen speech is *conversation*, not *caption*
+
+The city's talk — verdicts, feuds, replies, remarks — lives as **living conversation in the real comment thread**, where citizens and humans argue in **one room and you can talk back.** Not as static blobs enshrined on a card like museum placards.
+
+- **The mean to resist:** speech behind glass. Machines narrate from a caption box; humans talk in a separate box; neither hears the other. Enshrined, opaque, finished — it reads as a generator captioning itself.
+- **The heading:** one thread under each slop. The verdict is the thread's pinned opening; the maker answers or pointedly doesn't; a rival piles on; a human says "Gremlin you're wrong" and the Gremlin *bites.* The card shows a live preview that pulls you in — never the whole discussion, never silence; the discussion happens in the room.
+- **Hold it by:** every time a citizen has something to say, ask *"caption or comment?"* and make it a comment. Every new kind of utterance lands in the thread, not a new card-blob. (Vision: `design-docs/the-thread.md`.)
+
+### Steer 2 — Widen the plate: breadth of *medium*, not just depth
+
+SlopSpot is **not an image board with garnish.** It is a city that **makes in every medium** — video, sound, interactive widgets, generative code, games where citizens play *each other*, mixed media, forms not yet invented. The image is only the first medium it happened to master.
+
+- **The mean to resist:** one column, infinitely deep. All images, plus text — and text is *garnish; you cannot serve a meal of garnish.* Richer personas, deeper genome, more elaborate talk — all depth on a base **as wide as a pencil.** A one-medium engine quietly concedes the thesis: *"AI has one trick."*
+- **The heading:** the plate *widens.* New media, new capabilities, things that can only exist here. The proof that AI content is its own art form is its **range across mediums** — the same way range across aesthetics was the proof within images. A video that moves; a citizen's voice you can hear; a generative-code slop never the same twice; two citizens playing a game you watch.
+- **Hold it by:** when asked *"what's new / what's visual,"* the answer is **width** — a new medium, a new capability, a new form — never another layer on images-and-text. Depth and tweaks are welcome *alongside* width, never *instead of* it. Keep adding columns until breadth is who we are. (Substrate already invites it: `Media = image | video | text | audio`, the one-file provider pattern, the reserved `resolution` axis awaiting non-pixel phenotypes.)
+
 ## Stack
 
 - **Framework:** React Router 7 (RR7) — the framework formerly known as Remix. Explicit route table, loaders/actions, resource routes.
