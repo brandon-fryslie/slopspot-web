@@ -82,7 +82,46 @@ export type MetricLabels = {
     provider_id: string
     style_family: string
   }
+  // [LAW:one-source-of-truth] SUPERSEDED by generate_duration_ms_sum/_count below — both are
+  // emitted from the same two call sites and track the identical cumulative value per
+  // provider_id+outcome. Kept alive only because several LIVE slopspot-ops Grafana panels
+  // (home-infra dashboards/slopspot-ops.json) query this name directly; deleting it now would
+  // break those panels before the dashboard side migrates to the histogram series. Remove this
+  // metric once that Grafana migration (home-grafana-jgf.5.1's follow-up, tracked in home-infra)
+  // ships.
   'slopspot.provider.generate_duration_ms': {
+    provider_id: string
+    outcome: 'success' | 'failed'
+  }
+  // [LAW:single-enforcer] db/posts.ts is the sole emitter, alongside generate_duration_ms.
+  // generate_duration_ms is a cumulative SUM counter — it cannot express a per-provider
+  // FAILURE COUNT (a slopspot-ops gap: see home-grafana-jgf.5.1). This is that count: one
+  // sample per provider.generate() attempt, success or failure, so a per-provider success
+  // ratio (success / (success+failed)) becomes directly queryable.
+  'slopspot.provider.generate_outcome': {
+    provider_id: string
+    outcome: 'success' | 'failed'
+  }
+  // [LAW:single-enforcer] emitGenerateDurationHistogram (below) is the sole emitter of this
+  // family, alongside generate_duration_ms and generate_outcome, at the same two call sites in
+  // db/posts.ts. generate_duration_ms only sums duration, so only the AVERAGE is derivable —
+  // the other gap home-grafana-jgf.5.1 flagged: p50/p95 need per-event samples. A Prometheus
+  // histogram is a family of plain monotonic counters (cumulative `le` buckets + `_sum` +
+  // `_count`), which is exactly the (name, labels, value) shape `emit` already accumulates —
+  // no change to the buffer/D1/format stack, just three more metric names.
+  // [LAW:types-are-the-program] `le` is a formatted bucket-boundary string (Prometheus
+  // convention, including the sentinel `"+Inf"`), not a number — histogram_quantile() expects it
+  // as a label string.
+  'slopspot.provider.generate_duration_ms_bucket': {
+    provider_id: string
+    outcome: 'success' | 'failed'
+    le: string
+  }
+  'slopspot.provider.generate_duration_ms_sum': {
+    provider_id: string
+    outcome: 'success' | 'failed'
+  }
+  'slopspot.provider.generate_duration_ms_count': {
     provider_id: string
     outcome: 'success' | 'failed'
   }
@@ -279,6 +318,39 @@ export function emitAccountHealth(account: string, payload: AccountHealthPayload
   } else {
     emit('slopspot.account.health', { account, status: payload.status }, 1)
   }
+}
+
+// [LAW:single-enforcer] Cumulative-bucket boundaries for provider generation latency, in ms.
+// Fixed here so every call site and every dashboard `le` comparison agree. Spans a fast text
+// generation (~1s) through a slow image/video provider call (~2min).
+const GENERATE_DURATION_BUCKETS_MS = [500, 1000, 2000, 5000, 10000, 20000, 30000, 60000, 120000] as const
+
+// [LAW:single-enforcer] The one place a generate-duration observation becomes the three counter
+// series (`_bucket` per boundary + the `+Inf` sentinel, `_sum`, `_count`) a Prometheus histogram
+// is built from. Cumulative buckets: an observation <= a boundary increments every boundary at or
+// above it, matching histogram_quantile()'s expectation. [LAW:dataflow-not-control-flow] every
+// call does the identical accumulation; the DATA (durationMs) picks which buckets increment.
+export function emitGenerateDurationHistogram(
+  providerId: string,
+  outcome: 'success' | 'failed',
+  durationMs: number,
+): void {
+  for (const le of GENERATE_DURATION_BUCKETS_MS) {
+    if (durationMs <= le) {
+      emit(
+        'slopspot.provider.generate_duration_ms_bucket',
+        { provider_id: providerId, outcome, le: String(le) },
+        1,
+      )
+    }
+  }
+  emit(
+    'slopspot.provider.generate_duration_ms_bucket',
+    { provider_id: providerId, outcome, le: '+Inf' },
+    1,
+  )
+  emit('slopspot.provider.generate_duration_ms_sum', { provider_id: providerId, outcome }, durationMs)
+  emit('slopspot.provider.generate_duration_ms_count', { provider_id: providerId, outcome }, 1)
 }
 
 // Stable key for a (name, labels) pair — used to deduplicate counter entries. Shared
